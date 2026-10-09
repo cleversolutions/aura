@@ -7,6 +7,7 @@ select plan(50);
 
 -- ---------------------------------------------------------------------------------------------
 -- Fixture: two clubs, each with a Jordan Smith who shares a username but is a different person.
+-- Independent of seeded data (`npm run db:seed`), which may also be present.
 -- Member ids end in the same digits as their auth user ids (a0.. members, a1.. users).
 -- ---------------------------------------------------------------------------------------------
 
@@ -15,8 +16,8 @@ select ('a1000000-0000-0000-0000-0000000000' || n)::uuid, 'u' || n || '@login.au
 from unnest(array['01', '02', '03', '04', '05', '06', '07', '11', '12', '13']) as n;
 
 insert into public.clubs (id, slug, name, ink, paper, logo_ink, logo_paper) values
-  ('c0000000-0000-0000-0000-000000000001', 'k3v9qp', 'Spartans', '#000000', '#ffffff', '#000000', '#ffffff'),
-  ('c0000000-0000-0000-0000-000000000002', 'p7x2mn', 'Panthers', '#1d2a6b', '#f6c945', '#1d2a6b', '#f6c945');
+  ('c0000000-0000-0000-0000-000000000001', 'tst-spartans', 'Spartans', '#000000', '#ffffff', '#000000', '#ffffff'),
+  ('c0000000-0000-0000-0000-000000000002', 'tst-panthers', 'Panthers', '#1d2a6b', '#f6c945', '#1d2a6b', '#f6c945');
 
 insert into public.members (id, club_id, user_id, username, name, kind) values
   -- Spartans
@@ -132,7 +133,7 @@ select is(
 
 select pg_temp.login('a0000000-0000-0000-0000-000000000004');
 select is((select count(*)::int from public.clubs), 1, 'Spartans Jordan sees one club');
-select is((select slug from public.clubs), 'k3v9qp', '... and it is the Spartans');
+select is((select slug from public.clubs), 'tst-spartans', '... and it is the Spartans');
 select is((select count(*)::int from public.members where club_id <> 'c0000000-0000-0000-0000-000000000001'), 0, 'no Panthers members');
 select is((select count(*)::int from public.members), 7, 'all Spartans members');
 select is((select count(*)::int from public.teams where club_id <> 'c0000000-0000-0000-0000-000000000001'), 0, 'no Panthers teams');
@@ -149,7 +150,7 @@ select throws_ok(
 );
 
 select pg_temp.login('a0000000-0000-0000-0000-000000000012');
-select is((select slug from public.clubs), 'p7x2mn', 'Panthers Jordan sees only the Panthers');
+select is((select slug from public.clubs), 'tst-panthers', 'Panthers Jordan sees only the Panthers');
 select is((select count(*)::int from public.members where club_id <> 'c0000000-0000-0000-0000-000000000002'), 0, 'no Spartans members');
 select is((select count(*)::int from public.events where club_id <> 'c0000000-0000-0000-0000-000000000002'), 0, 'no Spartans events');
 select is((select count(*)::int from public.messages where club_id <> 'c0000000-0000-0000-0000-000000000002'), 0, 'no Spartans messages');
@@ -275,11 +276,11 @@ select lives_ok(
 -- ---------------------------------------------------------------------------------------------
 
 select pg_temp.login_platform();
-select is((select count(*)::int from public.clubs), 2, 'platform admin reads every club');
+select is((select count(*)::int from public.clubs where slug like 'tst-%'), 2, 'platform admin reads every club');
 select is((select count(*)::int from public.members), 0, 'but no club content');
 
 select pg_temp.logout();
-select is((select count(*)::int from public.club_public), 2, 'anonymous users read public branding');
+select is((select count(*)::int from public.club_public where slug like 'tst-%'), 2, 'anonymous users read public branding');
 select throws_ok('select * from public.clubs', '42501', null, 'but not the clubs table');
 select throws_ok('select * from public.members', '42501', null, 'or club content');
 

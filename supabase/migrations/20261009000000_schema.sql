@@ -426,6 +426,14 @@ language sql stable security definer set search_path = '' as $$
   order by c.created_at
 $$;
 
+-- Marks a thread read up to now, by the server's clock (message times use it too).
+create function public.mark_thread_read(p_thread uuid) returns void
+language sql volatile security invoker set search_path = '' as $$
+  insert into public.thread_reads (club_id, thread_id, member_id, last_read_at)
+  values (public.auth_club_id(), p_thread, public.auth_member_id(), now())
+  on conflict (thread_id, member_id) do update set last_read_at = excluded.last_read_at
+$$;
+
 -- Called after a member chooses their own password: they have accepted their invite.
 create function public.accept_invite() returns void
 language sql volatile security definer set search_path = '' as $$
@@ -445,7 +453,8 @@ grant execute on function
   public.member_teams(uuid), public.kind_included(text, boolean, boolean, boolean),
   public.thread_member_ids(uuid), public.is_thread_member(uuid), public.can_manage_thread(uuid),
   public.can_edit_event(text), public.is_club_staff(), public.can_rsvp_for(uuid),
-  public.list_my_threads(), public.platform_clubs(), public.accept_invite()
+  public.list_my_threads(), public.platform_clubs(), public.accept_invite(),
+  public.mark_thread_read(uuid)
   to authenticated, service_role;
 
 -- Column-level limits where RLS alone would allow too much.

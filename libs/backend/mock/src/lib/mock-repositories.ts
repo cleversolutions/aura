@@ -11,10 +11,12 @@ import {
   DirectoryRepository,
   InviteMemberInput,
   LinkPlayerInput,
+  MemberInvite,
   NewClubInput,
   NewThreadInput,
   PlatformRepository,
   SaveTeamInput,
+  SaveTeamResult,
   ScheduleRepository,
   SignInInput,
   UpdateProfileInput,
@@ -34,7 +36,7 @@ import {
   User,
   UserId,
 } from '@aura/shared/models';
-import { ALL_GROUPS, effectiveMembers } from '@aura/shared/util';
+import { ALL_GROUPS, effectiveMembers, temporaryPassword } from '@aura/shared/util';
 import { DEMO_PLATFORM_ADMIN, createEmptyClubData } from './clubs';
 import { MockDb } from './mock-db';
 
@@ -78,6 +80,8 @@ export class MockAuthRepository extends AuthRepository {
     if (newPassword.length < 8) return this.db.fail('Use at least 8 characters.');
     Object.assign(cred, { password: newPassword, mustChangePassword: false });
     session.mustChangePassword = false;
+    const user = this.db.data.users.find((u) => u.id === session.userId);
+    if (user) delete user.invited;
     return this.db.respond(undefined);
   }
 
@@ -155,20 +159,23 @@ export class MockDirectoryRepository extends DirectoryRepository {
     return this.db.respond(this.snapshot());
   }
 
-  inviteMember(input: InviteMemberInput): Promise<User> {
-    const user: User = {
-      id: this.db.nextId('u'),
-      name: input.name,
-      kind: input.kind,
-      teams: [input.team],
-      email: input.email,
-      invited: true,
-    };
-    this.db.data.users.push(user);
-    return this.db.respond(user);
+  inviteMember(input: InviteMemberInput): Promise<MemberInvite> {
+    const invite = this.invite(input);
+    return invite instanceof Error ? this.db.fail(invite.message) : this.db.respond(invite);
   }
 
-  saveTeam(input: SaveTeamInput): Promise<Directory> {
+  /** Adds an invited member with a sign-in they must replace, like the real invite-member function. */
+  private invite({ team, kind, name, email }: InviteMemberInput): MemberInvite | Error {
+    const taken = this.db.club.credentials.some((c) => c.username.toLowerCase() === email.trim().toLowerCase());
+    if (taken) return new Error(`${email} already has an account at this club.`);
+    const user: User = { id: this.db.nextId('u'), name, kind, teams: [team], email, invited: true };
+    const password = temporaryPassword();
+    this.db.data.users.push(user);
+    this.db.club.credentials.push({ userId: user.id, username: email, password, mustChangePassword: true });
+    return { user, username: email, temporaryPassword: password };
+  }
+
+  saveTeam(input: SaveTeamInput): Promise<SaveTeamResult> {
     const data = this.db.data;
     let teamId = input.id;
     if (!teamId) {
@@ -204,17 +211,13 @@ export class MockDirectoryRepository extends DirectoryRepository {
       if (!want && has) return { ...u, teams: u.teams.filter((t) => t !== id) };
       return u;
     });
+    let invite: MemberInvite | null = null;
     if (input.newStaff) {
-      data.users.push({
-        id: this.db.nextId('u'),
-        name: input.newStaff.name,
-        kind: 'staff',
-        teams: [id],
-        email: input.newStaff.email,
-        invited: true,
-      });
+      const result = this.invite({ team: id, kind: 'staff', ...input.newStaff });
+      if (result instanceof Error) return this.db.fail(result.message);
+      invite = result;
     }
-    return this.db.respond(this.snapshot());
+    return this.db.respond({ directory: this.snapshot(), invite });
   }
 
   updateProfile(input: UpdateProfileInput): Promise<PlayerProfile> {

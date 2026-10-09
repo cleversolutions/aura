@@ -47,6 +47,34 @@ describe('ClubStore', () => {
     await expect(store.saveTeam({ name: 'U13 Girls', staffIds: [] })).rejects.toThrow('already exists');
   });
 
+  it('invites a member who signs in with the temporary password and then accepts', async () => {
+    const store = await setup('dana');
+    const invite = await store.inviteMember({ team: 'U12G', kind: 'parent', name: 'Rae Moss', email: 'rae@x.example' });
+    expect(invite.username).toBe('rae@x.example');
+    expect(invite.temporaryPassword).toMatch(/^[A-Z]{4}-[a-z2-9]{4}-[2-9]{2}$/);
+    expect(store.user(invite.user.id)?.invited).toBe(true);
+    await expect(
+      store.inviteMember({ team: 'U12G', kind: 'parent', name: 'Rae', email: 'RAE@x.example' }),
+    ).rejects.toThrow('already has an account');
+
+    await store.signOut();
+    await store.signIn('rae@x.example', invite.temporaryPassword);
+    expect(store.mustChangePassword()).toBe(true);
+    await store.changePassword('rae-own-password');
+    expect(store.me()?.invited).toBeUndefined();
+  });
+
+  it('returns the sign-in for new staff added with a team', async () => {
+    const store = await setup('sam');
+    const invite = await store.saveTeam({
+      name: 'U9 Boys',
+      staffIds: [],
+      newStaff: { name: 'Ty Cole', email: 'ty@x.example' },
+    });
+    expect(invite?.user).toMatchObject({ name: 'Ty Cole', kind: 'staff', teams: ['U9B'], invited: true });
+    expect(await store.saveTeam({ id: 'U9B', staffIds: [] })).toBeNull();
+  });
+
   it('records a pending player link', async () => {
     const store = await setup();
     await store.requestPlayerLink({ name: 'Sky Smith', team: 'U10B', jersey: '', parentId: 'jordan' });

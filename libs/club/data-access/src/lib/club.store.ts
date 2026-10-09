@@ -8,6 +8,7 @@ import {
   DirectoryRepository,
   InviteMemberInput,
   LinkPlayerInput,
+  MemberInvite,
   SaveTeamInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
@@ -191,14 +192,17 @@ export const ClubStore = signalStore(
       close(): void {
         patchState(store, initialState);
       },
-      async inviteMember(input: InviteMemberInput): Promise<User> {
-        const user = await directory.inviteMember(input);
-        patchState(store, (s) => ({ users: [...s.users, user] }));
-        return user;
+      /** Resolves with the sign-in to hand the new member. */
+      async inviteMember(input: InviteMemberInput): Promise<MemberInvite> {
+        const invite = await directory.inviteMember(input);
+        patchState(store, (s) => ({ users: [...s.users, invite.user] }));
+        return invite;
       },
-      async saveTeam(input: SaveTeamInput): Promise<void> {
-        const dir = await directory.saveTeam(input);
+      /** Resolves with the sign-in for `newStaff`, if any. */
+      async saveTeam(input: SaveTeamInput): Promise<MemberInvite | null> {
+        const { directory: dir, invite } = await directory.saveTeam(input);
         patchState(store, { teams: dir.teams, users: dir.users, profiles: dir.profiles });
+        return invite;
       },
       async updateProfile(input: UpdateProfileInput): Promise<void> {
         const updated = await directory.updateProfile(input);

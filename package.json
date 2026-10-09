@@ -10,11 +10,12 @@
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset && npm run db:seed",
-    "db:seed": "esbuild tools/seed-supabase.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=tmp/seed-supabase.mjs && node tmp/seed-supabase.mjs",
+    "db:seed": "esbuild tools/seed-supabase.ts --bundle --tsconfig=tsconfig.base.json --platform=node --format=esm --packages=external --log-level=warning --outfile=tmp/seed-supabase.mjs && node tmp/seed-supabase.mjs",
     "db:test": "supabase test db",
     "db:types": "supabase gen types typescript --local > libs/backend/supabase/src/lib/database.types.ts && prettier --write libs/backend/supabase/src/lib/database.types.ts",
     "functions:serve": "supabase functions serve",
-    "functions:test": "sh tools/test-functions.sh"
+    "functions:test": "sh tools/test-functions.sh",
+    "test:supabase": "sh tools/test-supabase.sh"
   },
   "private": true,
   "devDependencies": {
