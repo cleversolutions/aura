@@ -1,0 +1,19 @@
+{
+  "name": "schedule-data-access",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/schedule/data-access/src",
+  "prefix": "aura",
+  "projectType": "library",
+  "tags": ["scope:schedule", "type:data-access"],
+  "targets": {
+    "test": {
+      "outputs": [
+        "{projectRoot}/{options.coverage.reportsDirectory}",
+        "{workspaceRoot}/coverage/libs/schedule/data-access"
+      ],
+      "options": {
+        "coverage.reportsDirectory": "../../../coverage/libs/schedule/data-access"
+      }
+    }
+  }
+}

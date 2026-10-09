@@ -1,0 +1,16 @@
+{
+  "name": "backend-api",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/backend/api/src",
+  "prefix": "aura",
+  "projectType": "library",
+  "tags": ["scope:backend", "type:api"],
+  "targets": {
+    "test": {
+      "outputs": ["{projectRoot}/{options.coverage.reportsDirectory}", "{workspaceRoot}/coverage/libs/backend/api"],
+      "options": {
+        "coverage.reportsDirectory": "../../../coverage/libs/backend/api"
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+@import 'tailwindcss';
+@import '../../../libs/shared/ui/src/styles/theme.css';
+
+/* Component templates live in the libraries. */
+@source '../../../libs';

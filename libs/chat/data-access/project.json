@@ -1,0 +1,19 @@
+{
+  "name": "chat-data-access",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/chat/data-access/src",
+  "prefix": "aura",
+  "projectType": "library",
+  "tags": ["scope:chat", "type:data-access"],
+  "targets": {
+    "test": {
+      "outputs": [
+        "{projectRoot}/{options.coverage.reportsDirectory}",
+        "{workspaceRoot}/coverage/libs/chat/data-access"
+      ],
+      "options": {
+        "coverage.reportsDirectory": "../../../coverage/libs/chat/data-access"
+      }
+    }
+  }
+}
