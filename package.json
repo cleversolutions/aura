@@ -36,6 +36,7 @@
     "nx": "23.2.0",
     "postcss": "^8.5.29",
     "prettier": "^3.8.1",
+    "supabase": "^2.120.0",
     "tailwindcss": "^4.3.3",
     "tslib": "^2.3.0",
     "typescript": "~6.0.3",
