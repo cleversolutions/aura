@@ -13,7 +13,8 @@
     "db:seed": "esbuild tools/seed-supabase.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=tmp/seed-supabase.mjs && node tmp/seed-supabase.mjs",
     "db:test": "supabase test db",
     "db:types": "supabase gen types typescript --local > libs/backend/supabase/src/lib/database.types.ts && prettier --write libs/backend/supabase/src/lib/database.types.ts",
-    "functions:serve": "supabase functions serve"
+    "functions:serve": "supabase functions serve",
+    "functions:test": "sh tools/test-functions.sh"
   },
   "private": true,
   "devDependencies": {

@@ -388,6 +388,11 @@ deno_version = 2
 
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
+# Aura's function settings for local development; hosted projects set them with `supabase secrets set`.
+[edge_runtime.secrets]
+# Inside the functions container SUPABASE_URL is the internal gateway; browsers need this one.
+AURA_PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321"
+AURA_LOGIN_DOMAIN = "login.aura.invalid"
 
 [analytics]
 enabled = true

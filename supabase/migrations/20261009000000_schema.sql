@@ -426,6 +426,12 @@ language sql stable security definer set search_path = '' as $$
   order by c.created_at
 $$;
 
+-- Called after a member chooses their own password: they have accepted their invite.
+create function public.accept_invite() returns void
+language sql volatile security definer set search_path = '' as $$
+  update public.members set invited = false where id = public.auth_member_id() and invited
+$$;
+
 -- ---------------------------------------------------------------------------------------------
 -- Grants
 -- ---------------------------------------------------------------------------------------------
@@ -439,7 +445,7 @@ grant execute on function
   public.member_teams(uuid), public.kind_included(text, boolean, boolean, boolean),
   public.thread_member_ids(uuid), public.is_thread_member(uuid), public.can_manage_thread(uuid),
   public.can_edit_event(text), public.is_club_staff(), public.can_rsvp_for(uuid),
-  public.list_my_threads(), public.platform_clubs()
+  public.list_my_threads(), public.platform_clubs(), public.accept_invite()
   to authenticated, service_role;
 
 -- Column-level limits where RLS alone would allow too much.
