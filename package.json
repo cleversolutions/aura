@@ -1,0 +1,63 @@
+{
+  "name": "aura",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {
+    "start": "nx serve aura",
+    "build": "nx build aura",
+    "test": "nx run-many -t test",
+    "format": "nx format:write"
+  },
+  "private": true,
+  "devDependencies": {
+    "@analogjs/vite-plugin-angular": "~2.6.0",
+    "@analogjs/vitest-angular": "~2.6.0",
+    "@angular-devkit/core": "~22.1.0",
+    "@angular-devkit/schematics": "~22.1.0",
+    "@angular/build": "~22.1.0",
+    "@angular/cli": "~22.1.0",
+    "@angular/compiler-cli": "~22.1.0",
+    "@angular/language-service": "~22.1.0",
+    "@nx/angular": "^23.2.0",
+    "@nx/js": "23.2.0",
+    "@nx/vite": "23.2.0",
+    "@nx/vitest": "23.2.0",
+    "@nx/web": "23.2.0",
+    "@oxc-project/runtime": "^0.115.0",
+    "@schematics/angular": "~22.1.0",
+    "@swc-node/register": "1.11.1",
+    "@swc/core": "1.15.8",
+    "@swc/helpers": "0.5.18",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "~4.1.0",
+    "@vitest/ui": "~4.1.0",
+    "jsdom": "^27.1.0",
+    "nx": "23.2.0",
+    "postcss": "^8.5.29",
+    "prettier": "^3.8.1",
+    "tailwindcss": "^4.3.3",
+    "tslib": "^2.3.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.0",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^4.0.8"
+  },
+  "dependencies": {
+    "@angular/common": "~22.1.0",
+    "@angular/compiler": "~22.1.0",
+    "@angular/core": "~22.1.0",
+    "@angular/forms": "~22.1.0",
+    "@angular/platform-browser": "~22.1.0",
+    "@angular/router": "~22.1.0",
+    "@angular/service-worker": "~22.1.0",
+    "@ngrx/signals": "^22.0.1",
+    "rxjs": "~7.8.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "volta": {
+    "node": "24.21.0"
+  }
+}

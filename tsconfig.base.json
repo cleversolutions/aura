@@ -1,0 +1,38 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "rootDir": ".",
+    "sourceMap": true,
+    "declaration": false,
+    "moduleResolution": "bundler",
+    "emitDecoratorMetadata": false,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "target": "es2022",
+    "module": "esnext",
+    "lib": ["es2022", "dom"],
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true,
+    "paths": {
+      "@aura/shared/models": ["./libs/shared/models/src/index.ts"],
+      "@aura/shared/util": ["./libs/shared/util/src/index.ts"],
+      "@aura/shared/ui": ["./libs/shared/ui/src/index.ts"],
+      "@aura/backend/api": ["./libs/backend/api/src/index.ts"],
+      "@aura/backend/mock": ["./libs/backend/mock/src/index.ts"],
+      "@aura/club/data-access": ["./libs/club/data-access/src/index.ts"],
+      "@aura/club/feature-roster": ["./libs/club/feature-roster/src/index.ts"],
+      "@aura/club/feature-account": ["./libs/club/feature-account/src/index.ts"],
+      "@aura/schedule/data-access": ["./libs/schedule/data-access/src/index.ts"],
+      "@aura/schedule/feature": ["./libs/schedule/feature/src/index.ts"],
+      "@aura/chat/data-access": ["./libs/chat/data-access/src/index.ts"],
+      "@aura/chat/feature": ["./libs/chat/feature/src/index.ts"],
+      "@aura/schedule/ui": ["./libs/schedule/ui/src/index.ts"],
+      "@aura/chat/ui": ["./libs/chat/ui/src/index.ts"],
+      "@aura/club/ui": ["./libs/club/ui/src/index.ts"],
+      "@aura/platform/data-access": ["./libs/platform/data-access/src/index.ts"],
+      "@aura/platform/ui": ["./libs/platform/ui/src/index.ts"],
+      "@aura/platform/feature-admin": ["./libs/platform/feature-admin/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "tmp"]
+}

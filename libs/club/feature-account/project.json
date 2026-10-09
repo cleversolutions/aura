@@ -1,0 +1,19 @@
+{
+  "name": "club-feature-account",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/club/feature-account/src",
+  "prefix": "aura",
+  "projectType": "library",
+  "tags": ["scope:club", "type:feature"],
+  "targets": {
+    "test": {
+      "outputs": [
+        "{projectRoot}/{options.coverage.reportsDirectory}",
+        "{workspaceRoot}/coverage/libs/club/feature-account"
+      ],
+      "options": {
+        "coverage.reportsDirectory": "../../../coverage/libs/club/feature-account"
+      }
+    }
+  }
+}

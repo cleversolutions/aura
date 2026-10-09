@@ -1,0 +1,10 @@
+{
+  "name": "club-ui",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/club/ui/src",
+  "prefix": "aura",
+  "tags": ["scope:club", "type:ui"],
+  "projectType": "library",
+  "// targets": "to see all targets run: nx show project club-ui --web",
+  "targets": {}
+}

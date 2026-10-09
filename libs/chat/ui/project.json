@@ -1,0 +1,10 @@
+{
+  "name": "chat-ui",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/chat/ui/src",
+  "prefix": "aura",
+  "tags": ["scope:chat", "type:ui"],
+  "projectType": "library",
+  "// targets": "to see all targets run: nx show project chat-ui --web",
+  "targets": {}
+}

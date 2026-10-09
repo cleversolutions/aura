@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Panthers logo">
+  <!-- Demo club logo for the mock backend. -->
+  <circle cx="32" cy="32" r="29" fill="#1d2a6b"/>
+  <circle cx="32" cy="32" r="24" fill="none" stroke="#f6c945" stroke-width="2.5"/>
+  <text x="32" y="43" text-anchor="middle" font-family="'Barlow Condensed', Arial, sans-serif" font-weight="700" font-size="30" fill="#f6c945">P</text>
+</svg>

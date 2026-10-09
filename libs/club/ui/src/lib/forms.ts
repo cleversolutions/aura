@@ -1,0 +1,375 @@
+import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
+import { PlayerProfile, TeamId, UserId, UserKind } from '@aura/shared/models';
+import { Check, Chips, Choice, Segmented, Sheet } from '@aura/shared/ui';
+
+export type InviteKind = Exclude<UserKind, 'club'>;
+
+export interface InviteFormValue {
+  team: TeamId;
+  kind: InviteKind;
+  name: string;
+  email: string;
+}
+
+/** Invite a parent, player or staff member to a team. */
+@Component({
+  selector: 'aura-invite-form',
+  imports: [Sheet, Chips],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <aura-sheet title="INVITE MEMBER" (closed)="closed.emit()">
+      @if (teamOptions().length > 1) {
+        <div class="label-caps">TEAM</div>
+        <aura-chips [options]="teamOptions()" [(value)]="team" />
+      }
+      <div class="label-caps">INVITE AS</div>
+      <aura-chips [options]="roleOptions" [(value)]="kind" />
+      <label class="field">
+        NAME
+        <input
+          class="field-input"
+          [value]="name()"
+          (input)="name.set(value($event))"
+          placeholder="First and last name"
+        />
+      </label>
+      <label class="field">
+        EMAIL
+        <input
+          class="field-input"
+          type="email"
+          [value]="email()"
+          (input)="email.set(value($event))"
+          placeholder="name@email.com"
+        />
+      </label>
+      <p class="text-[13px] leading-snug">
+        They will be added to {{ teamName() }} and automatically join {{ linkedCount() }} team-linked thread{{
+          linkedCount() === 1 ? '' : 's'
+        }}.
+      </p>
+      @if (shownError()) {
+        <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
+      }
+      <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">SEND INVITE</button>
+    </aura-sheet>
+  `,
+})
+export class InviteForm {
+  readonly teamOptions = input.required<Choice<TeamId>[]>();
+  readonly initialTeam = input.required<TeamId>();
+  /** team → invite kind → number of threads they would join automatically. */
+  readonly linkedThreadCounts = input<Record<TeamId, Record<InviteKind, number>>>({});
+  readonly saving = input(false);
+  readonly error = input('');
+
+  readonly submitted = output<InviteFormValue>();
+  readonly closed = output<void>();
+
+  protected readonly roleOptions: Choice<InviteKind>[] = [
+    { value: 'parent', label: 'Parent' },
+    { value: 'player', label: 'Player' },
+    { value: 'staff', label: 'Team Staff' },
+  ];
+
+  protected readonly team = linkedSignal(() => this.initialTeam());
+  protected readonly kind = signal<InviteKind>('parent');
+  protected readonly name = signal('');
+  protected readonly email = signal('');
+  private readonly validationError = signal('');
+  protected readonly shownError = computed(() => this.validationError() || this.error());
+
+  protected readonly teamName = computed(
+    () => this.teamOptions().find((o) => o.value === this.team())?.label ?? this.team(),
+  );
+  protected readonly linkedCount = computed(() => this.linkedThreadCounts()[this.team()]?.[this.kind()] ?? 0);
+
+  protected value(e: Event): string {
+    return (e.target as HTMLInputElement).value;
+  }
+
+  protected submit(): void {
+    const name = this.name().trim();
+    const email = this.email().trim();
+    if (!name) return this.validationError.set('Enter their name.');
+    if (!email.includes('@')) return this.validationError.set('Enter a valid email.');
+    this.validationError.set('');
+    this.submitted.emit({ team: this.team(), kind: this.kind(), name, email });
+  }
+}
+
+export interface PlayerProfileValue {
+  name: string;
+  jersey: string;
+  login: string;
+}
+
+/** Edit a linked player's name, jersey and (optionally) their own login. */
+@Component({
+  selector: 'aura-player-profile-form',
+  imports: [Sheet],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <aura-sheet title="PLAYER PROFILE" (closed)="closed.emit()">
+      <label class="field">
+        PLAYER NAME
+        <input class="field-input" [value]="name()" (input)="name.set(value($event))" />
+      </label>
+      <label class="field">
+        JERSEY NUMBER
+        <input class="field-input" inputmode="numeric" [value]="jersey()" (input)="jersey.set(value($event))" />
+      </label>
+      <div class="rounded-md border-2 border-ink px-3 py-2.5">
+        <div class="label-caps">TEAM / AGE GROUP</div>
+        <div class="mt-0.5 text-base font-medium">{{ teamName() }}</div>
+      </div>
+      @if (showLogin()) {
+        <label class="field">
+          PLAYER'S OWN LOGIN (OPTIONAL)
+          <input
+            class="field-input"
+            type="email"
+            placeholder="player@email.com"
+            [value]="login()"
+            (input)="login.set(value($event))"
+          />
+        </label>
+        <p class="-mt-1 text-[13px] leading-snug">
+          Older players can RSVP and chat from their own account. You keep access.
+        </p>
+      }
+      @if (shownError()) {
+        <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
+      }
+      <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">SAVE PLAYER</button>
+    </aura-sheet>
+  `,
+})
+export class PlayerProfileForm {
+  readonly player = input.required<PlayerProfile>();
+  readonly teamName = input('');
+  /** Offer a separate login (older players). */
+  readonly showLogin = input(false);
+  readonly saving = input(false);
+  readonly error = input('');
+
+  readonly submitted = output<PlayerProfileValue>();
+  readonly closed = output<void>();
+
+  protected readonly name = linkedSignal(() => this.player().name);
+  protected readonly jersey = linkedSignal(() => this.player().jersey);
+  protected readonly login = linkedSignal(() => this.player().login);
+  private readonly validationError = signal('');
+  protected readonly shownError = computed(() => this.validationError() || this.error());
+
+  protected value(e: Event): string {
+    return (e.target as HTMLInputElement).value;
+  }
+
+  protected submit(): void {
+    const login = this.login().trim();
+    if (!this.name().trim()) return this.validationError.set('Enter a name.');
+    if (login && !login.includes('@')) return this.validationError.set('Enter a valid email.');
+    this.validationError.set('');
+    this.submitted.emit({ name: this.name().trim(), jersey: this.jersey().trim(), login });
+  }
+}
+
+export interface LinkPlayerValue {
+  name: string;
+  team: TeamId;
+  jersey: string;
+}
+
+/** A parent asks team staff to link a new player to their account. */
+@Component({
+  selector: 'aura-link-player-form',
+  imports: [Sheet, Chips],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <aura-sheet title="LINK NEW PLAYER" (closed)="closed.emit()">
+      <label class="field">
+        PLAYER NAME
+        <input
+          class="field-input"
+          placeholder="First and last name"
+          [value]="name()"
+          (input)="name.set(value($event))"
+        />
+      </label>
+      <div class="label-caps">TEAM</div>
+      <aura-chips [options]="teamOptions()" [(value)]="team" />
+      <label class="field">
+        JERSEY NUMBER
+        <input
+          class="field-input"
+          inputmode="numeric"
+          placeholder="Optional"
+          [value]="jersey()"
+          (input)="jersey.set(value($event))"
+        />
+      </label>
+      <p class="text-[13px] leading-snug">The team staff confirm new links before the player appears on the roster.</p>
+      @if (shownError()) {
+        <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
+      }
+      <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">SEND LINK REQUEST</button>
+    </aura-sheet>
+  `,
+})
+export class LinkPlayerForm {
+  readonly teamOptions = input.required<Choice<TeamId>[]>();
+  readonly initialTeam = input<TeamId>('');
+  readonly saving = input(false);
+  readonly error = input('');
+
+  readonly submitted = output<LinkPlayerValue>();
+  readonly closed = output<void>();
+
+  protected readonly name = signal('');
+  protected readonly team = linkedSignal(() => this.initialTeam());
+  protected readonly jersey = signal('');
+  private readonly validationError = signal('');
+  protected readonly shownError = computed(() => this.validationError() || this.error());
+
+  protected value(e: Event): string {
+    return (e.target as HTMLInputElement).value;
+  }
+
+  protected submit(): void {
+    if (!this.name().trim()) return this.validationError.set('Enter the player’s name.');
+    this.validationError.set('');
+    this.submitted.emit({ name: this.name().trim(), team: this.team(), jersey: this.jersey().trim() });
+  }
+}
+
+const AGES = ['U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18', 'U19'];
+type Division = 'Boys' | 'Girls';
+
+export interface StaffOptionVm {
+  id: UserId;
+  name: string;
+  /** e.g. `Currently: U12G, U14B`. */
+  sub: string;
+}
+
+export interface TeamFormValue {
+  /** Set when creating, e.g. `U13 Girls`. */
+  name?: string;
+  staffIds: UserId[];
+  newStaff?: { name: string; email: string };
+}
+
+/** Create a team or change who coaches it. Pass `existingName` to edit. */
+@Component({
+  selector: 'aura-team-form',
+  imports: [Sheet, Chips, Segmented, Check],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <aura-sheet [title]="existingName() ? 'MANAGE TEAM' : 'CREATE TEAM'" (closed)="closed.emit()">
+      @if (!existingName()) {
+        <div class="label-caps">AGE GROUP</div>
+        <aura-chips [options]="ageOptions" [(value)]="age" />
+        <div class="label-caps">DIVISION</div>
+        <aura-segmented [options]="divisionOptions" [(value)]="division" [height]="40" [fontSize]="15" />
+      }
+      <div class="rounded-md border-2 border-ink px-3 py-2.5">
+        <div class="label-caps">TEAM NAME</div>
+        <div class="mt-0.5 text-lg font-semibold">{{ teamName() }}</div>
+      </div>
+
+      <div class="label-caps mt-1">ASSIGN TEAM STAFF</div>
+      <p class="-mt-1.5 text-[13px] leading-snug">Team staff can add other staff, parents and players to this team.</p>
+      <div class="card">
+        @for (s of staffOptions(); track s.id) {
+          @let selected = staff().includes(s.id);
+          <button type="button" class="card-row py-[9px]" [attr.aria-pressed]="selected" (click)="toggleStaff(s.id)">
+            <aura-check [checked]="selected" />
+            <span class="min-w-0 flex-1">
+              <span class="block text-[15px] font-semibold">{{ s.name }}</span>
+              <span class="block text-xs">{{ s.sub }}</span>
+            </span>
+          </button>
+        }
+      </div>
+
+      <div class="label-caps mt-1">OR INVITE NEW STAFF</div>
+      <div class="grid grid-cols-2 gap-2">
+        <input
+          class="field-input"
+          aria-label="New staff name"
+          placeholder="Name"
+          [value]="newName()"
+          (input)="newName.set(value($event))"
+        />
+        <input
+          class="field-input"
+          aria-label="New staff email"
+          type="email"
+          placeholder="Email"
+          [value]="newEmail()"
+          (input)="newEmail.set(value($event))"
+        />
+      </div>
+
+      @if (shownError()) {
+        <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
+      }
+      <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">
+        {{ existingName() ? 'SAVE STAFF' : 'CREATE TEAM' }}
+      </button>
+    </aura-sheet>
+  `,
+})
+export class TeamForm {
+  /** Name of the team being edited; null creates a new team. */
+  readonly existingName = input<string | null>(null);
+  readonly staffOptions = input.required<StaffOptionVm[]>();
+  readonly initialStaff = input<UserId[]>([]);
+  readonly saving = input(false);
+  readonly error = input('');
+
+  readonly submitted = output<TeamFormValue>();
+  readonly closed = output<void>();
+
+  protected readonly ageOptions: Choice<string>[] = AGES.map((a) => ({ value: a, label: a }));
+  protected readonly divisionOptions: Choice<Division>[] = [
+    { value: 'Boys', label: 'BOYS' },
+    { value: 'Girls', label: 'GIRLS' },
+  ];
+
+  protected readonly age = signal('U13');
+  protected readonly division = signal<Division>('Girls');
+  protected readonly staff = linkedSignal(() => [...this.initialStaff()]);
+  protected readonly newName = signal('');
+  protected readonly newEmail = signal('');
+  private readonly validationError = signal('');
+  protected readonly shownError = computed(() => this.validationError() || this.error());
+
+  protected readonly teamName = computed(() => this.existingName() ?? `${this.age()} ${this.division()}`);
+
+  protected value(e: Event): string {
+    return (e.target as HTMLInputElement).value;
+  }
+
+  protected toggleStaff(id: UserId): void {
+    this.staff.update((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+    this.validationError.set('');
+  }
+
+  protected submit(): void {
+    const name = this.newName().trim();
+    const email = this.newEmail().trim();
+    const hasNew = !!(name || email);
+    if (hasNew && (!name || !email.includes('@'))) {
+      return this.validationError.set('Enter a name and valid email for the new staff member.');
+    }
+    if (!this.staff().length && !hasNew) return this.validationError.set('Assign at least one team staff member.');
+    this.validationError.set('');
+    this.submitted.emit({
+      name: this.existingName() ? undefined : this.teamName(),
+      staffIds: this.staff(),
+      newStaff: hasNew ? { name, email } : undefined,
+    });
+  }
+}

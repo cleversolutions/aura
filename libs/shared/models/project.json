@@ -1,0 +1,16 @@
+{
+  "name": "shared-models",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/shared/models/src",
+  "prefix": "aura",
+  "projectType": "library",
+  "tags": ["scope:shared", "type:model"],
+  "targets": {
+    "test": {
+      "outputs": ["{projectRoot}/{options.coverage.reportsDirectory}", "{workspaceRoot}/coverage/libs/shared/models"],
+      "options": {
+        "coverage.reportsDirectory": "../../../coverage/libs/shared/models"
+      }
+    }
+  }
+}

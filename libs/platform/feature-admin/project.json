@@ -1,0 +1,10 @@
+{
+  "name": "platform-feature-admin",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/platform/feature-admin/src",
+  "prefix": "aura",
+  "tags": ["scope:platform", "type:feature"],
+  "projectType": "library",
+  "// targets": "to see all targets run: nx show project platform-feature-admin --web",
+  "targets": {}
+}

@@ -1,0 +1,19 @@
+{
+  "name": "schedule-feature",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/schedule/feature/src",
+  "prefix": "aura",
+  "projectType": "library",
+  "tags": ["scope:schedule", "type:feature"],
+  "targets": {
+    "test": {
+      "outputs": [
+        "{projectRoot}/{options.coverage.reportsDirectory}",
+        "{workspaceRoot}/coverage/libs/schedule/feature"
+      ],
+      "options": {
+        "coverage.reportsDirectory": "../../../coverage/libs/schedule/feature"
+      }
+    }
+  }
+}
