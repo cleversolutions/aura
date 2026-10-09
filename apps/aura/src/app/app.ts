@@ -1,3 +1,4 @@
+import { DOCUMENT } from '@angular/common';
 import { ChangeDetectionStrategy, Component, effect, inject, untracked } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { ChatStore } from '@aura/chat/data-access';
@@ -5,20 +6,18 @@ import { ClubStore } from '@aura/club/data-access';
 import { ScheduleStore } from '@aura/schedule/data-access';
 import { Toast } from '@aura/shared/ui';
 import { Toaster } from '@aura/shared/util';
+import { applyBranding } from './branding';
 
 @Component({
   selector: 'aura-root',
   imports: [RouterOutlet, Toast],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    class: 'mx-auto flex h-dvh max-w-[480px] flex-col pt-[env(safe-area-inset-top)] sm:border-x-2 sm:border-ink',
+    class:
+      'mx-auto flex h-dvh max-w-[480px] flex-col pt-[env(safe-area-inset-top)] sm:border-x-2 sm:border-ink wide:max-w-none wide:border-x-0',
   },
   template: `
-    @if (club.loaded()) {
-      <router-outlet />
-    } @else {
-      <div class="m-auto font-display text-xl font-bold tracking-[0.08em]" role="status">LOADING…</div>
-    }
+    <div class="min-h-0 flex-1"><router-outlet /></div>
     <aura-toast [message]="toaster.message()?.text ?? null" (dismissed)="toaster.dismiss()" />
   `,
 })
@@ -29,9 +28,12 @@ export class App {
   protected readonly toaster = inject(Toaster);
 
   constructor() {
-    // Reload per-user data whenever the signed-in user changes.
+    const doc = inject(DOCUMENT);
+    // The open club's colours, theme colour and installable app identity.
+    effect(() => applyBranding(doc, this.club.club(), this.club.manifestUrl()));
+    // Reload per-user data whenever the club or the signed-in user changes.
     effect(() => {
-      if (!this.club.meId()) return;
+      if (!this.club.sessionKey()) return;
       untracked(() => {
         void this.chat.load();
         void this.schedule.load();

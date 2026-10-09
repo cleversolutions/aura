@@ -23,7 +23,12 @@ import { CLOCK, Submission, Toaster, formatMessageTime } from '@aura/shared/util
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
-    <aura-thread-header [name]="thread()?.name ?? ''" [memberLabel]="memberLabel()" (manage)="startManaging()" />
+    <aura-thread-header
+      [name]="thread()?.name ?? ''"
+      [memberLabel]="memberLabel()"
+      [backLink]="['/', club.slug() ?? '', 'chat']"
+      (manage)="startManaging()"
+    />
 
     <div
       #scroller

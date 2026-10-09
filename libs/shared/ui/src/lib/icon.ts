@@ -14,7 +14,8 @@ export type IconName =
   | 'search'
   | 'send'
   | 'sliders'
-  | 'trophy';
+  | 'trophy'
+  | 'upload';
 
 interface IconDef {
   /** SVG inner markup, drawn on a 24×24 grid. */
@@ -49,6 +50,7 @@ const ICONS: Record<IconName, IconDef> = {
   },
   search: { body: '<circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.5" y1="15.5" x2="21" y2="21"/>', stroke: 2.5 },
   send: { body: '<polygon points="3 3 22 12 3 21 6 12"/>', filled: true },
+  upload: { body: '<path d="M12 16V4"/><polyline points="7 9 12 4 17 9"/><path d="M4 16v4h16v-4"/>' },
   sliders: {
     body: '<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="9" cy="7" r="2.5" fill="var(--color-paper)"/><circle cx="15" cy="17" r="2.5" fill="var(--color-paper)"/>',
   },

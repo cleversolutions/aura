@@ -8,9 +8,42 @@ export type EventTeam = TeamId | 'ALL';
 /** Threads belong to a team, or to the club as a whole. */
 export type ThreadScope = TeamId | 'club';
 
+export type ClubId = string;
+
+/**
+ * A club's public identity and branding. Each club lives at its own link
+ * (`/<slug>`) and installs as its own app. People belong to exactly one club.
+ */
 export interface Club {
+  id: ClubId;
+  /** Unguessable path segment of the club's link, e.g. `k3v9qp`. */
+  slug: string;
   name: string;
   logoUrl: string;
+  /** App colours: `ink` replaces black, `paper` replaces white. */
+  ink: string;
+  paper: string;
+  /** Square PNG app icons (maskable), when generated. */
+  icons?: { size192: string; size512: string };
+}
+
+/** A club as the platform admin manages it. */
+export interface ClubAccount extends Club {
+  /** The colours read from the logo, for "Reset to logo colours". */
+  logoInk: string;
+  logoPaper: string;
+  adminName: string;
+  /** The club admin's sign-in username. */
+  adminEmail: string;
+  /** ISO timestamp. */
+  createdAt: string;
+}
+
+/** Signs in at `/admin`; creates and edits clubs. The only account that spans clubs. */
+export interface PlatformAdmin {
+  id: string;
+  name: string;
+  email: string;
 }
 
 export interface Team {

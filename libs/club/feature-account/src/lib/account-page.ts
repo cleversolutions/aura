@@ -28,51 +28,69 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
-    <aura-app-header [clubName]="club.club()?.name ?? ''" [logoUrl]="club.club()?.logoUrl" />
+    <aura-app-header [clubName]="club.club()?.name ?? ''" [logoUrl]="club.club()?.logoUrl" title="More" />
 
     <main class="min-h-0 flex-1 overflow-y-auto">
       @if (profile(); as me) {
-        <aura-profile-header [vm]="me" />
+        <div class="max-w-[1100px]">
+          <aura-profile-header [vm]="me" />
 
-        @if (club.persona() === 'parent' || club.persona() === 'player') {
-          <section class="flex flex-col gap-2.5 px-3.5 py-[18px]">
-            <h2 class="heading-section">PLAYER ACCESS</h2>
-            @for (p of playerTiles(); track p.id) {
-              <aura-player-access-tile [vm]="p" (opened)="startEditingPlayer(p.id)" />
-            }
-            @if (club.persona() === 'parent') {
-              <button
-                type="button"
-                class="btn-outline mt-2 h-[52px] text-lg active:bg-ink active:text-paper"
-                (click)="startLinking()"
-              >
-                LINK NEW PLAYER
-              </button>
-            }
-          </section>
-        }
-
-        @if (club.isClubStaff() || club.isTeamStaff()) {
-          <section class="flex flex-col gap-2.5 px-3.5 py-[18px]">
-            <div class="flex items-center justify-between">
-              <h2 class="heading-section">{{ club.isClubStaff() ? 'CLUB TEAMS' : 'MY TEAMS' }}</h2>
-              @if (club.isClubStaff()) {
-                <button type="button" class="btn-small" (click)="startTeam('new')">+ CREATE TEAM</button>
+          @if (club.persona() === 'parent' || club.persona() === 'player') {
+            <section class="flex flex-col gap-2.5 px-3.5 py-[18px] wide:px-6">
+              <h2 class="heading-section">PLAYER ACCESS</h2>
+              <div class="tile-grid">
+                @for (p of playerTiles(); track p.id) {
+                  <aura-player-access-tile [vm]="p" (opened)="startEditingPlayer(p.id)" />
+                }
+              </div>
+              @if (club.persona() === 'parent') {
+                <button
+                  type="button"
+                  class="btn-outline mt-2 h-[52px] text-lg active:bg-ink active:text-paper wide:max-w-[300px]"
+                  (click)="startLinking()"
+                >
+                  LINK NEW PLAYER
+                </button>
               }
-            </div>
-            @for (t of teamCards(); track t.id) {
-              <aura-team-card [vm]="t" (opened)="openTeam(t.id)" />
-            }
-          </section>
-        }
+            </section>
+          }
 
-        @if (club.demoAccounts().length) {
-          <section class="flex flex-col gap-2.5 border-t-2 border-dashed border-ink px-3.5 py-[18px]">
-            <h2 class="heading-section">DEMO ACCOUNT</h2>
-            <p class="text-[13px] leading-snug">Mock backend: switch who is signed in to see each role.</p>
-            <aura-chips [options]="demoOptions()" [value]="club.meId() ?? ''" (valueChange)="club.switchUser($event)" />
-          </section>
-        }
+          @if (club.isClubStaff() || club.isTeamStaff()) {
+            <section class="flex flex-col gap-2.5 px-3.5 py-[18px] wide:px-6">
+              <div class="flex items-center justify-between">
+                <h2 class="heading-section">{{ club.isClubStaff() ? 'CLUB TEAMS' : 'MY TEAMS' }}</h2>
+                @if (club.isClubStaff()) {
+                  <button type="button" class="btn-small" (click)="startTeam('new')">+ CREATE TEAM</button>
+                }
+              </div>
+              <div class="tile-grid">
+                @for (t of teamCards(); track t.id) {
+                  <aura-team-card [vm]="t" (opened)="openTeam(t.id)" />
+                }
+              </div>
+            </section>
+          }
+
+          @if (club.demoAccounts().length) {
+            <section class="flex flex-col gap-2.5 border-t-2 border-dashed border-ink px-3.5 py-[18px] wide:px-6">
+              <h2 class="heading-section">DEMO ACCOUNT</h2>
+              <p class="text-[13px] leading-snug">Mock backend: switch who is signed in to see each role.</p>
+              <aura-chips
+                [options]="demoOptions()"
+                [value]="club.meId() ?? ''"
+                (valueChange)="club.switchUser($event)"
+              />
+            </section>
+          }
+
+          @if (!club.preview()) {
+            <section class="border-t-2 border-ink px-3.5 py-[18px] wide:px-6">
+              <button type="button" class="btn-outline h-12 w-full text-lg wide:max-w-[300px]" (click)="signOut()">
+                SIGN OUT
+              </button>
+            </section>
+          }
+        </div>
       }
     </main>
 
@@ -130,21 +148,7 @@ export class AccountPage {
   protected readonly profile = computed<ProfileVm | null>(() => {
     const me = this.club.me();
     if (!me) return null;
-    let info: string;
-    switch (this.club.persona()) {
-      case 'player':
-        info = `Player · ${this.club.teamName(me.teams[0] ?? '')}`;
-        break;
-      case 'teamStaff':
-        info = `Team Staff · ${me.teams.map((t) => this.club.teamName(t)).join(', ')}`;
-        break;
-      case 'clubStaff':
-        info = `Club Staff · ${me.title ?? ''}`;
-        break;
-      default:
-        info = `Parent · ${this.club.myPlayers().length} linked players`;
-    }
-    return { name: me.name, info, email: me.email ?? `${me.id}@spartans.example` };
+    return { name: me.name, info: this.club.roleLine(), email: me.email ?? '' };
   });
 
   protected readonly playerTiles = computed<PlayerAccessVm[]>(() =>
@@ -225,7 +229,7 @@ export class AccountPage {
   /** Club staff manage a team's staff; team staff jump to its roster. */
   protected openTeam(id: TeamId): void {
     if (this.club.isClubStaff()) this.startTeam(id);
-    else void this.router.navigate(['/roster'], { queryParams: { team: id } });
+    else void this.router.navigate(['/', this.club.slug(), 'roster'], { queryParams: { team: id } });
   }
 
   protected async savePlayer(player: PlayerProfile, value: PlayerProfileValue): Promise<void> {
@@ -270,5 +274,11 @@ export class AccountPage {
         : `${teamName} created with ${count} staff. #announcements and #general are ready.`,
     );
     this.teamTarget.set(null);
+  }
+
+  protected async signOut(): Promise<void> {
+    const slug = this.club.slug();
+    await this.club.signOut();
+    void this.router.navigate(['/', slug, 'sign-in']);
   }
 }

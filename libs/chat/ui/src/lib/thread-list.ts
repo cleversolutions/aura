@@ -1,8 +1,10 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { RouterLink, RouterLinkActive } from '@angular/router';
 
 export interface ThreadListItemVm {
   id: string;
+  /** Router link to the conversation. */
+  link: string[];
   name: string;
   /** Team code or `CLUB`. */
   badge: string;
@@ -14,6 +16,7 @@ export interface ThreadListItemVm {
 
 export interface ManagedThreadVm {
   id: string;
+  link: string[];
   name: string;
   badge: string;
   /** e.g. `4 members · created by Jordan Smith`. */
@@ -23,13 +26,15 @@ export interface ManagedThreadVm {
 /** A thread in the chat list, linking to the conversation. */
 @Component({
   selector: 'aura-thread-list-item',
-  imports: [RouterLink],
+  imports: [RouterLink, RouterLinkActive],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { role: 'listitem', class: 'block' },
   template: `
     @let t = vm();
     <a
-      [routerLink]="['/chat', t.id]"
+      [routerLink]="t.link"
+      routerLinkActive="wide:bg-pressed"
+      ariaCurrentWhenActive="page"
       class="flex w-full items-center gap-2.5 border-b-[1.5px] border-ink px-3.5 py-[13px] text-ink no-underline active:bg-pressed"
     >
       <span class="min-w-0 flex-1">
@@ -66,13 +71,15 @@ export class ThreadListItem {
 /** A thread the user oversees but is not a member of. */
 @Component({
   selector: 'aura-managed-thread-item',
-  imports: [RouterLink],
+  imports: [RouterLink, RouterLinkActive],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { role: 'listitem', class: 'block' },
   template: `
     @let t = vm();
     <a
-      [routerLink]="['/chat', t.id]"
+      [routerLink]="t.link"
+      routerLinkActive="wide:bg-pressed"
+      ariaCurrentWhenActive="page"
       class="flex w-full items-center gap-2.5 border-b-[1.5px] border-ink px-3.5 py-3 text-ink no-underline active:bg-pressed"
     >
       <span class="badge shrink-0 px-1 py-[3px] text-[11px]">{{ t.badge }}</span>

@@ -49,7 +49,7 @@ describe('ChatListPage', () => {
     expect(TestBed.inject(Toaster).message()?.text).toBe(
       'Thread created with 11 members. New team members join automatically.',
     );
-    expect(navigate).toHaveBeenCalledWith(['/chat', created.id]);
+    expect(navigate).toHaveBeenCalledWith(['/', 'k3v9qp', 'chat', created.id]);
     expect(el.querySelector('aura-thread-form')).toBeNull();
   });
 

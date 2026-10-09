@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { EventType, RsvpStatus, Score } from '@aura/shared/models';
 import { Check, Icon, Sheet } from '@aura/shared/ui';
 import { RSVP_LABEL } from '@aura/shared/util';
@@ -35,14 +36,32 @@ export interface RsvpConfirmation {
   status: RsvpStatus | null;
 }
 
-/** Event details sheet with RSVP, score entry and edit actions. */
+/**
+ * Event details with RSVP, score entry and edit actions. Shown as a sheet, or as a
+ * docked side pane (`pane`) on wide screens, where it has no close button.
+ */
 @Component({
   selector: 'aura-event-detail',
-  imports: [Sheet, Icon, Check],
+  imports: [Sheet, Icon, Check, NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let e = vm();
-    <aura-sheet [title]="e.sheetTitle" [layer]="20" (closed)="closed.emit()">
+    @if (pane()) {
+      <section role="region" [attr.aria-label]="e.sheetTitle" class="flex h-full min-h-0 flex-col">
+        <div class="flex h-[46px] shrink-0 items-center bg-ink px-4 text-paper">
+          <h2 class="font-display text-[15px] font-bold tracking-[0.08em]">{{ e.sheetTitle }}</h2>
+        </div>
+        <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pt-4 pb-7">
+          <ng-container *ngTemplateOutlet="body" />
+        </div>
+      </section>
+    } @else {
+      <aura-sheet [title]="e.sheetTitle" [layer]="20" (closed)="closed.emit()">
+        <ng-container *ngTemplateOutlet="body" />
+      </aura-sheet>
+    }
+
+    <ng-template #body>
       <div class="flex items-start gap-3">
         <span class="w-10 shrink-0"><aura-icon [name]="icon()" [size]="40" [strokeWidth]="1.8" /></span>
         <div class="min-w-0 flex-1">
@@ -149,11 +168,13 @@ export interface RsvpConfirmation {
           EDIT EVENT
         </button>
       }
-    </aura-sheet>
+    </ng-template>
   `,
 })
 export class EventDetail {
   readonly vm = input.required<EventDetailVm>();
+  /** Docked side pane instead of a sheet. */
+  readonly pane = input(false);
   readonly closed = output<void>();
   readonly edit = output<void>();
   readonly confirmed = output<RsvpConfirmation>();

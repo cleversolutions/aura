@@ -1,12 +1,15 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideTestBackend } from '@aura/backend/mock';
 import { ClubStore } from '@aura/club/data-access';
 import { ScheduleStore } from '@aura/schedule/data-access';
-import { Toaster } from '@aura/shared/util';
+import { Toaster, Viewport } from '@aura/shared/util';
 import { SchedulePage } from './schedule-page';
 
-async function render(initialUserId = 'jordan') {
-  TestBed.configureTestingModule({ providers: provideTestBackend({ initialUserId }) });
+async function render(initialUserId = 'jordan', wide = false) {
+  TestBed.configureTestingModule({
+    providers: [provideTestBackend({ initialUserId }), { provide: Viewport, useValue: { wide: signal(wide) } }],
+  });
   await TestBed.inject(ClubStore).load();
   await TestBed.inject(ScheduleStore).load();
   const fixture = TestBed.createComponent(SchedulePage);
@@ -42,6 +45,32 @@ describe('SchedulePage', () => {
     expect((await render()).buttons('+ EVENT')).toHaveLength(0);
     TestBed.resetTestingModule();
     expect((await render('dana')).buttons('+ EVENT')).toHaveLength(1);
+  });
+
+  it('opens events in a sheet on compact screens', async () => {
+    const { fixture, el } = await render();
+    expect(el.querySelector('aura-event-detail')).toBeNull();
+
+    el.querySelector<HTMLButtonElement>('aura-event-card button')?.click();
+    await fixture.whenStable();
+    expect(el.querySelector('aura-event-detail [role=dialog]')).not.toBeNull();
+  });
+
+  it('docks the first event in a side pane on wide screens and keeps it open after RSVP', async () => {
+    const { fixture, el, buttons } = await render('jordan', true);
+    const pane = () => el.querySelector('aside aura-event-detail');
+    expect(pane()?.textContent).toContain('PRACTICE · U12 GIRLS');
+    expect(el.querySelector('[role=dialog]')).toBeNull();
+    expect(el.querySelector('aura-event-card article')?.className).toContain('shadow-');
+
+    el.querySelectorAll<HTMLButtonElement>('aura-event-card button')[3].click();
+    await fixture.whenStable();
+    expect(pane()?.textContent).not.toContain('PRACTICE · U12 GIRLS');
+
+    buttons('CONFIRM GOING')[0].click();
+    await fixture.whenStable();
+    expect(TestBed.inject(Toaster).message()?.text).toContain('going');
+    expect(pane()).not.toBeNull();
   });
 
   it('validates the new event form', async () => {

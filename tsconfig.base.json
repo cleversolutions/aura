@@ -28,7 +28,10 @@
       "@aura/chat/feature": ["./libs/chat/feature/src/index.ts"],
       "@aura/schedule/ui": ["./libs/schedule/ui/src/index.ts"],
       "@aura/chat/ui": ["./libs/chat/ui/src/index.ts"],
-      "@aura/club/ui": ["./libs/club/ui/src/index.ts"]
+      "@aura/club/ui": ["./libs/club/ui/src/index.ts"],
+      "@aura/platform/data-access": ["./libs/platform/data-access/src/index.ts"],
+      "@aura/platform/ui": ["./libs/platform/ui/src/index.ts"],
+      "@aura/platform/feature-admin": ["./libs/platform/feature-admin/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp"]

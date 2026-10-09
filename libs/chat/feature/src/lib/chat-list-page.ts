@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterOutlet } from '@angular/router';
 import { ChatStore } from '@aura/chat/data-access';
 import {
   ChatSettings,
@@ -14,59 +14,100 @@ import {
 import { ClubStore } from '@aura/club/data-access';
 import { Thread, ThreadScope } from '@aura/shared/models';
 import { AppHeader, Choice, Icon } from '@aura/shared/ui';
-import { CLOCK, Submission, Toaster, firstName, formatMessageTime } from '@aura/shared/util';
+import { CLOCK, Submission, Toaster, Viewport, firstName, formatMessageTime } from '@aura/shared/util';
 
 const badge = (t: Thread) => (t.scope === 'club' ? 'CLUB' : t.scope);
 
-/** Chat tab container: thread list, new-thread and notification sheets. */
+/**
+ * Chat tab container: thread list, new-thread and notification sheets. The open
+ * conversation (child route) replaces the list on compact screens and sits beside it on wide ones.
+ */
 @Component({
   selector: 'aura-chat-list-page',
-  imports: [AppHeader, Icon, ThreadListItem, ManagedThreadItem, ThreadForm, ChatSettings],
+  imports: [RouterOutlet, AppHeader, Icon, ThreadListItem, ManagedThreadItem, ThreadForm, ChatSettings],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'relative flex h-full min-h-0 flex-col' },
   template: `
-    <aura-app-header [clubName]="club.club()?.name ?? ''" [logoUrl]="club.club()?.logoUrl">
-      <button
-        headerAction
-        type="button"
-        aria-label="Chat settings"
-        class="flex h-[54px] w-full items-center justify-center"
-        (click)="settingsOpen.set(true)"
-      >
-        <aura-icon name="sliders" />
-      </button>
-    </aura-app-header>
+    @if (showList()) {
+      <aura-app-header [clubName]="club.club()?.name ?? ''" [logoUrl]="club.club()?.logoUrl" title="Chat">
+        <button
+          headerAction
+          type="button"
+          aria-label="Chat settings"
+          class="flex h-[54px] w-full items-center justify-center"
+          (click)="settingsOpen.set(true)"
+        >
+          <aura-icon name="sliders" />
+        </button>
+        <button
+          pageActions
+          type="button"
+          class="h-10 rounded-md border-2 border-ink bg-paper px-3.5 font-display text-[15px] font-bold tracking-[0.05em]"
+          (click)="settingsOpen.set(true)"
+        >
+          NOTIFICATIONS
+        </button>
+        <button
+          pageActions
+          type="button"
+          class="h-10 rounded-md bg-ink px-4 font-display text-[15px] font-bold tracking-[0.05em] text-paper"
+          (click)="startCreating()"
+        >
+          + NEW THREAD
+        </button>
+      </aura-app-header>
+    }
 
-    <main class="min-h-0 flex-1 overflow-y-auto pb-[90px]">
-      <div class="flex justify-end px-3.5 pt-3 pb-1">
-        <button type="button" class="btn-small" (click)="startCreating()">NEW THREAD</button>
-      </div>
-      <div role="list">
-        @for (row of rows(); track row.id) {
-          <aura-thread-list-item [vm]="row" />
+    <div class="flex min-h-0 flex-1">
+      @if (showList()) {
+        <section
+          aria-label="Threads"
+          class="relative flex min-h-0 w-full flex-col wide:w-[320px] wide:shrink-0 wide:border-r-2 wide:border-ink full:w-[380px]"
+        >
+          <main class="min-h-0 flex-1 overflow-y-auto pb-[90px] wide:pb-0">
+            <div class="flex justify-end px-3.5 pt-3 pb-1 wide:hidden">
+              <button type="button" class="btn-small" (click)="startCreating()">NEW THREAD</button>
+            </div>
+            <div role="list">
+              @for (row of rows(); track row.id) {
+                <aura-thread-list-item [vm]="row" />
+              }
+            </div>
+
+            @if (others().length) {
+              <h2 class="border-b-2 border-ink px-3.5 pt-5 pb-1.5 font-display text-[13px] font-bold tracking-[0.08em]">
+                OTHER THREADS YOU MANAGE
+              </h2>
+              <div role="list">
+                @for (row of others(); track row.id) {
+                  <aura-managed-thread-item [vm]="row" />
+                }
+              </div>
+            }
+          </main>
+
+          @if (!viewport.wide()) {
+            <button
+              type="button"
+              aria-label="New thread"
+              class="absolute right-[18px] bottom-5 z-[5] size-[58px] rounded-full border-2 border-paper bg-ink text-[34px] leading-none text-paper shadow-[0_0_0_2px_var(--color-ink)] transition-transform active:scale-[0.94]"
+              (click)="startCreating()"
+            >
+              +
+            </button>
+          }
+        </section>
+      }
+
+      <div class="min-h-0 min-w-0 flex-1" [class.hidden]="!threadOpen() && !viewport.wide()">
+        <router-outlet (activate)="threadOpen.set(true)" (deactivate)="threadOpen.set(false)" />
+        @if (!threadOpen()) {
+          <div class="flex h-full items-center justify-center px-6 text-center text-base font-medium">
+            Select a thread to read messages.
+          </div>
         }
       </div>
-
-      @if (others().length) {
-        <h2 class="border-b-2 border-ink px-3.5 pt-5 pb-1.5 font-display text-[13px] font-bold tracking-[0.08em]">
-          OTHER THREADS YOU MANAGE
-        </h2>
-        <div role="list">
-          @for (row of others(); track row.id) {
-            <aura-managed-thread-item [vm]="row" />
-          }
-        </div>
-      }
-    </main>
-
-    <button
-      type="button"
-      aria-label="New thread"
-      class="absolute right-[18px] bottom-5 z-[5] size-[58px] rounded-full border-2 border-paper bg-ink text-[34px] leading-none text-paper shadow-[0_0_0_2px_var(--color-ink)] transition-transform active:scale-[0.94]"
-      (click)="startCreating()"
-    >
-      +
-    </button>
+    </div>
 
     @if (creating()) {
       <aura-thread-form
@@ -97,7 +138,11 @@ export class ChatListPage {
   protected readonly toaster = inject(Toaster);
   private readonly router = inject(Router);
   private readonly now = inject(CLOCK);
+  protected readonly viewport = inject(Viewport);
 
+  /** A conversation is routed into the outlet. */
+  protected readonly threadOpen = signal(false);
+  protected readonly showList = computed(() => this.viewport.wide() || !this.threadOpen());
   protected readonly creating = signal(false);
   protected readonly settingsOpen = signal(false);
   protected readonly create = new Submission();
@@ -110,6 +155,7 @@ export class ChatListPage {
       const sender = last && (last.from === me ? 'You' : firstName(this.club.user(last.from)?.name ?? '?'));
       return {
         id: t.id,
+        link: ['/', this.club.slug() ?? '', 'chat', t.id],
         name: t.name,
         badge: badge(t),
         time: last ? formatMessageTime(last.sentAt, now) : '',
@@ -123,6 +169,7 @@ export class ChatListPage {
   protected readonly others = computed<ManagedThreadVm[]>(() =>
     this.chat.managedElsewhere().map(({ thread: t, members }) => ({
       id: t.id,
+      link: ['/', this.club.slug() ?? '', 'chat', t.id],
       name: t.name,
       badge: badge(t),
       meta: `${members.size} members · created by ${this.club.user(t.creatorId)?.name ?? '?'}`,
@@ -160,6 +207,6 @@ export class ChatListPage {
       `Thread created with ${count} members.${value.teams.length ? ' New team members join automatically.' : ''}`,
     );
     this.creating.set(false);
-    void this.router.navigate(['/chat', created.id]);
+    void this.router.navigate(['/', this.club.slug(), 'chat', created.id]);
   }
 }

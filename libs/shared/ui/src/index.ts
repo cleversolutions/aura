@@ -1,3 +1,4 @@
+export * from './lib/auth-forms';
 export * from './lib/app-header';
 export * from './lib/controls';
 export * from './lib/icon';

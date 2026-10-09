@@ -16,6 +16,8 @@ export interface EventCardVm {
   statusLine: string | null;
   pastLeft: string;
   pastRight: string;
+  /** Open in the side pane (wide screens); drawn with a ring. */
+  selected?: boolean;
 }
 
 @Component({
@@ -25,7 +27,7 @@ export interface EventCardVm {
   host: { class: 'block' },
   template: `
     @let e = vm();
-    <article class="card">
+    <article class="card" [class]="e.selected ? 'shadow-[0_0_0_2px_var(--color-ink)]' : ''">
       <button type="button" class="flex w-full gap-3 p-3 text-left active:bg-pressed" (click)="opened.emit()">
         <span class="w-[38px] shrink-0 pt-0.5"><aura-icon [name]="e.icon" [size]="36" [strokeWidth]="1.8" /></span>
         <span class="min-w-0 flex-1">

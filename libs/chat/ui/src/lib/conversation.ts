@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, input, output, signal } from '@angu
 import { RouterLink } from '@angular/router';
 import { Avatar, Icon } from '@aura/shared/ui';
 
-/** Title bar of a conversation: back link, thread name, members button. */
+/** Title bar of a conversation: back link (compact screens only), thread name, members button. */
 @Component({
   selector: 'aura-thread-header',
   imports: [RouterLink, Icon],
@@ -10,7 +10,11 @@ import { Avatar, Icon } from '@aura/shared/ui';
   host: { class: 'block shrink-0' },
   template: `
     <header class="grid h-[54px] grid-cols-[54px_1fr_54px] items-center border-b-2 border-ink">
-      <a [routerLink]="backLink()" aria-label="Back" class="flex h-[54px] items-center justify-center text-ink">
+      <a
+        [routerLink]="backLink()"
+        aria-label="Back"
+        class="flex h-[54px] items-center justify-center text-ink wide:invisible"
+      >
         <aura-icon name="back" />
       </a>
       <div class="min-w-0 text-center">
@@ -31,7 +35,7 @@ import { Avatar, Icon } from '@aura/shared/ui';
 export class ThreadHeader {
   readonly name = input('');
   readonly memberLabel = input('');
-  readonly backLink = input('/chat');
+  readonly backLink = input.required<string | string[]>();
   readonly manage = output<void>();
 }
 

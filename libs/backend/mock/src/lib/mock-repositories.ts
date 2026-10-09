@@ -3,20 +3,29 @@ import {
   AuthRepository,
   ChatEvent,
   ChatRepository,
+  ClubInput,
+  ClubSession,
   DemoAccount,
+  DemoClub,
   Directory,
   DirectoryRepository,
   InviteMemberInput,
   LinkPlayerInput,
+  NewClubInput,
   NewThreadInput,
+  PlatformRepository,
   SaveTeamInput,
   ScheduleRepository,
+  SignInInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
 import {
   ChatMessage,
+  Club,
+  ClubAccount,
   ClubEvent,
   ClubEventDraft,
+  PlatformAdmin,
   PlayerProfile,
   RsvpStatus,
   Score,
@@ -26,6 +35,7 @@ import {
   UserId,
 } from '@aura/shared/models';
 import { ALL_GROUPS, effectiveMembers } from '@aura/shared/util';
+import { DEMO_PLATFORM_ADMIN, createEmptyClubData } from './clubs';
 import { MockDb } from './mock-db';
 
 const REPLIES = ['Sounds good, thanks!', 'Got it.', 'Works for us.', 'See you there.', 'Thanks for the heads up.'];
@@ -33,25 +43,93 @@ const REPLIES = ['Sounds good, thanks!', 'Got it.', 'Works for us.', 'See you th
 @Injectable()
 export class MockAuthRepository extends AuthRepository {
   private readonly db = inject(MockDb);
-  private userId = this.db.options.initialUserId;
 
-  currentUserId(): Promise<UserId> {
-    return this.db.respond(this.userId);
+  useClub(slug: string): Promise<void> {
+    if (!this.db.findClub(slug)) return this.db.fail('No club at this link.');
+    this.db.preview = null;
+    this.db.activeSlug = slug;
+    return this.db.respond(undefined);
+  }
+
+  session(): Promise<ClubSession | null> {
+    if (this.db.preview) return this.db.respond(this.db.preview.session);
+    return this.db.respond(this.db.sessions.get(this.db.activeSlug) ?? null);
+  }
+
+  signIn({ clubSlug, username, password }: SignInInput): Promise<ClubSession> {
+    const club = this.db.findClub(clubSlug);
+    if (!club) return this.db.fail('No club at this link.');
+    const name = username.trim().toLowerCase();
+    const cred = club.credentials.find((c) => c.username.toLowerCase() === name);
+    if (!cred || cred.password !== password) {
+      return this.db.fail('That username and password don’t match an account at this club.');
+    }
+    const session: ClubSession = { userId: cred.userId, mustChangePassword: cred.mustChangePassword };
+    this.db.sessions.set(clubSlug, session);
+    this.db.preview = null;
+    this.db.activeSlug = clubSlug;
+    return this.db.respond(session);
+  }
+
+  changePassword(newPassword: string): Promise<void> {
+    const session = this.db.sessions.get(this.db.activeSlug);
+    const cred = session && this.db.club.credentials.find((c) => c.userId === session.userId);
+    if (!session || !cred) return this.db.fail('Sign in again to change your password.');
+    if (newPassword.length < 8) return this.db.fail('Use at least 8 characters.');
+    Object.assign(cred, { password: newPassword, mustChangePassword: false });
+    session.mustChangePassword = false;
+    return this.db.respond(undefined);
+  }
+
+  signOut(): Promise<void> {
+    this.db.sessions.delete(this.db.activeSlug);
+    return this.db.respond(undefined);
   }
 
   demoAccounts(): DemoAccount[] {
-    return [
-      { userId: 'jordan', label: 'Parent' },
-      { userId: 'eli', label: 'Player' },
-      { userId: 'dana', label: 'Team Staff' },
-      { userId: 'sam', label: 'Club Staff' },
-    ];
+    return this.db.preview ? [] : this.db.club.demoAccounts;
   }
 
   signInAs(userId: UserId): Promise<void> {
-    this.userId = userId;
+    this.db.sessions.set(this.db.activeSlug, { userId, mustChangePassword: false });
     return this.db.respond(undefined);
   }
+
+  demoClubs(): DemoClub[] {
+    return this.db.clubs.map((c) => ({ slug: c.account.slug, name: c.account.name }));
+  }
+
+  platformSession(): Promise<PlatformAdmin | null> {
+    return this.db.respond(this.db.platformAdmin);
+  }
+
+  signInPlatform(email: string, password: string): Promise<PlatformAdmin> {
+    const { password: expected, ...admin } = DEMO_PLATFORM_ADMIN;
+    if (email.trim().toLowerCase() !== admin.email || password !== expected) {
+      return this.db.fail('Wrong email or password.');
+    }
+    this.db.platformAdmin = admin;
+    return this.db.respond(admin);
+  }
+
+  signOutPlatform(): Promise<void> {
+    this.db.platformAdmin = null;
+    this.db.preview = null;
+    return this.db.respond(undefined);
+  }
+
+  usePreview(slug: string): Promise<void> {
+    const club = this.db.findClub(slug);
+    if (!this.db.platformAdmin) return this.db.fail('Only the platform admin can preview clubs.');
+    if (!club) return this.db.fail('No club at this link.');
+    this.db.startPreview(club.account);
+    return this.db.respond(undefined);
+  }
+}
+
+/** The public part of a club record. */
+function toClub({ id, slug, name, logoUrl, ink, paper, icons }: ClubAccount): Club {
+  return { id, slug, name, logoUrl, ink, paper, ...(icons ? { icons } : {}) };
 }
 
 @Injectable()
@@ -59,8 +137,18 @@ export class MockDirectoryRepository extends DirectoryRepository {
   private readonly db = inject(MockDb);
 
   private snapshot(): Directory {
-    const { club, teams, users, profiles } = this.db.data;
-    return { club, teams, users, profiles };
+    const { teams, users, profiles } = this.db.data;
+    return { club: toClub(this.db.club.account), teams, users, profiles };
+  }
+
+  findClub(slug: string): Promise<Club | null> {
+    const club = this.db.findClub(slug);
+    return this.db.respond(club ? toClub(club.account) : null);
+  }
+
+  manifestUrl(): string | null {
+    // No server to build per-club manifests; the app keeps the static one.
+    return null;
   }
 
   load(): Promise<Directory> {
@@ -269,5 +357,57 @@ export class MockChatRepository extends ChatRepository {
       const event: ChatEvent = { type: 'message', threadId: t.id, message: structuredClone(message) };
       this.listeners.forEach((l) => l(event));
     }, delay);
+  }
+}
+
+@Injectable()
+export class MockPlatformRepository extends PlatformRepository {
+  private readonly db = inject(MockDb);
+
+  private denied(): Promise<never> | null {
+    return this.db.platformAdmin ? null : this.db.fail('Sign in as the platform admin.');
+  }
+
+  listClubs(): Promise<ClubAccount[]> {
+    return this.denied() ?? this.db.respond(this.db.clubs.map((c) => c.account));
+  }
+
+  createClub(input: NewClubInput): Promise<ClubAccount> {
+    const denied = this.denied();
+    if (denied) return denied;
+    if (this.db.findClub(input.slug)) return this.db.fail('That link is already taken. Generate a new one.');
+    const { temporaryPassword, ...fields } = input;
+    const admin: User = {
+      id: 'admin',
+      name: input.adminName,
+      kind: 'club',
+      teams: [],
+      title: 'Club Admin',
+      email: input.adminEmail,
+    };
+    const account: ClubAccount = { ...fields, id: this.db.nextId('c'), createdAt: this.db.now().toISOString() };
+    this.db.clubs.push({
+      account,
+      data: createEmptyClubData(admin),
+      credentials: [
+        { userId: admin.id, username: input.adminEmail, password: temporaryPassword, mustChangePassword: true },
+      ],
+      adminUserId: admin.id,
+      demoAccounts: [],
+    });
+    return this.db.respond(account);
+  }
+
+  updateClub(id: string, input: Omit<ClubInput, 'slug'>): Promise<ClubAccount> {
+    const denied = this.denied();
+    if (denied) return denied;
+    const club = this.db.clubs.find((c) => c.account.id === id);
+    if (!club) return this.db.fail('Club not found.');
+    Object.assign(club.account, input);
+    const admin = club.data.users.find((u) => u.id === club.adminUserId);
+    if (admin) Object.assign(admin, { name: input.adminName, email: input.adminEmail });
+    const cred = club.credentials.find((c) => c.userId === club.adminUserId);
+    if (cred) cred.username = input.adminEmail;
+    return this.db.respond(club.account);
   }
 }

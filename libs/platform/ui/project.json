@@ -1,0 +1,10 @@
+{
+  "name": "platform-ui",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/platform/ui/src",
+  "prefix": "aura",
+  "tags": ["scope:platform", "type:ui"],
+  "projectType": "library",
+  "// targets": "to see all targets run: nx show project platform-ui --web",
+  "targets": {}
+}

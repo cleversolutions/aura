@@ -1,18 +1,8 @@
-import {
-  ChatMessage,
-  Club,
-  ClubEvent,
-  PlayerProfile,
-  RsvpMap,
-  Team,
-  Thread,
-  User,
-  UserKind,
-} from '@aura/shared/models';
+import { ChatMessage, ClubEvent, PlayerProfile, RsvpMap, Team, Thread, User, UserKind } from '@aura/shared/models';
 import { ALL_GROUPS, addDays, isoDate } from '@aura/shared/util';
 
+/** One club's data. Branding and sign-in details live on the club record (see clubs.ts). */
 export interface MockData {
-  club: Club;
   teams: Team[];
   users: User[];
   profiles: PlayerProfile[];
@@ -102,7 +92,7 @@ const TEAM_STAFF: Record<string, string[]> = {
   U18B: ['Andre Lewis'],
 };
 
-/** Demo data for the Spartans club. Dates are relative to `now` so the schedule stays current. */
+/** Demo data for the Spartans club, also used as preview sample data. Dates are relative to `now` so the schedule stays current. */
 export function createSeed(now: Date): MockData {
   const teams: Team[] = [
     ['U10B', 'U10 Boys'],
@@ -126,7 +116,8 @@ export function createSeed(now: Date): MockData {
 
   addUser('Sam Okoro', 'club', [], { id: 'sam', title: 'Club Director' });
   addUser('Lee Fontaine', 'club', [], { id: 'lee', title: 'Registrar' });
-  addUser('Jordan Smith', 'parent', ['U12G', 'U18B'], { id: 'jordan' });
+  // The same username exists at the Panthers as a different person: accounts are per club.
+  addUser('Jordan Smith', 'parent', ['U12G', 'U18B'], { id: 'jordan', email: 'jordan.smith@email.com' });
   addUser('Dana Reyes', 'staff', ['U12G', 'U14B'], { id: 'dana' });
   addUser('Mike Tran', 'staff', ['U18B'], { id: 'mike' });
   for (const [team, names] of Object.entries(TEAM_STAFF)) names.forEach((n) => addUser(n, 'staff', [team]));
@@ -387,8 +378,9 @@ export function createSeed(now: Date): MockData {
     e3: { maya: 'going' },
   };
 
+  for (const u of users) u.email ??= u.id === 'eli' ? 'eli.smith@email.com' : `${u.id}@spartans.example`;
+
   return {
-    club: { name: 'Spartans', logoUrl: 'club-logo.svg' },
     teams,
     users,
     profiles,

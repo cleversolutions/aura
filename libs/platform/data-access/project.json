@@ -1,0 +1,10 @@
+{
+  "name": "platform-data-access",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/platform/data-access/src",
+  "prefix": "aura",
+  "tags": ["scope:platform", "type:data-access"],
+  "projectType": "library",
+  "// targets": "to see all targets run: nx show project platform-data-access --web",
+  "targets": {}
+}

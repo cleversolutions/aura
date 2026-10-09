@@ -8,10 +8,15 @@ export type ScheduleSegmentValue = 'upcoming' | 'past';
   selector: 'aura-schedule-toolbar',
   imports: [Segmented, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'flex flex-col gap-3' },
+  host: { class: 'flex flex-wrap gap-x-2 gap-y-3' },
   template: `
-    <aura-segmented [options]="segments" [value]="segment()" (valueChange)="segmentChange.emit($event)" />
-    <div class="flex gap-2">
+    <aura-segmented
+      class="flex-[1_1_260px]"
+      [options]="segments"
+      [value]="segment()"
+      (valueChange)="segmentChange.emit($event)"
+    />
+    <div class="flex flex-[2_1_300px] gap-2">
       <label class="search-box flex-1">
         <aura-icon name="search" [size]="18" />
         <span class="sr-only">Search events</span>

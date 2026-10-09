@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ClubStore } from '@aura/club/data-access';
 import { ScheduleStore } from '@aura/schedule/data-access';
 import {
@@ -17,53 +17,76 @@ import {
   RSVP_LABEL,
   Submission,
   Toaster,
+  Viewport,
   eventTitle,
   firstName,
   formatEventWhen,
   formatResult,
 } from '@aura/shared/util';
 
-/** Schedule tab container: maps store state to view models and handles every action. */
+/**
+ * Schedule tab container: maps store state to view models and handles every action.
+ * On wide screens the open event is docked in a side pane and one is always selected.
+ */
 @Component({
   selector: 'aura-schedule-page',
   imports: [AppHeader, ScheduleToolbar, EventCard, EventDetail, EventForm],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
-    <aura-app-header [clubName]="club.club()?.name ?? ''" [logoUrl]="club.club()?.logoUrl" />
+    <aura-app-header [clubName]="club.club()?.name ?? ''" [logoUrl]="club.club()?.logoUrl" title="Schedule" />
 
-    <main class="min-h-0 flex-1 overflow-y-auto">
-      <div class="flex flex-col gap-3 px-3.5 pt-3.5 pb-6">
-        <aura-schedule-toolbar
-          [segment]="store.segment()"
-          [query]="store.query()"
-          [canCreate]="store.canCreate()"
-          (segmentChange)="store.setSegment($event)"
-          (queryChange)="store.setQuery($event)"
-          (create)="startEditing('new')"
-        />
+    <div class="flex min-h-0 flex-1">
+      <main class="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div class="flex flex-col gap-3 px-3.5 pt-3.5 pb-6 wide:p-6">
+          <aura-schedule-toolbar
+            [segment]="store.segment()"
+            [query]="store.query()"
+            [canCreate]="store.canCreate()"
+            (segmentChange)="store.setSegment($event)"
+            (queryChange)="store.setQuery($event)"
+            (create)="startEditing('new')"
+          />
 
-        @for (vm of cards(); track vm.id) {
-          <aura-event-card [vm]="vm" (opened)="openId.set(vm.id)" (rsvp)="quickRsvp(vm.id, $event)" />
-        } @empty {
-          @if (store.loaded()) {
-            <div class="rounded-lg border-2 border-dashed border-ink px-4 py-7 text-center text-[15px] font-medium">
-              No events found.
-            </div>
-          }
+          <div class="grid items-start gap-3 wide:grid-cols-[repeat(auto-fill,minmax(300px,1fr))]">
+            @for (vm of cards(); track vm.id) {
+              <aura-event-card [vm]="vm" (opened)="openId.set(vm.id)" (rsvp)="quickRsvp(vm.id, $event)" />
+            } @empty {
+              @if (store.loaded()) {
+                <div
+                  class="col-span-full rounded-lg border-2 border-dashed border-ink px-4 py-7 text-center text-[15px] font-medium"
+                >
+                  No events found.
+                </div>
+              }
+            }
+          </div>
+        </div>
+      </main>
+
+      @if (detail(); as vm) {
+        @if (viewport.wide()) {
+          <aside class="w-[360px] shrink-0 border-l-2 border-ink full:w-[420px]">
+            <aura-event-detail
+              class="block h-full"
+              [vm]="vm"
+              [pane]="true"
+              (edit)="startEditing(openEvent())"
+              (confirmed)="confirmRsvp($event)"
+              (scoreSaved)="saveScore($event)"
+            />
+          </aside>
+        } @else {
+          <aura-event-detail
+            [vm]="vm"
+            (closed)="openId.set(null)"
+            (edit)="startEditing(openEvent())"
+            (confirmed)="confirmRsvp($event)"
+            (scoreSaved)="saveScore($event)"
+          />
         }
-      </div>
-    </main>
-
-    @if (detail(); as vm) {
-      <aura-event-detail
-        [vm]="vm"
-        (closed)="openId.set(null)"
-        (edit)="startEditing(openEvent())"
-        (confirmed)="confirmRsvp($event)"
-        (scoreSaved)="saveScore($event)"
-      />
-    }
+      }
+    </div>
     @if (editing(); as target) {
       <aura-event-form
         [event]="target === 'new' ? null : target"
@@ -81,6 +104,7 @@ export class SchedulePage {
   protected readonly store = inject(ScheduleStore);
   protected readonly club = inject(ClubStore);
   private readonly toaster = inject(Toaster);
+  protected readonly viewport = inject(Viewport);
 
   protected readonly openId = signal<string | null>(null);
   protected readonly editing = signal<ClubEvent | 'new' | null>(null);
@@ -101,6 +125,7 @@ export class SchedulePage {
         teamShort: e.team === 'ALL' ? 'CLUB' : e.team,
         when: formatEventWhen(e) + (e.type === 'game' ? ` · ${e.home ? 'Home' : 'Away'}` : ''),
         location: e.location,
+        selected: this.viewport.wide() && e.id === this.openId(),
         upcoming,
         allGoing: attendees.length > 0 && statuses.every((s) => s === 'going'),
         allOut: attendees.length > 0 && statuses.every((s) => s === 'out'),
@@ -163,6 +188,21 @@ export class SchedulePage {
     this.club.isClubStaff() ? 'ALL' : (this.club.myTeams()[0] ?? ''),
   );
 
+  constructor() {
+    // Wide screens always show an event in the side pane: keep it on one that is listed.
+    effect(() => {
+      if (!this.viewport.wide()) return;
+      const ids = this.store.listed().map((e) => e.id);
+      const open = this.openId();
+      if (ids.length && (!open || !ids.includes(open))) untracked(() => this.openId.set(ids[0]));
+    });
+  }
+
+  /** Sheets close after an action; the wide side pane stays put. */
+  private closeDetail(): void {
+    if (!this.viewport.wide()) this.openId.set(null);
+  }
+
   protected startEditing(target: ClubEvent | 'new' | null): void {
     this.save.reset();
     this.editing.set(target);
@@ -209,7 +249,7 @@ export class SchedulePage {
       this.toaster.show(
         `${this.who(e, attendeeIds)}: ${status ? RSVP_LABEL[status].toLowerCase() : 'undecided'} · ${eventTitle(e)}`,
       );
-      this.openId.set(null);
+      this.closeDetail();
     } catch {
       this.toaster.show('Could not save your RSVP. Try again.');
     }
@@ -225,7 +265,7 @@ export class SchedulePage {
     try {
       await this.store.saveScore(e.id, { us: Number(us), them: Number(them) });
       this.toaster.show(`Score saved: ${us}–${them}`);
-      this.openId.set(null);
+      this.closeDetail();
     } catch {
       this.toaster.show('Could not save the score. Try again.');
     }
@@ -237,6 +277,6 @@ export class SchedulePage {
     if (!ok) return;
     this.toaster.show(isEdit ? 'Event updated. Members notified.' : 'Event created. Members notified.');
     this.editing.set(null);
-    this.openId.set(null);
+    this.closeDetail();
   }
 }

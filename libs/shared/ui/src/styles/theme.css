@@ -12,6 +12,10 @@
   --color-subtle: #6b6b6b;
   --color-scrim: rgb(0 0 0 / 0.55);
 
+  /* Layout breakpoints. `wide` must match WIDE_QUERY in @aura/shared/util (Viewport). */
+  --breakpoint-wide: 56.25rem; /* 900px: side nav, side-by-side panes */
+  --breakpoint-full: 75rem; /* 1200px: labelled sidebar, wider panes */
+
   --animate-sheet-up: sheet-up 0.22s ease-out;
   --animate-fade-in: fade-in 0.15s ease-out;
 
@@ -83,6 +87,26 @@
   .card-row {
     @apply flex w-full items-center gap-3 border-b border-ink bg-paper px-3 py-2.5 text-left text-ink last:border-b-0;
   }
+  /* Rows inside a .card that flow into columns on wide screens. */
+  .card-grid {
+    @apply grid;
+  }
+  @variant wide {
+    .card-grid {
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      margin: 0 -1px -1px 0;
+    }
+    .card-grid > *,
+    .card-grid > *:last-child {
+      border-right-width: 1px;
+      border-bottom-width: 1px;
+    }
+  }
+  /* Tiles and cards that flow into columns on wide screens. */
+  .tile-grid {
+    @apply grid gap-2.5 wide:grid-cols-[repeat(auto-fill,minmax(300px,1fr))];
+  }
+
   .tile {
     @apply flex items-center gap-3 rounded-lg border-2 border-ink bg-paper p-3 text-left text-ink active:bg-pressed;
   }

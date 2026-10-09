@@ -25,14 +25,14 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
-    <aura-app-header [clubName]="club.club()?.name ?? ''" [logoUrl]="club.club()?.logoUrl" />
+    <aura-app-header [clubName]="club.club()?.name ?? ''" [logoUrl]="club.club()?.logoUrl" title="Roster" />
 
     <main class="min-h-0 flex-1 overflow-y-auto">
       @if (selected(); as teamId) {
-        <div class="flex flex-col gap-3 px-3.5 pt-3.5 pb-6">
+        <div class="flex max-w-[1100px] flex-col gap-3 px-3.5 pt-3.5 pb-6 wide:p-6">
           @if (tabs().length > 1) {
             <aura-chips
-              class="-mx-3.5 px-3.5"
+              class="-mx-3.5 px-3.5 wide:mx-0 wide:px-0"
               [scroll]="true"
               [options]="tabs()"
               [value]="teamId"
@@ -47,19 +47,23 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
           </div>
 
           <h2 class="label-caps text-[13px]">TEAM STAFF</h2>
-          <div role="list" class="card">
-            @for (s of staff(); track s.id) {
-              <aura-staff-row [vm]="s" />
-            } @empty {
-              <div class="card-row text-sm">No staff assigned.</div>
-            }
+          <div class="card">
+            <div role="list" class="card-grid">
+              @for (s of staff(); track s.id) {
+                <aura-staff-row [vm]="s" />
+              } @empty {
+                <div class="card-row text-sm">No staff assigned.</div>
+              }
+            </div>
           </div>
 
           <h2 class="label-caps mt-1 text-[13px]">PLAYERS · {{ players().length }}</h2>
-          <div role="list" class="card">
-            @for (p of players(); track p.id) {
-              <aura-player-row [vm]="p" />
-            }
+          <div class="card">
+            <div role="list" class="card-grid">
+              @for (p of players(); track p.id) {
+                <aura-player-row [vm]="p" />
+              }
+            </div>
           </div>
 
           @if (invited().length) {
