@@ -66,6 +66,7 @@ const CLUB_TABLES = [
   'threads',
   'thread_members',
   'messages',
+  'club_settings',
 ];
 
 async function fingerprint(clubId: string): Promise<string> {

@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { ChatStore } from '@aura/chat/data-access';
 import { ClubStore } from '@aura/club/data-access';
 import {
+  ClubSettingsForm,
   CopiedValue,
   LinkPlayerForm,
   LinkPlayerValue,
@@ -23,11 +24,11 @@ import {
   TeamForm,
   TeamFormValue,
 } from '@aura/club/ui';
-import { PlayerProfile, TeamId } from '@aura/shared/models';
+import { ClubSettings, PlayerProfile, TeamId } from '@aura/shared/models';
 import { AppHeader, Chips, Choice } from '@aura/shared/ui';
 import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shared/util';
 
-/** More tab container: profile, player access, teams and the demo account switcher. */
+/** More tab container: profile, player access, teams, club settings and the demo account switcher. */
 @Component({
   selector: 'aura-account-page',
   imports: [
@@ -41,6 +42,7 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
     TeamForm,
     MemberInvited,
     MemberForm,
+    ClubSettingsForm,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
@@ -85,6 +87,23 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
                   <aura-team-card [vm]="t" (opened)="openTeam(t.id)" />
                 }
               </div>
+            </section>
+          }
+
+          @if (club.isClubStaff()) {
+            <section class="flex flex-col gap-2.5 px-3.5 py-[18px] wide:px-6">
+              <h2 class="heading-section">CLUB SETTINGS</h2>
+              <button
+                type="button"
+                class="flex items-center justify-between gap-3 rounded-md border-2 border-ink px-3.5 py-3 text-left active:bg-pressed wide:max-w-[420px]"
+                (click)="startSettings()"
+              >
+                <span>
+                  <span class="block text-base font-semibold">Announcements</span>
+                  <span class="block text-[13px]">{{ announcementsSummary() }}</span>
+                </span>
+                <span class="font-display text-sm font-bold tracking-[0.05em]">EDIT</span>
+              </button>
             </section>
           }
 
@@ -153,6 +172,15 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
         (submitted)="saveMe($event)"
       />
     }
+    @if (editingSettings()) {
+      <aura-club-settings-form
+        [settings]="club.settings()"
+        [saving]="save.saving()"
+        [error]="save.error()"
+        (closed)="editingSettings.set(false)"
+        (submitted)="saveSettings($event)"
+      />
+    }
     @if (inviteReady(); as ready) {
       <aura-member-invited [vm]="ready" (copied)="copy($event)" (closed)="inviteReady.set(null)" />
     }
@@ -170,6 +198,7 @@ export class AccountPage {
   protected readonly linking = signal(false);
   protected readonly teamTarget = signal<TeamId | 'new' | null>(null);
   protected readonly editingMe = signal(false);
+  protected readonly editingSettings = signal(false);
   /** Sign-in details for staff just invited with a team, to send them by hand. */
   protected readonly inviteReady = signal<MemberInvitedVm | null>(null);
   /** One sheet is open at a time, so they share a submission state. */
@@ -184,6 +213,10 @@ export class AccountPage {
     if (!me) return null;
     return { name: me.name, info: this.club.roleLine(), email: me.email ?? '' };
   });
+
+  protected readonly announcementsSummary = computed(() =>
+    this.club.settings().announcements === 'staff' ? 'Staff post, everyone reads' : 'Everyone posts',
+  );
 
   protected readonly playerTiles = computed<PlayerAccessVm[]>(() =>
     this.club.myPlayers().map((p) => ({
@@ -280,6 +313,21 @@ export class AccountPage {
     if (!ok) return;
     this.toaster.show('Profile saved.');
     this.editingMe.set(false);
+  }
+
+  protected startSettings(): void {
+    this.save.reset();
+    this.editingSettings.set(true);
+  }
+
+  protected async saveSettings(settings: ClubSettings): Promise<void> {
+    const ok = await this.save.run(
+      () => this.club.saveSettings(settings),
+      errorMessage('Could not save the club settings. Try again.'),
+    );
+    if (!ok) return;
+    this.toaster.show('Club settings saved.');
+    this.editingSettings.set(false);
   }
 
   protected startLinking(): void {

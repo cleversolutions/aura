@@ -275,7 +275,7 @@ export class SchedulePage {
     const isEdit = !!draft.id;
     const ok = await this.save.run(() => this.store.saveEvent(draft), 'Could not save the event. Try again.');
     if (!ok) return;
-    this.toaster.show(isEdit ? 'Event updated. Members notified.' : 'Event created. Members notified.');
+    this.toaster.show(isEdit ? 'Event updated.' : 'Event created.');
     this.editing.set(null);
     this.closeDetail();
   }

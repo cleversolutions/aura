@@ -37,7 +37,7 @@ describe('RosterPage', () => {
     const invite = Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.includes('INVITE MEMBER'));
     invite?.click();
     await fixture.whenStable();
-    expect(el.textContent).toContain('automatically join 3 team-linked threads');
+    expect(el.textContent).toContain('automatically join 3 chat threads');
 
     Array.from(el.querySelectorAll('button'))
       .find((b) => b.textContent?.includes('SEND INVITE'))

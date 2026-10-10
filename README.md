@@ -129,9 +129,13 @@ Only `app.config.ts` (and tests) import `backend/mock`, plus `backend/supabase`'
 Feature code only sees the ports in `@aura/backend/api`; `app.config.ts` binds them to `provideSupabaseBackend()` or
 `provideMockBackend()` depending on the build configuration (`apps/aura/src/environments`).
 
-- **Schema and permissions** live in `supabase/migrations`. The SQL helpers `is_thread_member`, `can_manage_thread`
-  and `can_edit_event` mirror `permissions.ts`; change both together. `npm run test:supabase` checks SQL and
-  TypeScript agree on every seeded thread's members.
+- **Schema and permissions** live in `supabase/migrations`. The SQL helpers `thread_member_ids`, `is_thread_member`,
+  `can_read_thread`, `can_post_in_thread`, `can_moderate_thread`, `can_manage_thread` and `can_edit_event` mirror
+  `permissions.ts`; change both together. `npm run test:supabase` checks SQL and TypeScript agree on every seeded
+  thread's members.
+- **Club settings** (`club_settings`, one row per club, edited by club staff under More → Club settings) hold
+  club-wide choices; a club without a row has the defaults (`DEFAULT_CLUB_SETTINGS`). Today: who posts in
+  announcement channels.
 - **Edge functions** do the work that needs the service-role key: `create-club` and `update-club` (platform admin)
   `invite-member` (club staff, or team staff for their teams) and `update-member` (yourself, or anyone at the club for
   club staff; a new email moves the person's sign-in) and `manage-invite` (resend with a new temporary password, or
@@ -142,8 +146,13 @@ Feature code only sees the ports in `@aura/backend/api`; `app.config.ts` binds t
 - **Preview** (`usePreview`) shows a club's real branding over the mock's in-memory sample data, so no real club's
   data is ever shown or touched. `libs/backend/supabase/src/lib/preview.ts` is the one place that library imports
   the mock.
-- **Chat** loads up to the newest 1,000 messages per club (PostgREST's row limit) and receives new ones over
-  Realtime; row-level security limits both to the member's threads.
+- **Chat** loads up to the newest 1,000 messages per club (PostgREST's row limit) and receives new ones, edits and
+  deletions over Realtime; row-level security limits all of them to threads the member can read. Default channels
+  have fixed membership: `#club-announcements` (everyone in the club) and each team's `#announcements` and
+  `#general` (everyone on the team). Club staff also read and post in every team's channels without counting as
+  members. `#announcements` and `#club-announcements` are announcement channels: staff post, unless the club setting
+  lets everyone. Senders edit and delete their own messages (`edit_message`, `delete_message`); club staff, and a
+  team's staff in its threads, delete anyone's. A deleted message keeps its place as "Message deleted".
 
 Commands (local Supabase ports: API 54321, database 54322, Studio 54323, Mailpit 54324):
 

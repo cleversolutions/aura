@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(62);
+select plan(91);
 
 -- ---------------------------------------------------------------------------------------------
 -- Fixture: two clubs, each with a Jordan Smith who shares a username but is a different person.
@@ -338,6 +338,156 @@ reset role;
 select is(
   (select pending from public.player_profiles where name = 'Sky Smith' and club_id = 'c0000000-0000-0000-0000-000000000001'),
   true, '... which is pending'
+);
+
+-- ---------------------------------------------------------------------------------------------
+-- Communication: club-wide channel, club staff in team channels, announcement channels, settings,
+-- editing and deleting messages
+-- ---------------------------------------------------------------------------------------------
+
+reset role;
+select ok(
+  (select announce_only from public.threads where id = (select id from fx where name = 'u12g_general')) = false
+  and (select bool_and(announce_only) from public.threads
+       where club_id = 'c0000000-0000-0000-0000-000000000001' and is_default and name = '#announcements'),
+  'team #announcements are announcement channels, #general is not'
+);
+insert into fx
+select 'u12g_ann', id from public.threads
+where club_id = 'c0000000-0000-0000-0000-000000000001' and scope = 'U12G' and name = '#announcements';
+insert into public.threads (id, club_id, name, scope, teams, is_default, announce_only, creator_member_id) values
+  ('d0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', '#club-announcements', 'club', '{}', true, true, 'a0000000-0000-0000-0000-000000000001');
+insert into public.messages (club_id, thread_id, from_member_id, text) values
+  ('c0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'Welcome to the app!');
+-- Rosa joins after the club channel exists, on no team yet.
+insert into auth.users (id, email, aud, role)
+values ('a1000000-0000-0000-0000-000000000008', 'u08@login.aura.invalid', 'authenticated', 'authenticated');
+insert into public.members (id, club_id, user_id, username, name, kind) values
+  ('a0000000-0000-0000-0000-000000000008', 'c0000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000008', 'rosa@spartans.example', 'Rosa Diaz', 'parent');
+
+select set_eq(
+  $$select public.thread_member_ids('d0000000-0000-0000-0000-000000000003')$$,
+  $$select id from public.members where club_id = 'c0000000-0000-0000-0000-000000000001'$$,
+  'the club channel has everyone in the club'
+);
+select ok(
+  'a0000000-0000-0000-0000-000000000001' not in (select public.thread_member_ids((select id from fx where name = 'u12g_general'))),
+  'club staff are not counted as members of team channels'
+);
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000008');
+select ok(public.is_thread_member('d0000000-0000-0000-0000-000000000003'), 'a member who joined later is in the club channel');
+select is(
+  (select text from public.messages where thread_id = 'd0000000-0000-0000-0000-000000000003'),
+  'Welcome to the app!', '... and reads it'
+);
+select throws_ok(
+  $$insert into public.messages (club_id, thread_id, from_member_id, text)
+    values ('c0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000008', 'Hi!')$$,
+  '42501', null, 'parents cannot post in the club channel'
+);
+
+-- Wei, a U12G parent, reads #announcements but cannot post in it.
+select pg_temp.login('a0000000-0000-0000-0000-000000000005');
+select ok(public.can_read_thread((select id from fx where name = 'u12g_ann')), 'parents read their team''s #announcements');
+select throws_ok(
+  $$insert into public.messages (club_id, thread_id, from_member_id, text)
+    values ('c0000000-0000-0000-0000-000000000001', (select id from fx where name = 'u12g_ann'), 'a0000000-0000-0000-0000-000000000005', 'Ride Sunday?')$$,
+  '42501', null, 'parents cannot post in #announcements'
+);
+select throws_ok(
+  $$insert into public.club_settings (club_id, announcements) values ('c0000000-0000-0000-0000-000000000001', 'everyone')$$,
+  '42501', null, 'parents cannot change club settings'
+);
+
+-- Dana, U12G staff, posts in her team's #announcements, not in the club channel.
+select pg_temp.login('a0000000-0000-0000-0000-000000000002');
+select lives_ok(
+  $$insert into public.messages (club_id, thread_id, from_member_id, text)
+    values ('c0000000-0000-0000-0000-000000000001', (select id from fx where name = 'u12g_ann'), 'a0000000-0000-0000-0000-000000000002', 'Gym change Tuesday.')$$,
+  'team staff post in their team''s #announcements'
+);
+select throws_ok(
+  $$insert into public.messages (club_id, thread_id, from_member_id, text)
+    values ('c0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000002', 'Hello club')$$,
+  '42501', null, 'team staff cannot post in the club channel'
+);
+
+-- Mike, U18B staff, has nothing to do with U12G #announcements.
+select pg_temp.login('a0000000-0000-0000-0000-000000000003');
+select ok(not public.can_read_thread((select id from fx where name = 'u12g_ann')), 'other teams'' staff do not read a team''s channels');
+
+-- Sam, club staff: reads and posts in every team channel, and in the club channel.
+select pg_temp.login('a0000000-0000-0000-0000-000000000001');
+select ok(public.can_read_thread((select id from fx where name = 'u12g_general')), 'club staff read every team channel');
+select is(
+  (select count(*)::int from public.threads where is_default and scope = 'U18B'), 2, 'and see them in their thread list'
+);
+select is(
+  (select count(*)::int from public.messages where thread_id = (select id from fx where name = 'u12g_ann')), 1,
+  'and read their messages'
+);
+select lives_ok(
+  $$insert into public.messages (club_id, thread_id, from_member_id, text)
+    values ('c0000000-0000-0000-0000-000000000001', (select id from fx where name = 'u12g_general'), 'a0000000-0000-0000-0000-000000000001', 'Great season!')$$,
+  'club staff post in team channels'
+);
+select lives_ok(
+  $$insert into public.messages (club_id, thread_id, from_member_id, text)
+    values ('c0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'Registration is open.')$$,
+  'club staff post in the club channel'
+);
+select ok(not public.can_read_thread('d0000000-0000-0000-0000-000000000001'), 'but do not read custom threads they are not in');
+select lives_ok(
+  $$insert into public.club_settings (club_id, announcements) values ('c0000000-0000-0000-0000-000000000001', 'everyone')$$,
+  'club staff let everyone post in announcement channels'
+);
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000005');
+select lives_ok(
+  $$insert into public.messages (club_id, thread_id, from_member_id, text)
+    values ('c0000000-0000-0000-0000-000000000001', (select id from fx where name = 'u12g_ann'), 'a0000000-0000-0000-0000-000000000005', 'Thanks coach!')$$,
+  '... then parents post in #announcements'
+);
+select is(public.club_announcements('c0000000-0000-0000-0000-000000000002'), 'staff', 'other clubs keep the default');
+
+-- Editing and deleting messages. Wei's 'Spare shoes?' is in U12G #general.
+reset role;
+insert into fx
+select 'wei_msg', id from public.messages where text = 'Spare shoes?';
+insert into fx
+select 'priya_msg', id from public.messages where text = 'Thanks!' and from_member_id = 'a0000000-0000-0000-0000-000000000007';
+select pg_temp.login('a0000000-0000-0000-0000-000000000005');
+select is(
+  (select text from public.edit_message((select id from fx where name = 'wei_msg'), ' Spare shoes, size 6? ')),
+  'Spare shoes, size 6?', 'authors edit their own messages'
+);
+select isnt((select edited_at from public.messages where id = (select id from fx where name = 'wei_msg')), null, '... marked edited');
+select throws_ok(
+  $$select public.edit_message((select id from fx where name = 'priya_msg'), 'Hacked')$$,
+  '42501', null, 'nobody edits other people''s messages'
+);
+select throws_ok(
+  $$select public.delete_message((select id from fx where name = 'priya_msg'))$$,
+  '42501', null, 'parents cannot delete other people''s messages'
+);
+select throws_ok(
+  $$update public.messages set text = 'Hacked' where id = (select id from fx where name = 'priya_msg')$$,
+  '42501', null, 'messages are only changed through edit_message and delete_message'
+);
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000003');
+select throws_ok(
+  $$select public.delete_message((select id from fx where name = 'priya_msg'))$$,
+  '42501', null, 'staff of another team cannot delete messages'
+);
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000002');
+select lives_ok($$select public.delete_message((select id from fx where name = 'priya_msg'))$$, 'team staff delete messages in their team''s channels');
+reset role;
+select ok(
+  (select text = '' and deleted_at is not null from public.messages where id = (select id from fx where name = 'priya_msg')),
+  '... which keeps the message, without its text'
 );
 
 select * from finish();

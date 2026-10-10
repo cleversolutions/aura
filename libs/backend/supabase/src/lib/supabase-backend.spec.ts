@@ -275,6 +275,77 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       expect(events[0]).toMatchObject({ type: 'message', threadId: general.id, message: { from: weiId } });
     }, 15000);
 
+    it('keeps announcement channels to staff, unless club staff let everyone post', async () => {
+      const { auth, chat, directory } = setup();
+      const jordan = await auth.signIn({
+        clubSlug: SPARTANS_SLUG,
+        username: 'jordan.smith@email.com',
+        password: 'password',
+      });
+      const threads = await chat.listThreads();
+      const ann = threads.find((t) => t.name === '#announcements' && t.scope === 'U12G')!;
+      expect(threads.find((t) => t.name === '#club-announcements')).toMatchObject({
+        scope: 'club',
+        isDefault: true,
+        announceOnly: true,
+      });
+      expect((await directory.load()).settings).toEqual({ announcements: 'staff' });
+      await expect(chat.sendMessage(ann.id, jordan.userId, 'Ride Sunday?')).rejects.toThrow(/permission/);
+      await expect(directory.saveSettings({ announcements: 'everyone' })).rejects.toThrow(/permission/);
+
+      await auth.signOut();
+      const sam = await auth.signIn({
+        clubSlug: SPARTANS_SLUG,
+        username: 'sam@spartans.example',
+        password: 'password',
+      });
+      cleanups.push(() => service.from('club_settings').delete().eq('club_id', clubIds[0]));
+      const general = (await chat.listThreads()).find((t) => t.name === '#general' && t.scope === 'U18B')!;
+      const fromSam = await chat.sendMessage(general.id, sam.userId, 'Great game, U18B!');
+      cleanups.push(() => service.from('messages').delete().eq('id', fromSam.id));
+      expect(await directory.saveSettings({ announcements: 'everyone' })).toEqual({ announcements: 'everyone' });
+
+      await auth.signOut();
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'jordan.smith@email.com', password: 'password' });
+      expect((await directory.load()).settings).toEqual({ announcements: 'everyone' });
+      const posted = await chat.sendMessage(ann.id, jordan.userId, 'Thanks coach!');
+      cleanups.push(() => service.from('messages').delete().eq('id', posted.id));
+    });
+
+    it('edits and deletes messages, and delivers both in realtime', async () => {
+      const { auth, chat } = setup();
+      const jordan = await auth.signIn({
+        clubSlug: SPARTANS_SLUG,
+        username: 'jordan.smith@email.com',
+        password: 'password',
+      });
+      const general = (await chat.listThreads()).find((t) => t.name === '#general' && t.scope === 'U12G')!;
+      const mine = await chat.sendMessage(general.id, jordan.userId, 'Spare shoes?');
+      cleanups.push(() => service.from('messages').delete().eq('id', mine.id));
+      const events: ChatEvent[] = [];
+      const stop = chat.subscribe((e) => events.push(e));
+      cleanups.push(async () => stop());
+      await new Promise((r) => setTimeout(r, 3000)); // let the channel join
+
+      const edited = await chat.editMessage(general.id, mine.id, ' Spare shoes, size 6? ');
+      expect(edited).toMatchObject({ id: mine.id, text: 'Spare shoes, size 6?' });
+      expect(edited.editedAt).toBeTruthy();
+      const theirs = general.messages.find((m) => m.from !== jordan.userId)!;
+      await expect(chat.editMessage(general.id, theirs.id, 'Hacked')).rejects.toThrow(/permission/);
+      await expect(chat.deleteMessage(general.id, theirs.id)).rejects.toThrow(/permission/);
+      await until(() => events.length > 0);
+      expect(events[0]).toMatchObject({
+        type: 'updated',
+        threadId: general.id,
+        message: { text: 'Spare shoes, size 6?' },
+      });
+
+      // Dana coaches U12G: she moderates its channels.
+      await auth.signOut();
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'dana@spartans.example', password: 'password' });
+      expect(await chat.deleteMessage(general.id, mine.id)).toMatchObject({ id: mine.id, text: '', deleted: true });
+    }, 15000);
+
     it('creates threads and updates who is in them', async () => {
       const { auth, chat } = setup();
       const session = await auth.signIn({
@@ -332,8 +403,12 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       expect(dir.users.find((u) => u.id === dana)?.teams).toContain('U9B');
       expect(invite?.user).toMatchObject({ name: 'Quinn Lam', kind: 'staff', teams: ['U9B'], invited: true });
       await expect(directory.saveTeam({ name: 'U9 Boys', staffIds: [] })).rejects.toThrow('U9 Boys already exists.');
-      // Club staff are not auto-included in the new team's default channels.
-      expect((await chat.listThreads()).filter((t) => t.scope === 'U9B')).toHaveLength(0);
+      // Club staff read the new team's default channels without being members of them.
+      const u9b = (await chat.listThreads()).filter((t) => t.scope === 'U9B');
+      expect(u9b.map((t) => [t.name, t.announceOnly]).sort()).toEqual([
+        ['#announcements', true],
+        ['#general', false],
+      ]);
 
       await auth.signOut();
       const quinn = await auth.signIn({
@@ -537,7 +612,9 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
         );
         expect(threads.data!.length).toBeGreaterThan(4);
         for (const t of threads.data!) {
-          const membership: Pick<Thread, 'teams' | 'include' | 'members' | 'creatorId'> = {
+          const membership: Pick<Thread, 'teams' | 'include' | 'members' | 'creatorId' | 'isDefault' | 'scope'> = {
+            isDefault: t.is_default,
+            scope: t.scope,
             teams: t.teams,
             include: { staff: t.include_staff, parents: t.include_parents, players: t.include_players },
             members: threadMembers.data!.filter((m) => m.thread_id === t.id).map((m) => m.member_id),

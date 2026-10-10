@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
-import { PlayerProfile, TeamId, UserId, UserKind } from '@aura/shared/models';
+import { AnnouncementsPosting, ClubSettings, PlayerProfile, TeamId, UserId, UserKind } from '@aura/shared/models';
 import { Check, Chips, Choice, Segmented, Sheet } from '@aura/shared/ui';
 
 export type InviteKind = Exclude<UserKind, 'club'>;
@@ -44,7 +44,7 @@ export interface InviteFormValue {
         />
       </label>
       <p class="text-[13px] leading-snug">
-        They will be added to {{ teamName() }} and automatically join {{ linkedCount() }} team-linked thread{{
+        They will be added to {{ teamName() }} and automatically join {{ linkedCount() }} chat thread{{
           linkedCount() === 1 ? '' : 's'
         }}.
       </p>
@@ -58,7 +58,7 @@ export interface InviteFormValue {
 export class InviteForm {
   readonly teamOptions = input.required<Choice<TeamId>[]>();
   readonly initialTeam = input.required<TeamId>();
-  /** team → invite kind → number of threads they would join automatically. */
+  /** team → invite kind → number of chat threads they would join automatically (club-wide ones too). */
   readonly linkedThreadCounts = input<Record<TeamId, Record<InviteKind, number>>>({});
   readonly saving = input(false);
   readonly error = input('');
@@ -581,5 +581,53 @@ export class AddPlayerForm {
       parentIds: this.parents(),
       ...(this.ownLogin() ? { email } : {}),
     });
+  }
+}
+
+/** Club-wide choices for club staff: for now, who posts in announcement channels. */
+@Component({
+  selector: 'aura-club-settings-form',
+  imports: [Sheet, Segmented],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <aura-sheet title="CLUB SETTINGS" (closed)="closed.emit()">
+      <div class="label-caps" id="announcements-label">WHO POSTS ANNOUNCEMENTS</div>
+      <aura-segmented
+        aria-labelledby="announcements-label"
+        [options]="announcementOptions"
+        [(value)]="announcements"
+        [fontSize]="16"
+      />
+      <p class="text-[13px] leading-snug">
+        @if (announcements() === 'staff') {
+          Club staff post in #club-announcements, and club staff and each team’s staff in that team’s #announcements.
+          Everyone else reads them.
+        } @else {
+          Everyone in an announcement channel can post in it, like in #general.
+        }
+      </p>
+      @if (error()) {
+        <div class="error-box" role="alert">⚠ {{ error() }}</div>
+      }
+      <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">SAVE</button>
+    </aura-sheet>
+  `,
+})
+export class ClubSettingsForm {
+  readonly settings = input.required<ClubSettings>();
+  readonly saving = input(false);
+  readonly error = input('');
+
+  readonly submitted = output<ClubSettings>();
+  readonly closed = output<void>();
+
+  protected readonly announcementOptions: Choice<AnnouncementsPosting>[] = [
+    { value: 'staff', label: 'STAFF ONLY' },
+    { value: 'everyone', label: 'EVERYONE' },
+  ];
+  protected readonly announcements = linkedSignal(() => this.settings().announcements);
+
+  protected submit(): void {
+    this.submitted.emit({ ...this.settings(), announcements: this.announcements() });
   }
 }

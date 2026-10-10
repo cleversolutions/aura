@@ -117,7 +117,9 @@ or the "club created" screen). Each person then chooses their own.
   (typo)
 - Then the invite-ready sheet shows her sign-in.
 - And Jenn appears under INVITED as "Parent · invited as jenn@<run>.exmaple".
-- Known issue (G2): the toast says "Added to 0 U11 Boys threads"; for club staff the count is wrong.
+- And the toast says "Jenn Buell invited. Added to 3 chat threads automatically." (#club-announcements, and U11B
+  #announcements and #general).
+- And no toast or sheet claims anyone was emailed or notified (G25).
 
 **US-3.2 Fix a typo in an invite, then resend it** ✅
 
@@ -225,14 +227,19 @@ or the "club created" screen). Each person then chooses their own.
 
 - Today one tap marks both Evan and Davis going.
 
-**US-4.9 Post a club announcement everyone receives** ❌ G1
+**US-4.9 Post a club announcement everyone receives** ✅ (G1)
 
 - When Casey posts in #club-announcements
-- Then every member of the club sees it. Today the thread has 1 member: Casey.
+- Then every member of the club sees it, including people invited after it was posted: the header says
+  "Club-wide · N members" with everyone in the club.
+- And the coach and parents have no composer there: "Only club staff post in club announcements."
 
-**US-4.10 Club admin messages a team** ❌ G2
+**US-4.10 Club admin messages a team** ✅ (G2)
 
-- Club staff don't see teams' #announcements or #general.
+- When Casey opens Chat
+- Then TEAM CHANNELS lists every team's #announcements and #general.
+- When she opens U11B #general and sends "Gym change Tuesday"
+- Then the coach and parents see it; the header still counts the team only ("U11 Boys · 3 members").
 
 **US-4.11 Coach posts to the team** ✅
 
@@ -241,6 +248,21 @@ or the "club created" screen). Each person then chooses their own.
 - And parents see it as unread.
 
 **US-4.12 Record a game score** ✅ (seen in the demo club; not run in the new club, which had no past games)
+
+**US-4.13 Edit or delete a message** ✅ (G34)
+
+- When Evan taps ⋯ on his own message in U11B #general, changes the text and presses SAVE
+- Then everyone sees the new text, marked "edited".
+- When he deletes it instead
+- Then everyone sees "Message deleted" in its place.
+- When Evan (U11B staff) or Casey (club staff) taps ⋯ on Jenn's message in a U11B channel and confirms DELETE
+- Then it shows as "Message deleted". Parents get ⋯ only on their own messages.
+
+**US-4.14 Let everyone post announcements** ✅ (G4 setting)
+
+- When Casey opens More → CLUB SETTINGS → Announcements, picks EVERYONE and presses SAVE
+- Then parents get a composer in #announcements and #club-announcements.
+- Coaches and parents have no CLUB SETTINGS.
 
 ---
 
@@ -275,9 +297,11 @@ or the "club created" screen). Each person then chooses their own.
 - Then Ava shows on her More tab as "Pending team staff approval".
 - Missing: staff can't see or approve the request, and Ava already appears in the PARENTS line for Jenn.
 
-**US-5.6 Parents can't post in #announcements** ❌ G4
+**US-5.6 Parents can't post in #announcements** ✅ (G4)
 
-- Today Jenn's message posts.
+- When Jenn opens U11B #announcements
+- Then there's no composer: "Only club staff and U11 Boys staff post announcements."
+- And the database refuses her message too (unless the club lets everyone post, US-4.14).
 
 **US-5.7 Player access shows co-parents** ✅
 

@@ -1,6 +1,6 @@
 import { Injectable, InjectionToken, inject } from '@angular/core';
 import { ClubSession } from '@aura/backend/api';
-import { PlatformAdmin } from '@aura/shared/models';
+import { PlatformAdmin, User } from '@aura/shared/models';
 import { CLOCK } from '@aura/shared/util';
 import { DEMO_PLATFORM_ADMIN, MockClub, SPARTANS_SLUG, createMockClubs } from './clubs';
 import { MockData, createSeed } from './seed';
@@ -69,6 +69,12 @@ export class MockDb {
 
   get data(): MockData {
     return this.club.data;
+  }
+
+  /** Who is signed in to the active club (or the preview's sample club staff). */
+  me(): User | undefined {
+    const meId = this.preview?.session.userId ?? this.sessions.get(this.activeSlug)?.userId;
+    return this.data.users.find((u) => u.id === meId);
   }
 
   startPreview(account: MockClub['account']): void {

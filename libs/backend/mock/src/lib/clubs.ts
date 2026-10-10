@@ -1,6 +1,6 @@
 import { DemoAccount } from '@aura/backend/api';
 import { ClubAccount, PlatformAdmin, Thread, User, UserId } from '@aura/shared/models';
-import { ALL_GROUPS, addDays, isoDate } from '@aura/shared/util';
+import { ALL_GROUPS, DEFAULT_CLUB_SETTINGS, addDays, isoDate } from '@aura/shared/util';
 import { MockData, createSeed } from './seed';
 
 export interface MockCredential {
@@ -54,12 +54,13 @@ function defaultThreads(teamId: string): Thread[] {
     members: [],
     creatorId: null,
     isDefault: true,
+    announceOnly: suffix === 'ann',
     messages: [],
     unread: 0,
   }));
 }
 
-/** A new club: just its admin and a club-wide announcements thread. */
+/** A new club: just its admin and the club-wide announcements channel. */
 export function createEmptyClubData(admin: User): MockData {
   return {
     teams: [],
@@ -76,12 +77,14 @@ export function createEmptyClubData(admin: User): MockData {
         include: { ...ALL_GROUPS },
         members: [],
         creatorId: admin.id,
-        isDefault: false,
+        isDefault: true,
+        announceOnly: true,
         messages: [],
         unread: 0,
       },
     ],
     muted: [],
+    settings: { ...DEFAULT_CLUB_SETTINGS },
   };
 }
 
@@ -145,11 +148,12 @@ function createPanthersSeed(now: Date): MockData {
         id: 'club-ann',
         name: '#club-announcements',
         scope: 'club',
-        teams: ['U11G', 'U13B'],
+        teams: [],
         include: { ...ALL_GROUPS },
         members: [],
         creatorId: 'morgan',
-        isDefault: false,
+        isDefault: true,
+        announceOnly: true,
         messages: [
           {
             id: 'pm1',
@@ -164,6 +168,7 @@ function createPanthersSeed(now: Date): MockData {
       ...defaultThreads('U13B'),
     ],
     muted: [],
+    settings: { ...DEFAULT_CLUB_SETTINGS },
   };
 }
 

@@ -130,6 +130,22 @@ export class SupabaseChatRepository extends ChatRepository {
     return toMessage(data);
   }
 
+  async editMessage(threadId: string, messageId: string, text: string): Promise<ChatMessage> {
+    if (this.clients.previewing) return this.preview.chat.editMessage(threadId, messageId, text);
+    const { data, error } = await this.clients
+      .active()
+      .client.rpc('edit_message', { p_message: messageId, p_text: text });
+    if (error) throw dbError(error, 'Could not edit the message.');
+    return toMessage(data);
+  }
+
+  async deleteMessage(threadId: string, messageId: string): Promise<ChatMessage> {
+    if (this.clients.previewing) return this.preview.chat.deleteMessage(threadId, messageId);
+    const { data, error } = await this.clients.active().client.rpc('delete_message', { p_message: messageId });
+    if (error) throw dbError(error, 'Could not delete the message.');
+    return toMessage(data);
+  }
+
   async markRead(threadId: string): Promise<void> {
     if (this.clients.previewing) return this.preview.chat.markRead(threadId);
     const { error } = await this.clients.active().client.rpc('mark_thread_read', { p_thread: threadId });
@@ -167,7 +183,10 @@ export class SupabaseChatRepository extends ChatRepository {
     };
   }
 
-  /** New messages from other people in the active club. Row-level security limits them to my threads. */
+  /**
+   * New messages from other people in the active club, and edits and deletions of any message.
+   * Row-level security limits both to threads I can read.
+   */
   private async reconnect(): Promise<void> {
     const generation = ++this.generation;
     if (this.channel) {
@@ -190,6 +209,14 @@ export class SupabaseChatRepository extends ChatRepository {
         ({ new: row }) => {
           if (row.from_member_id === me) return;
           const event: ChatEvent = { type: 'message', threadId: row.thread_id, message: toMessage(row) };
+          this.listeners.forEach((l) => l(event));
+        },
+      )
+      .on<MessageRow>(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `club_id=eq.${club.id}` },
+        ({ new: row }) => {
+          const event: ChatEvent = { type: 'updated', threadId: row.thread_id, message: toMessage(row) };
           this.listeners.forEach((l) => l(event));
         },
       )

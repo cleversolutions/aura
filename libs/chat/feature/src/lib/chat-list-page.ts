@@ -74,6 +74,17 @@ const badge = (t: Thread) => (t.scope === 'club' ? 'CLUB' : t.scope);
               }
             </div>
 
+            @if (teamChannels().length) {
+              <h2 class="border-b-2 border-ink px-3.5 pt-5 pb-1.5 font-display text-[13px] font-bold tracking-[0.08em]">
+                TEAM CHANNELS
+              </h2>
+              <div role="list">
+                @for (row of teamChannels(); track row.id) {
+                  <aura-thread-list-item [vm]="row" />
+                }
+              </div>
+            }
+
             @if (others().length) {
               <h2 class="border-b-2 border-ink px-3.5 pt-5 pb-1.5 font-display text-[13px] font-bold tracking-[0.08em]">
                 OTHER THREADS YOU MANAGE
@@ -147,24 +158,31 @@ export class ChatListPage {
   protected readonly settingsOpen = signal(false);
   protected readonly create = new Submission();
 
-  protected readonly rows = computed<ThreadListItemVm[]>(() => {
+  protected readonly rows = computed<ThreadListItemVm[]>(() =>
+    this.chat.myThreads().map(({ thread }) => this.row(thread)),
+  );
+
+  /** Club staff: every team's default channels, which they read and post in without being members. */
+  protected readonly teamChannels = computed<ThreadListItemVm[]>(() =>
+    this.chat.teamChannels().map(({ thread }) => this.row(thread)),
+  );
+
+  private row(t: Thread): ThreadListItemVm {
     const me = this.club.meId();
-    const now = this.now();
-    return this.chat.myThreads().map(({ thread: t }) => {
-      const last = t.messages.at(-1);
-      const sender = last && (last.from === me ? 'You' : firstName(this.club.user(last.from)?.name ?? '?'));
-      return {
-        id: t.id,
-        link: ['/', this.club.slug() ?? '', 'chat', t.id],
-        name: t.name,
-        badge: badge(t),
-        time: last ? formatMessageTime(last.sentAt, now) : '',
-        snippet: last ? `${sender}: ${last.text}` : 'No messages yet',
-        unread: t.unread,
-        muted: this.chat.isMuted(t.id),
-      };
-    });
-  });
+    const last = t.messages.at(-1);
+    const sender = last && (last.from === me ? 'You' : firstName(this.club.user(last.from)?.name ?? '?'));
+    const text = last?.deleted ? 'Message deleted' : last?.text;
+    return {
+      id: t.id,
+      link: ['/', this.club.slug() ?? '', 'chat', t.id],
+      name: t.name,
+      badge: badge(t),
+      time: last ? formatMessageTime(last.sentAt, this.now()) : '',
+      snippet: last ? `${sender}: ${text}` : 'No messages yet',
+      unread: t.unread,
+      muted: this.chat.isMuted(t.id),
+    };
+  }
 
   protected readonly others = computed<ManagedThreadVm[]>(() =>
     this.chat.managedElsewhere().map(({ thread: t, members }) => ({

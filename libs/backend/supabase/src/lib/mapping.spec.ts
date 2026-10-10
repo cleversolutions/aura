@@ -8,7 +8,9 @@ import {
   teamIdFor,
   toClub,
   toEvent,
+  toMessage,
   toRsvpMap,
+  toSettings,
   toThread,
   toUser,
 } from './mapping';
@@ -115,6 +117,8 @@ describe('mapping', () => {
       from_member_id: 'm1',
       text: id,
       sent_at: at,
+      edited_at: null,
+      deleted_at: null,
     });
     const grouped = messagesByThread([
       msg('b', 't1', '2026-10-05T10:00:00+00:00'),
@@ -135,6 +139,7 @@ describe('mapping', () => {
         include_players: true,
         creator_member_id: null as unknown as string,
         is_default: false,
+        announce_only: false,
         created_at: '2026-10-05T09:00:00+00:00',
         members: ['m2'],
         unread: 2,
@@ -148,6 +153,18 @@ describe('mapping', () => {
       unread: 2,
     });
     expect(thread.messages).toHaveLength(2);
+    expect(thread.messages[0]).not.toHaveProperty('editedAt');
+    expect(thread.messages[0]).not.toHaveProperty('deleted');
+  });
+
+  it('maps edited and deleted messages, and club settings with their defaults', () => {
+    const row = { id: 'm', from_member_id: 'u', text: '', sent_at: '2026-10-05T09:00:00+00:00' };
+    expect(toMessage({ ...row, edited_at: '2026-10-05T09:05:00+00:00', deleted_at: null })).toMatchObject({
+      editedAt: '2026-10-05T09:05:00.000Z',
+    });
+    expect(toMessage({ ...row, deleted_at: '2026-10-05T09:06:00+00:00' })).toMatchObject({ deleted: true });
+    expect(toSettings(null)).toEqual({ announcements: 'staff' });
+    expect(toSettings({ announcements: 'everyone' })).toEqual({ announcements: 'everyone' });
   });
 
   it('derives team ids from names like the mock', () => {

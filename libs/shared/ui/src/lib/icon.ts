@@ -9,6 +9,7 @@ export type IconName =
   | 'chevron-right'
   | 'close'
   | 'menu'
+  | 'more'
   | 'person-circle'
   | 'roster'
   | 'search'
@@ -44,6 +45,10 @@ const ICONS: Record<IconName, IconDef> = {
   menu: {
     body: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>',
     stroke: 2.2,
+  },
+  more: {
+    body: '<circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/>',
+    filled: true,
   },
   'person-circle': {
     body: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3.2"/><path d="M6 18.5c1.4-2.3 3.5-3.4 6-3.4s4.6 1.1 6 3.4"/>',

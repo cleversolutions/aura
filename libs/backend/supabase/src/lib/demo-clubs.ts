@@ -220,16 +220,18 @@ export async function seedDemoClub(
   );
   if (rsvps.length) must(await db.from('rsvps').insert(rsvps), 'RSVPs');
 
-  // Threads: custom ones keep the mock's order (newest first); default ones already exist.
+  // Threads: the others keep the mock's order (newest first); team default channels already exist
+  // (the teams trigger makes them), the club's default channel does not.
+  const teamDefault = (t: (typeof data.threads)[number]) => t.isDefault && t.scope !== 'club';
   const defaults = must(
     await db.from('threads').select('id, scope, name').eq('club_id', clubId).eq('is_default', true),
     'Default threads',
   );
   const threadIds = new Map<string, string>();
   const start = Date.now();
-  const custom = data.threads.filter((t) => !t.isDefault);
+  const custom = data.threads.filter((t) => !teamDefault(t));
   for (const t of data.threads) {
-    if (t.isDefault) {
+    if (teamDefault(t)) {
       const row = defaults.find((d) => d.scope === t.scope && d.name === t.name);
       if (!row) throw new Error(`No default thread ${t.scope} ${t.name}`);
       threadIds.set(t.id, row.id);
@@ -250,6 +252,8 @@ export async function seedDemoClub(
           include_parents: t.include.parents,
           include_players: t.include.players,
           creator_member_id: member(t.creatorId),
+          is_default: t.isDefault,
+          announce_only: t.announceOnly,
           created_at: new Date(start - i * 1000).toISOString(),
         })),
       ),
