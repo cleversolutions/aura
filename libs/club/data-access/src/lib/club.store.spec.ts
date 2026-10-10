@@ -205,4 +205,42 @@ describe('ClubStore', () => {
     await expect(store.resendInvite(store.meId()!)).rejects.toThrow();
     await expect(store.signIn('ty@x.example', ty.temporaryPassword)).rejects.toThrow();
   });
+
+  it('lets team staff add players with several parents, including staff, or with their own sign-in', async () => {
+    const store = await setup('dana');
+    expect(
+      await store.addPlayer({ team: 'U12G', name: 'Davis Moore', jersey: '', parentIds: ['dana', 'wei-chen'] }),
+    ).toBeNull();
+    const davis = store.profiles().find((p) => p.name === 'Davis Moore');
+    expect(davis).toMatchObject({ team: 'U12G', jersey: '–', parentIds: ['dana', 'wei-chen'], userId: null });
+    expect(store.myPlayers().map((p) => p.name)).toEqual(['Davis Moore']);
+    expect(store.canEditProfile(davis!)).toBe(true);
+
+    const invite = await store.addPlayer({
+      team: 'U12G',
+      name: 'Ola Diaz',
+      jersey: '3',
+      parentIds: [],
+      email: 'ola@x.example',
+    });
+    expect(invite?.user).toMatchObject({ kind: 'player', teams: ['U12G'], invited: true });
+    expect(store.profiles().find((p) => p.name === 'Ola Diaz')).toMatchObject({
+      userId: invite?.user.id,
+      login: 'ola@x.example',
+    });
+
+    await store.setPlayerParents(davis!.id, ['wei-chen']);
+    expect(store.profiles().find((p) => p.id === davis!.id)?.parentIds).toEqual(['wei-chen']);
+    await expect(store.addPlayer({ team: 'U18B', name: 'X', jersey: '', parentIds: [] })).rejects.toThrow(
+      'Only club staff',
+    );
+
+    await store.signOut();
+    await store.signIn('wei-chen@spartans.example', 'password');
+    expect(store.myPlayers().map((p) => p.name)).toContain('Davis Moore');
+    await expect(store.addPlayer({ team: 'U12G', name: 'X', jersey: '', parentIds: [] })).rejects.toThrow(
+      'Only club staff',
+    );
+    await expect(store.setPlayerParents(davis!.id, [])).rejects.toThrow('Only club staff');
+  });
 });

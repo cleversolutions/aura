@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { PlayerProfile } from '@aura/shared/models';
-import { InviteForm, MemberForm, PlayerProfileForm, TeamForm } from './forms';
+import { AddPlayerForm, InviteForm, MemberForm, PlayerProfileForm, TeamForm } from './forms';
 import { CopiedValue, MemberInvited } from './member-invited';
 import { TeamCard } from './people';
 import { PersonDetails, PersonDetailsVm } from './person-details';
@@ -87,7 +87,7 @@ describe('PlayerProfileForm', () => {
     name: 'Eli Smith',
     jersey: '1',
     team: 'U18B',
-    parentId: 'jordan',
+    parentIds: ['jordan'],
     userId: 'eli',
     login: 'eli.smith@email.com',
   };
@@ -227,5 +227,45 @@ describe('PersonDetails', () => {
     await fixture.whenStable();
     click(el, 'CANCEL INVITE');
     expect(events).toEqual(['resend', 'cancel']);
+  });
+});
+
+describe('AddPlayerForm', () => {
+  it('needs a parent or the player’s own email, then emits the player', async () => {
+    const fixture = TestBed.createComponent(AddPlayerForm);
+    fixture.componentRef.setInput('teamName', 'U11 Boys');
+    fixture.componentRef.setInput('parentOptions', [
+      { id: 'evan', name: 'Evan Moore', sub: 'Team Staff' },
+      { id: 'jenn', name: 'Jenn Buell', sub: 'Parent' },
+    ]);
+    const emitted: unknown[] = [];
+    fixture.componentInstance.submitted.subscribe((v) => emitted.push(v));
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const add = () =>
+      Array.from(el.querySelectorAll<HTMLButtonElement>('button'))
+        .filter((b) => b.textContent?.trim() === 'ADD PLAYER')[0]
+        ?.click();
+
+    type(el, 'input', 'Davis Moore');
+    add();
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Choose a parent');
+
+    click(el, 'Evan Moore');
+    click(el, 'Jenn Buell');
+    add();
+    expect(emitted).toEqual([{ name: 'Davis Moore', jersey: '', parentIds: ['evan', 'jenn'] }]);
+
+    click(el, 'Signs in themselves');
+    await fixture.whenStable();
+    type(el, 'input[type=email]', 'davis@x.example');
+    add();
+    expect(emitted[1]).toEqual({
+      name: 'Davis Moore',
+      jersey: '',
+      parentIds: ['evan', 'jenn'],
+      email: 'davis@x.example',
+    });
   });
 });

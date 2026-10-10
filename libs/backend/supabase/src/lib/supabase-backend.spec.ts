@@ -384,6 +384,53 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       );
     });
 
+    it('lets team staff add players with several parents, or with their own sign-in', async () => {
+      const { auth, directory } = setup();
+      const dana = await auth.signIn({
+        clubSlug: SPARTANS_SLUG,
+        username: 'dana@spartans.example',
+        password: 'password',
+      });
+      const wei = await memberId(SPARTANS_SLUG, 'wei-chen@spartans.example');
+      const managed = await directory.addPlayer({
+        team: 'U12G',
+        name: 'Davis Moore',
+        jersey: '',
+        parentIds: [dana.userId, wei],
+      });
+      const own = await directory.addPlayer({
+        team: 'U12G',
+        name: 'Ola Diaz',
+        jersey: '3',
+        parentIds: [],
+        email: 'ola@x.example',
+      });
+      cleanups.push(async () => {
+        await service.from('player_profiles').delete().in('id', [managed.profile.id, own.profile.id]);
+        const { data } = await service.from('members').select('id, user_id').eq('username', 'ola@x.example');
+        for (const m of data ?? []) {
+          if (m.user_id) await service.auth.admin.deleteUser(m.user_id);
+          await service.from('members').delete().eq('id', m.id);
+        }
+      });
+
+      expect(managed.invite).toBeNull();
+      expect(managed.profile).toMatchObject({ name: 'Davis Moore', jersey: '–', userId: null });
+      expect(managed.profile.parentIds.sort()).toEqual([dana.userId, wei].sort());
+      expect(own.invite?.user).toMatchObject({ kind: 'player', invited: true });
+      expect(own.profile).toMatchObject({ userId: own.invite?.user.id, login: 'ola@x.example', parentIds: [] });
+
+      expect((await directory.setPlayerParents(managed.profile.id, [wei])).parentIds).toEqual([wei]);
+      await expect(directory.addPlayer({ team: 'U18B', name: 'X', jersey: '', parentIds: [] })).rejects.toThrow(
+        /permission/,
+      );
+
+      await auth.signOut();
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'wei-chen@spartans.example', password: 'password' });
+      expect((await directory.load()).profiles.find((p) => p.id === managed.profile.id)?.parentIds).toEqual([wei]);
+      await expect(directory.setPlayerParents(managed.profile.id, [])).rejects.toThrow(/permission/);
+    });
+
     it('lets a parent request a player link and edit their own players', async () => {
       const { auth, directory } = setup();
       const session = await auth.signIn({
@@ -402,7 +449,7 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
         name: 'Sky Smith',
         jersey: '–',
         pending: true,
-        parentId: session.userId,
+        parentIds: [session.userId],
         userId: null,
       });
       expect(await directory.updateProfile({ id: link.id, name: 'Skye Smith', jersey: '9', login: '' })).toMatchObject({

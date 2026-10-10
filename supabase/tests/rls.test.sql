@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(50);
+select plan(62);
 
 -- ---------------------------------------------------------------------------------------------
 -- Fixture: two clubs, each with a Jordan Smith who shares a username but is a different person.
@@ -49,11 +49,18 @@ insert into public.team_members (club_id, member_id, team_id) values
   ('c0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000012', 'U13B'),
   ('c0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000013', 'U13B');
 
-insert into public.player_profiles (id, club_id, name, jersey, team_id, parent_member_id, user_member_id) values
-  ('f0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'Maya Smith', '8', 'U12G', 'a0000000-0000-0000-0000-000000000004', null),
-  ('f0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001', 'Ava Chen', '4', 'U12G', 'a0000000-0000-0000-0000-000000000005', null),
-  ('f0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', 'Eli Smith', '1', 'U18B', 'a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000006'),
-  ('f0000000-0000-0000-0000-000000000011', 'c0000000-0000-0000-0000-000000000002', 'Sky Smith', '12', 'U13B', 'a0000000-0000-0000-0000-000000000012', null);
+insert into public.player_profiles (id, club_id, name, jersey, team_id, user_member_id) values
+  ('f0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'Maya Smith', '8', 'U12G', null),
+  ('f0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001', 'Ava Chen', '4', 'U12G', null),
+  ('f0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', 'Eli Smith', '1', 'U18B', 'a0000000-0000-0000-0000-000000000006'),
+  ('f0000000-0000-0000-0000-000000000011', 'c0000000-0000-0000-0000-000000000002', 'Sky Smith', '12', 'U13B', null);
+-- Maya has two parents: Jordan, and Dana, who is also U12G staff.
+insert into public.player_parents (club_id, profile_id, member_id) values
+  ('c0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000004'),
+  ('c0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002'),
+  ('c0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000005'),
+  ('c0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000004'),
+  ('c0000000-0000-0000-0000-000000000002', 'f0000000-0000-0000-0000-000000000011', 'a0000000-0000-0000-0000-000000000012');
 
 insert into public.events (id, club_id, type, team, location) values
   ('e0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'practice', 'U12G', 'Northview'),
@@ -283,6 +290,55 @@ select pg_temp.logout();
 select is((select count(*)::int from public.club_public where slug like 'tst-%'), 2, 'anonymous users read public branding');
 select throws_ok('select * from public.clubs', '42501', null, 'but not the clubs table');
 select throws_ok('select * from public.members', '42501', null, 'or club content');
+
+-- ---------------------------------------------------------------------------------------------
+-- Players: several parents, staff who are parents, and who adds and edits players
+-- ---------------------------------------------------------------------------------------------
+
+-- Dana coaches U12G and is Maya's parent: she RSVPs for Maya, not for Ava.
+select pg_temp.login('a0000000-0000-0000-0000-000000000002');
+select ok(public.can_rsvp_for('f0000000-0000-0000-0000-000000000001'), 'a coach who is a parent RSVPs for their player');
+select ok(not public.can_rsvp_for('f0000000-0000-0000-0000-000000000002'), 'but not for other players');
+select lives_ok(
+  $$select public.add_player('U12G', 'Davis Moore', '7', array['a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000007']::uuid[], null)$$,
+  'team staff add a player with two parents and no email'
+);
+select is(
+  (select count(*)::int from public.player_parents pp join public.player_profiles p on p.id = pp.profile_id where p.name = 'Davis Moore'),
+  2, '... linked to both parents'
+);
+select throws_ok(
+  $$select public.add_player('U18B', 'Nope', '', '{}', null)$$,
+  '42501', null, 'team staff cannot add players to other teams'
+);
+select lives_ok(
+  $$update public.player_profiles set jersey = '9' where id = 'f0000000-0000-0000-0000-000000000002'$$,
+  'team staff edit players on their team'
+);
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000004');
+select ok(public.can_rsvp_for('f0000000-0000-0000-0000-000000000001'), 'the other parent still RSVPs for Maya');
+select throws_ok(
+  $$select public.add_player('U12G', 'Nope', '', '{}', null)$$,
+  '42501', null, 'parents cannot add players'
+);
+select throws_ok(
+  $$select public.set_player_parents('f0000000-0000-0000-0000-000000000001', '{}')$$,
+  '42501', null, 'parents cannot change a player''s parents'
+);
+select throws_ok(
+  $$insert into public.player_parents (club_id, profile_id, member_id) values ('c0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000004')$$,
+  '42501', null, 'nobody writes player_parents directly'
+);
+select lives_ok(
+  $$select public.request_player_link('U12G', 'Sky Smith', '')$$,
+  'a parent requests a pending link for their player'
+);
+reset role;
+select is(
+  (select pending from public.player_profiles where name = 'Sky Smith' and club_id = 'c0000000-0000-0000-0000-000000000001'),
+  true, '... which is pending'
+);
 
 select * from finish();
 rollback;

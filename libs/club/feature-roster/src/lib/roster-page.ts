@@ -3,6 +3,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSign
 import { ChatStore } from '@aura/chat/data-access';
 import { ClubStore } from '@aura/club/data-access';
 import {
+  AddPlayerForm,
+  AddPlayerValue,
   CopiedValue,
   InviteForm,
   InviteFormValue,
@@ -12,7 +14,9 @@ import {
   MemberInvitedVm,
   DetailFieldVm,
   PersonDetails,
+  PersonDetailsValue,
   PersonDetailsVm,
+  ParentOptionVm,
   PersonRowVm,
   PlayerRow,
   PlayerRowVm,
@@ -31,7 +35,7 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
 /** Roster tab container: picks the team and builds staff, player and invite lists. */
 @Component({
   selector: 'aura-roster-page',
-  imports: [AppHeader, Chips, StaffRow, PlayerRow, InvitedRow, InviteForm, MemberInvited, PersonDetails],
+  imports: [AppHeader, Chips, StaffRow, PlayerRow, InvitedRow, InviteForm, MemberInvited, PersonDetails, AddPlayerForm],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
@@ -51,9 +55,14 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
           }
           <div class="flex items-center justify-between">
             <h1 class="font-display text-2xl font-bold uppercase">{{ club.teamName(teamId) }}</h1>
-            @if (canInvite()) {
-              <button type="button" class="btn-small" (click)="startInviting()">INVITE MEMBER</button>
-            }
+            <div class="flex gap-2">
+              @if (club.canManageTeam(teamId)) {
+                <button type="button" class="btn-small" (click)="startAddingPlayer()">ADD PLAYER</button>
+              }
+              @if (canInvite()) {
+                <button type="button" class="btn-small" (click)="startInviting()">INVITE MEMBER</button>
+              }
+            </div>
           </div>
 
           <h2 class="label-caps text-[13px]">TEAM STAFF</h2>
@@ -72,6 +81,17 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
             <div role="list" class="card-grid">
               @for (p of players(); track p.id) {
                 <aura-player-row [vm]="p" (opened)="open('profile', p.id)" />
+              }
+            </div>
+          </div>
+
+          <h2 class="label-caps mt-1 text-[13px]">PARENTS · {{ parents().length }}</h2>
+          <div class="card">
+            <div role="list" class="card-grid">
+              @for (p of parents(); track p.id) {
+                <aura-staff-row [vm]="p" (opened)="open('user', p.id)" />
+              } @empty {
+                <div class="card-row text-sm">No parents yet.</div>
               }
             </div>
           </div>
@@ -97,6 +117,16 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
         [error]="invite.error()"
         (closed)="inviting.set(false)"
         (submitted)="sendInvite($event)"
+      />
+    }
+    @if (addingPlayer() && selected(); as teamId) {
+      <aura-add-player-form
+        [teamName]="club.teamName(teamId)"
+        [parentOptions]="parentOptions()"
+        [saving]="playerWork.saving()"
+        [error]="playerWork.error()"
+        (closed)="addingPlayer.set(false)"
+        (submitted)="addPlayer(teamId, $event)"
       />
     }
     @if (details(); as d) {
@@ -125,6 +155,8 @@ export class RosterPage {
   readonly team = input<TeamId | undefined>();
 
   protected readonly inviting = signal(false);
+  protected readonly addingPlayer = signal(false);
+  protected readonly playerWork = new Submission();
   protected readonly invite = new Submission();
   /** Whose details are open: a member, or a player profile. */
   protected readonly opened = signal<{ kind: 'user' | 'profile'; id: string } | null>(null);
@@ -190,17 +222,62 @@ export class RosterPage {
     const mine = new Set(this.club.myPlayers().map((p) => p.id));
     return this.club
       .profiles()
-      .filter((p) => p.team === id && (!p.pending || p.parentId === me))
+      .filter((p) => p.team === id && (!p.pending || (!!me && p.parentIds.includes(me))))
       .map((p) => {
         const isMine = mine.has(p.id);
-        const parent = this.club.user(p.parentId);
+        const parents = this.names(p.parentIds);
         const sub = isMine
-          ? (persona === 'player' ? 'You' : 'Your player') + (p.pending ? ' · pending approval' : '')
-          : [p.userId ? 'Own login' : '', parent ? `Parent: ${parent.name}` : ''].filter(Boolean).join(' · ');
+          ? (p.userId === me && persona === 'player' ? 'You' : 'Your player') + (p.pending ? ' · pending approval' : '')
+          : [p.userId ? 'Own login' : '', parents ? `Parents: ${parents}` : ''].filter(Boolean).join(' · ');
         return { id: p.id, name: p.name, jersey: p.jersey, mine: isMine, sub };
       })
       .sort((a, b) => (Number(a.jersey) || 99) - (Number(b.jersey) || 99));
   });
+
+  /**
+   * Parents on this team: parent members of the team, and anyone (a coach, say) who is the parent
+   * of one of its players.
+   */
+  protected readonly parents = computed<PersonRowVm[]>(() => {
+    const id = this.selected();
+    const me = this.club.meId();
+    const players = this.club.profiles().filter((p) => p.team === id);
+    const linked = new Set(players.flatMap((p) => p.parentIds));
+    return this.club
+      .users()
+      .filter((u) => !u.invited && ((u.kind === 'parent' && !!id && u.teams.includes(id)) || linked.has(u.id)))
+      .map((u) => {
+        const children = players.filter((p) => p.parentIds.includes(u.id)).map((p) => p.name);
+        const role = u.kind === 'parent' ? '' : `${KIND_LABEL[u.kind]} · `;
+        return {
+          id: u.id,
+          name: u.name + (u.id === me ? ' (you)' : ''),
+          sub: role + (children.length ? `Parent of ${children.join(', ')}` : 'No player linked yet'),
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  });
+
+  /** Who can be ticked as a player's parent: the team's parents and staff (a coach can be a parent). */
+  protected readonly parentOptions = computed<ParentOptionVm[]>(() => {
+    const id = this.selected();
+    return this.club
+      .users()
+      .filter((u) => (u.kind === 'parent' || u.kind === 'staff') && !!id && u.teams.includes(id))
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        sub: KIND_LABEL[u.kind] + (u.invited ? ' · invited' : ''),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  });
+
+  private names(ids: string[]): string {
+    return ids
+      .map((id) => this.club.user(id)?.name)
+      .filter(Boolean)
+      .join(', ');
+  }
 
   protected readonly invited = computed<PersonRowVm[]>(() => {
     const id = this.selected();
@@ -234,7 +311,7 @@ export class RosterPage {
   }
 
   private userDetails(user: User): PersonDetailsVm {
-    const children = this.club.profiles().filter((p) => p.parentId === user.id);
+    const children = this.club.profiles().filter((p) => p.parentIds.includes(user.id));
     const fields: DetailFieldVm[] = [
       { key: 'name', label: 'NAME', value: user.name, editable: true, required: true, editOnly: true },
       {
@@ -264,8 +341,14 @@ export class RosterPage {
   }
 
   private profileDetails(p: PlayerProfile): PersonDetailsVm {
-    const parent = this.club.user(p.parentId);
     const player = this.club.user(p.userId);
+    // Current parents stay listed even if they are not on the team.
+    const options = [
+      ...this.parentOptions(),
+      ...p.parentIds
+        .filter((id) => !this.parentOptions().some((o) => o.id === id))
+        .map((id) => ({ id, name: this.club.user(id)?.name ?? 'Unknown', sub: 'Not on this team' })),
+    ];
     // A separate login is for older players (16+), as on the More tab.
     const loginEditable = ageOf(p.team) >= 16 || !!p.login;
     return {
@@ -276,7 +359,14 @@ export class RosterPage {
       fields: [
         { key: 'name', label: 'NAME', value: p.name, editable: true, required: true, editOnly: true },
         { key: 'jersey', label: 'JERSEY', value: p.jersey, editable: true, required: true, editOnly: true },
-        { key: 'parent', label: 'PARENT', value: parent?.name ?? '', editable: false },
+        {
+          key: 'parents',
+          label: 'PARENTS',
+          value: this.names(p.parentIds),
+          editable: this.club.canManageTeam(p.team),
+          options: options.map((o) => ({ id: o.id, label: o.name, sub: o.sub })),
+          selected: p.parentIds,
+        },
         {
           key: 'login',
           label: 'OWN LOGIN',
@@ -295,27 +385,53 @@ export class RosterPage {
     this.opened.set({ kind, id });
   }
 
-  protected async saveDetails(values: Record<string, string>): Promise<void> {
+  protected async saveDetails(values: PersonDetailsValue): Promise<void> {
     const target = this.opened();
     if (!target) return;
-    const ok = await this.detailsWork.run(
-      () =>
-        target.kind === 'user'
-          ? this.club.updateMember({
-              id: target.id,
-              name: values['name'],
-              email: values['email'],
-              ...('title' in values ? { title: values['title'] } : {}),
-            })
-          : this.club.updateProfile({
-              id: target.id,
-              name: values['name'],
-              jersey: values['jersey'],
-              login: values['login'] ?? this.club.profiles().find((p) => p.id === target.id)?.login ?? '',
-            }),
-      errorMessage('Could not save their details. Try again.'),
-    );
-    if (ok) this.toaster.show(`${values['name']} saved.`);
+    const text = (key: string) => {
+      const v = values[key];
+      return typeof v === 'string' ? v : undefined;
+    };
+    const ok = await this.detailsWork.run(async () => {
+      if (target.kind === 'user') {
+        const title = text('title');
+        await this.club.updateMember({
+          id: target.id,
+          name: text('name') ?? '',
+          email: text('email') ?? '',
+          ...(title !== undefined ? { title } : {}),
+        });
+        return;
+      }
+      const profile = this.club.profiles().find((p) => p.id === target.id);
+      const parents = values['parents'];
+      if (profile && Array.isArray(parents) && parents.join() !== profile.parentIds.join()) {
+        await this.club.setPlayerParents(target.id, parents);
+      }
+      await this.club.updateProfile({
+        id: target.id,
+        name: text('name') ?? '',
+        jersey: text('jersey') ?? '',
+        login: text('login') ?? profile?.login ?? '',
+      });
+    }, errorMessage('Could not save their details. Try again.'));
+    if (ok) this.toaster.show(`${text('name')} saved.`);
+  }
+
+  protected startAddingPlayer(): void {
+    this.playerWork.reset();
+    this.addingPlayer.set(true);
+  }
+
+  protected async addPlayer(team: TeamId, value: AddPlayerValue): Promise<void> {
+    let invite: MemberInvite | null = null;
+    const ok = await this.playerWork.run(async () => {
+      invite = await this.club.addPlayer({ team, ...value });
+    }, errorMessage('Could not add the player. Try again.'));
+    if (!ok) return;
+    this.addingPlayer.set(false);
+    this.toaster.show(`${value.name} added to ${this.club.teamName(team)}.`);
+    if (invite) this.inviteReady.set(this.readyVm(invite));
   }
 
   protected async resendInvite(): Promise<void> {

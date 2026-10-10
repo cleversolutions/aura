@@ -52,7 +52,7 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
         <div class="max-w-[1100px]">
           <aura-profile-header [vm]="me" [editable]="true" (edited)="startEditingMe()" />
 
-          @if (club.persona() === 'parent' || club.persona() === 'player') {
+          @if (club.persona() === 'parent' || club.persona() === 'player' || club.myPlayers().length) {
             <section class="flex flex-col gap-2.5 px-3.5 py-[18px] wide:px-6">
               <h2 class="heading-section">PLAYER ACCESS</h2>
               <div class="tile-grid">
@@ -191,9 +191,18 @@ export class AccountPage {
       name: p.name,
       jersey: p.jersey,
       teamName: this.club.teamName(p.team),
-      access: p.pending ? 'Pending team staff approval' : p.login ? `Has own login · ${p.login}` : 'Managed by you',
+      access: p.pending ? 'Pending team staff approval' : p.login ? `Has own login · ${p.login}` : this.managedBy(p),
     })),
   );
+
+  /** `Managed by you`, or `Managed by you and Jenn Buell` when there are other parents. */
+  private managedBy(p: PlayerProfile): string {
+    const others = p.parentIds
+      .filter((id) => id !== this.club.meId())
+      .map((id) => this.club.user(id)?.name)
+      .filter(Boolean);
+    return `Managed by ${['you', ...others].join(' and ')}`;
+  }
 
   protected readonly teamCards = computed<TeamCardVm[]>(() => {
     const users = this.club.users();

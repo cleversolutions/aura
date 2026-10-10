@@ -19,6 +19,8 @@ import {
   SaveTeamResult,
   ScheduleRepository,
   UpdateMemberInput,
+  AddPlayerInput,
+  AddPlayerResult,
   SignInInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
@@ -278,7 +280,10 @@ export class MockDirectoryRepository extends DirectoryRepository {
 
   updateProfile(input: UpdateProfileInput): Promise<PlayerProfile> {
     const profile = this.db.data.profiles.find((p) => p.id === input.id);
-    if (!profile) return Promise.reject(new Error('Player not found.'));
+    if (!profile) return this.db.fail('Player not found.');
+    const me = this.me();
+    const actsFor = !!me && (profile.parentIds.includes(me.id) || profile.userId === me.id);
+    if (!actsFor && !this.managesTeam(profile.team)) return this.db.fail('You don’t have permission to do that.');
     Object.assign(profile, { name: input.name, jersey: input.jersey, login: input.login });
     return this.db.respond(profile);
   }
@@ -289,12 +294,55 @@ export class MockDirectoryRepository extends DirectoryRepository {
       name: input.name,
       jersey: input.jersey || '–',
       team: input.team,
-      parentId: input.parentId,
+      parentIds: [input.parentId],
       userId: null,
       login: '',
       pending: true,
     };
     this.db.data.profiles.push(profile);
+    return this.db.respond(profile);
+  }
+
+  /** Club staff, or staff of `team`. */
+  private managesTeam(team: string): boolean {
+    const me = this.me();
+    return !!me && (me.kind === 'club' || (me.kind === 'staff' && me.teams.includes(team)));
+  }
+
+  /** Members of this club only, as the real backend's foreign keys require. */
+  private clubMembers(ids: UserId[]): UserId[] {
+    return [...new Set(ids)].filter((id) => this.db.data.users.some((u) => u.id === id));
+  }
+
+  addPlayer({ team, name, jersey, parentIds, email }: AddPlayerInput): Promise<AddPlayerResult> {
+    if (!this.managesTeam(team)) return this.db.fail('Only club staff and this team’s staff can add players.');
+    if (!name.trim()) return this.db.fail('Enter the player’s name.');
+    let invite: MemberInvite | null = null;
+    if (email) {
+      const result = this.invite({ team, kind: 'player', name: name.trim(), email });
+      if (result instanceof Error) return this.db.fail(result.message);
+      invite = result;
+    }
+    const profile: PlayerProfile = {
+      id: this.db.nextId('p'),
+      name: name.trim(),
+      jersey: jersey.trim() || '–',
+      team,
+      parentIds: this.clubMembers(parentIds),
+      userId: invite?.user.id ?? null,
+      login: email ?? '',
+    };
+    this.db.data.profiles.push(profile);
+    return this.db.respond({ profile, invite });
+  }
+
+  setPlayerParents(profileId: string, parentIds: UserId[]): Promise<PlayerProfile> {
+    const profile = this.db.data.profiles.find((p) => p.id === profileId);
+    if (!profile) return this.db.fail('Player not found.');
+    if (!this.managesTeam(profile.team)) {
+      return this.db.fail('Only club staff and this team’s staff can change a player’s parents.');
+    }
+    profile.parentIds = this.clubMembers(parentIds);
     return this.db.respond(profile);
   }
 }

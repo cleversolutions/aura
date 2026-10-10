@@ -167,4 +167,58 @@ describe('RosterPage', () => {
       expect(el.textContent).not.toContain('Rae Moss');
     });
   });
+
+  it('registers a player whose parents are the coach and a parent without a player yet', async () => {
+    const { fixture, el } = await render('dana');
+    const club = TestBed.inject(ClubStore);
+    const settle = async () => {
+      await fixture.whenStable();
+      await fixture.whenStable();
+    };
+    const button = (text: string, root: ParentNode = el) =>
+      Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
+        b.textContent?.trim().startsWith(text),
+      );
+
+    // Jenn accepts her invite: she is a parent on the team with no player yet.
+    const invite = await club.inviteMember({
+      team: 'U12G',
+      kind: 'parent',
+      name: 'Jenn Buell',
+      email: 'jenn@x.example',
+    });
+    await club.signOut();
+    await club.signIn('jenn@x.example', invite.temporaryPassword);
+    await club.changePassword('jenn-own-password');
+    await club.signOut();
+    await club.signIn('dana@spartans.example', 'password');
+    await settle();
+    expect(el.textContent).toContain('Jenn Buell');
+    expect(el.textContent).toContain('No player linked yet');
+
+    button('ADD PLAYER')?.click();
+    await settle();
+    const form = el.querySelector('aura-add-player-form')!;
+    const name = form.querySelector<HTMLInputElement>('input')!;
+    name.value = 'Davis Moore';
+    name.dispatchEvent(new Event('input'));
+    const tick = (name: string) =>
+      Array.from(form.querySelectorAll<HTMLButtonElement>('button.card-row'))
+        .find((b) => b.textContent?.includes(name))
+        ?.click();
+    tick('Dana Reyes');
+    tick('Jenn Buell');
+    button('ADD PLAYER', form)?.click();
+    await settle();
+
+    expect(el.querySelector('aura-add-player-form [role=alert]')?.textContent ?? '').toBe('');
+    expect(el.querySelector('aura-add-player-form')).toBeNull();
+    const davis = club.profiles().find((p) => p.name === 'Davis Moore');
+    expect(davis?.parentIds.sort()).toEqual(['dana', invite.user.id].sort());
+    expect(el.textContent).toContain('Parent of Davis Moore');
+    expect(el.textContent).toContain('Team Staff · Parent of Davis Moore');
+    expect(el.textContent).not.toContain('No player linked yet');
+    // Dana is Davis's parent, so he shows as her player.
+    expect(club.myPlayers().map((p) => p.name)).toEqual(['Davis Moore']);
+  });
 });
