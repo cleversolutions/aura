@@ -36,6 +36,7 @@ import {
   PlayerProfile,
   RsvpStatus,
   Score,
+  TeamId,
   Thread,
   ThreadMembership,
   User,
@@ -45,11 +46,14 @@ import {
   ALL_GROUPS,
   canDeleteMessage,
   canEditMessage,
+  canChangeMemberTeam,
   canManageInvite,
+  canManageTeam,
   canPostInThread,
   canRemoveMember,
   canResetPassword,
   canReadThread,
+  canSeeContact,
   effectiveMembers,
   temporaryPassword,
 } from '@aura/shared/util';
@@ -159,12 +163,19 @@ function toClub({ id, slug, name, logoUrl, ink, paper, icons }: ClubAccount): Cl
 export class MockDirectoryRepository extends DirectoryRepository {
   private readonly db = inject(MockDb);
 
+  /** The directory as the signed-in member may see it: emails only where `canSeeContact`. */
   private snapshot(): Directory {
     const { teams, users, profiles, settings } = this.db.data;
+    const me = this.me();
     return {
       club: toClub(this.db.club.account),
       teams,
-      users: users.map((u) => this.withAdmin(u)),
+      users: users.map((u) => {
+        const user = this.withAdmin(u);
+        if (me && canSeeContact(me, user, settings, profiles)) return user;
+        const { email: _hidden, ...rest } = user;
+        return rest;
+      }),
       profiles,
       settings,
     };
@@ -344,7 +355,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
     club.credentials = club.credentials.filter((c) => c.userId !== id);
     for (const p of data.profiles) {
       p.parentIds = p.parentIds.filter((x) => x !== id);
-      if (p.userId === id) Object.assign(p, { userId: null, login: '' });
+      if (p.userId === id) p.userId = null;
     }
     for (const t of data.threads) {
       t.members = t.members.filter((x) => x !== id);
@@ -380,8 +391,79 @@ export class MockDirectoryRepository extends DirectoryRepository {
     const me = this.me();
     const actsFor = !!me && (profile.parentIds.includes(me.id) || profile.userId === me.id);
     if (!actsFor && !this.managesTeam(profile.team)) return this.db.fail('You don’t have permission to do that.');
-    Object.assign(profile, { name: input.name, jersey: input.jersey, login: input.login });
+    Object.assign(profile, { name: input.name, jersey: input.jersey });
     return this.db.respond(profile);
+  }
+
+  setMemberTeams(id: UserId, teams: TeamId[]): Promise<User> {
+    const user = this.db.data.users.find((u) => u.id === id);
+    if (!user) return this.db.fail('Member not found.');
+    const me = this.me();
+    const wanted = [...new Set(teams)].filter((t) => this.db.data.teams.some((x) => x.id === t));
+    const changed = [
+      ...wanted.filter((t) => !user.teams.includes(t)),
+      ...user.teams.filter((t) => !wanted.includes(t)),
+    ];
+    const denied = changed.find((t) => !me || !canChangeMemberTeam(me, user, t));
+    if (denied) return this.db.fail(`You can’t change who is on ${denied}.`);
+    user.teams = wanted.sort();
+    return this.db.respond(this.withAdmin(user));
+  }
+
+  /** The profile `id`, if the signed-in member manages its team. */
+  private managedProfile(id: string, action: string): PlayerProfile | Error {
+    const profile = this.db.data.profiles.find((p) => p.id === id);
+    if (!profile) return new Error('Player not found.');
+    if (!this.managesTeam(profile.team))
+      return new Error(`Only club staff and this team’s staff can ${action} players.`);
+    return profile;
+  }
+
+  approvePlayer(id: string): Promise<PlayerProfile> {
+    const profile = this.managedProfile(id, 'approve');
+    if (profile instanceof Error) return this.db.fail(profile.message);
+    delete profile.pending;
+    return this.db.respond(profile);
+  }
+
+  removePlayer(id: string): Promise<void> {
+    const profile = this.managedProfile(id, 'remove');
+    if (profile instanceof Error) return this.db.fail(profile.message);
+    const data = this.db.data;
+    data.profiles = data.profiles.filter((p) => p.id !== id);
+    for (const forEvent of Object.values(data.rsvps)) delete forEvent[id];
+    return this.db.respond(undefined);
+  }
+
+  /** As move_player() does: parents and the player's own sign-in follow them to the new team. */
+  movePlayer(id: string, team: TeamId): Promise<Directory> {
+    const profile = this.managedProfile(id, 'move');
+    if (profile instanceof Error) return this.db.fail(profile.message);
+    const data = this.db.data;
+    const old = profile.team;
+    if (old === team) return this.db.respond(this.snapshot());
+    if (!data.teams.some((t) => t.id === team)) return this.db.fail('Team not found.');
+    if (!this.managesTeam(team)) return this.db.fail('You can only move players to teams you manage.');
+    profile.team = team;
+    for (const e of data.events.filter((e) => e.team === old)) delete data.rsvps[e.id]?.[id];
+    for (const u of data.users) {
+      const isPlayer = u.id === profile.userId && u.kind === 'player';
+      const isParent = u.kind === 'parent' && profile.parentIds.includes(u.id);
+      if (!isPlayer && !isParent) continue;
+      const stays = isParent && data.profiles.some((p) => p.id !== id && p.team === old && p.parentIds.includes(u.id));
+      u.teams = [...new Set([...u.teams.filter((t) => stays || t !== old), team])].sort();
+    }
+    return this.db.respond(this.snapshot());
+  }
+
+  givePlayerSignIn(id: string, email: string): Promise<MemberInvite> {
+    const profile = this.managedProfile(id, 'invite');
+    if (profile instanceof Error) return this.db.fail(profile.message);
+    if (profile.userId) return this.db.fail(`${profile.name} already has their own sign-in.`);
+    const invite = this.invite({ team: profile.team, kind: 'player', name: profile.name, email });
+    if (invite instanceof Error) return this.db.fail(invite.message);
+    profile.userId = invite.user.id;
+    return this.db.respond(invite);
   }
 
   requestPlayerLink(input: LinkPlayerInput): Promise<PlayerProfile> {
@@ -392,7 +474,6 @@ export class MockDirectoryRepository extends DirectoryRepository {
       team: input.team,
       parentIds: [input.parentId],
       userId: null,
-      login: '',
       pending: true,
     };
     this.db.data.profiles.push(profile);
@@ -402,7 +483,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   /** Club staff, or staff of `team`. */
   private managesTeam(team: string): boolean {
     const me = this.me();
-    return !!me && (me.kind === 'club' || (me.kind === 'staff' && me.teams.includes(team)));
+    return !!me && canManageTeam(me, team);
   }
 
   /** Members of this club only, as the real backend's foreign keys require. */
@@ -426,7 +507,6 @@ export class MockDirectoryRepository extends DirectoryRepository {
       team,
       parentIds: this.clubMembers(parentIds),
       userId: invite?.user.id ?? null,
-      login: email ?? '',
     };
     this.db.data.profiles.push(profile);
     return this.db.respond({ profile, invite });

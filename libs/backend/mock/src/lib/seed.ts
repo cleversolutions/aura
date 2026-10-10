@@ -157,12 +157,9 @@ export function createSeed(now: Date): MockData {
         team: team.id,
         parentIds: parentId ? [parentId] : [],
         userId,
-        login: userId ? `${userId}@email.com` : '',
       });
     }
   });
-  const eli = profiles.find((p) => p.id === 'eli');
-  if (eli) eli.login = 'eli.smith@email.com';
 
   const day = (offset: number) => isoDate(addDays(now, offset));
   const at = (daysAgo: number, time: string) => new Date(`${day(-daysAgo)}T${time}:00`).toISOString();

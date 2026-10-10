@@ -5,6 +5,8 @@ import {
   IncludeGroups,
   MemberGroup,
   Persona,
+  PlayerProfile,
+  TeamId,
   Thread,
   ThreadMembership,
   User,
@@ -35,7 +37,7 @@ export function personaOf(user: Pick<User, 'kind'>): Persona {
   }
 }
 
-export const DEFAULT_CLUB_SETTINGS: ClubSettings = { announcements: 'staff' };
+export const DEFAULT_CLUB_SETTINGS: ClubSettings = { announcements: 'staff', contacts: 'staff' };
 
 /** The club's default channel (`#club-announcements`): everyone in the club is in it. */
 export function isClubWide(t: Partial<Pick<Thread, 'isDefault' | 'scope'>>): boolean {
@@ -156,12 +158,38 @@ export function canRemoveMember(me: User, user: User): boolean {
   return me.kind === 'club' && !user.invited && user.id !== me.id && !user.clubAdmin;
 }
 
+/**
+ * Whether `me` sees `user`'s email. Always their own, the club staff's, and their own players'
+ * (signing in themselves); with the default setting, club staff see everyone's, team staff their
+ * teams' people, and families their teams' staff. Mirrors can_see_contact() in the migrations.
+ */
+export function canSeeContact(
+  me: User,
+  user: User,
+  settings: ClubSettings,
+  profiles: readonly Pick<PlayerProfile, 'userId' | 'parentIds'>[],
+): boolean {
+  if (me.id === user.id || me.kind === 'club' || user.kind === 'club' || settings.contacts === 'everyone') return true;
+  if (profiles.some((p) => p.userId === user.id && p.parentIds.includes(me.id))) return true;
+  return (me.kind === 'staff' || user.kind === 'staff') && user.teams.some((t) => me.teams.includes(t));
+}
+
+/**
+ * Who puts a member on a team, or takes them off it: club staff for anyone but club staff (who join
+ * no team), team staff for parents and players on their own teams. Mirrors can_change_member_team().
+ */
+export function canChangeMemberTeam(me: User, user: User, team: TeamId): boolean {
+  if (user.kind === 'club') return false;
+  if (me.kind === 'club') return true;
+  return me.kind === 'staff' && (user.kind === 'parent' || user.kind === 'player') && me.teams.includes(team);
+}
+
+/** Club staff, or staff of `team`: who adds, approves, moves and removes its players. Mirrors can_manage_team(). */
+export function canManageTeam(me: User, team: TeamId): boolean {
+  return me.kind === 'club' || (me.kind === 'staff' && me.teams.includes(team));
+}
+
 export function canEditEvent(e: Pick<ClubEvent, 'team'>, me: User): boolean {
   if (me.kind === 'club') return true;
   return me.kind === 'staff' && e.team !== 'ALL' && me.teams.includes(e.team);
-}
-
-/** Age-group number from a team id like `U16G`. */
-export function ageOf(teamId: string): number {
-  return Number(teamId.slice(1, 3)) || 0;
 }

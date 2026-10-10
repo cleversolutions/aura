@@ -136,7 +136,6 @@ export interface UpdateProfileInput {
   id: string;
   name: string;
   jersey: string;
-  login: string;
 }
 
 export interface LinkPlayerInput {
@@ -201,8 +200,30 @@ export abstract class DirectoryRepository {
    * the club admin.
    */
   abstract removeMember(userId: UserId): Promise<void>;
+  /**
+   * Puts a member on teams, or takes them off: club staff for anyone but club staff, team staff for
+   * parents and players on their own teams (`canChangeMemberTeam`). Also how someone already in
+   * the club joins another team, instead of being invited again.
+   */
+  abstract setMemberTeams(userId: UserId, teams: TeamId[]): Promise<User>;
   abstract updateProfile(input: UpdateProfileInput): Promise<PlayerProfile>;
+  /** A parent asks to link a player; the player is pending until the team's staff approve. */
   abstract requestPlayerLink(input: LinkPlayerInput): Promise<PlayerProfile>;
+  /** Club staff, or the team's staff, approve a parent's link request. */
+  abstract approvePlayer(profileId: string): Promise<PlayerProfile>;
+  /**
+   * Club staff, or the team's staff, take a player off the roster (or reject a link request), with
+   * their RSVPs. Their parents, and their own sign-in if they have one, stay in the club.
+   */
+  abstract removePlayer(profileId: string): Promise<void>;
+  /**
+   * Moves a player to another team, for whoever manages both. Their parents and own sign-in join
+   * the new team; parents leave the old one unless another of their players is on it. Returns the
+   * refreshed directory.
+   */
+  abstract movePlayer(profileId: string, team: TeamId): Promise<Directory>;
+  /** Club staff, or the team's staff, give a player on the roster their own sign-in. */
+  abstract givePlayerSignIn(profileId: string, email: string): Promise<MemberInvite>;
   /** Club staff, or the team's staff, add a player to the roster. */
   abstract addPlayer(input: AddPlayerInput): Promise<AddPlayerResult>;
   /** Club staff, or the team's staff, change who a player's parents are. */

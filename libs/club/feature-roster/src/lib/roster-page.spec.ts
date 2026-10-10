@@ -71,7 +71,7 @@ describe('RosterPage', () => {
     expect(sheet?.textContent).toContain('rae@x.example');
     expect(sheet?.textContent).toMatch(/[A-Z]{4}-[a-z2-9]{4}-[2-9]{2}/);
     expect(sheet?.textContent).toContain('/k3v9qp');
-    expect(el.textContent).toContain('Parent · invited as rae@x.example');
+    expect(el.textContent).toContain('Rae MossNo player linked yet · invited');
   });
 
   describe('details', () => {
@@ -209,6 +209,98 @@ describe('RosterPage', () => {
       expect(el.textContent).not.toContain('Kim Alvarez');
     });
 
+    it('lets the team’s staff approve a parent’s link request; pending players are no one’s child yet', async () => {
+      const { fixture, el } = await render('dana');
+      const club = TestBed.inject(ClubStore);
+      await club.signOut();
+      await club.signIn('wei-chen@spartans.example', 'password');
+      await club.requestPlayerLink({ name: 'Kai Chen', team: 'U12G', jersey: '', parentId: 'wei-chen' });
+      await fixture.whenStable();
+      expect(el.textContent).toContain('Your player · pending approval');
+      expect(el.textContent).not.toContain('PENDING REQUESTS');
+
+      await club.signOut();
+      await club.signIn('dana@spartans.example', 'password');
+      await fixture.whenStable();
+      expect(el.textContent).toContain('PENDING REQUESTS · 1');
+      expect(el.textContent).toContain('Requested by Wei Chen');
+      expect(el.textContent).toContain('Wei ChenParent of Ava Chen');
+      expect(el.textContent).not.toContain('Ava Chen, Kai Chen');
+      expect(el.textContent).toContain('PLAYERS · 9');
+
+      const h = helpers(fixture, el);
+      await h.openRow('Kai Chen');
+      await h.click('APPROVE');
+      expect(el.textContent).not.toContain('PENDING REQUESTS');
+      expect(el.textContent).toContain('PLAYERS · 10');
+      expect(el.textContent).toContain('Parent of Ava Chen, Kai Chen');
+    });
+
+    it('moves a player to another team and follows them there', async () => {
+      const { fixture, el } = await render('dana');
+      const h = helpers(fixture, el);
+      await h.openRow('Maya Smith');
+      await h.click('EDIT');
+      Array.from(el.querySelectorAll<HTMLButtonElement>('aura-person-details [role=radio]'))
+        .find((b) => b.textContent?.includes('U14 Boys'))
+        ?.click();
+      await fixture.whenStable();
+      await h.click('SAVE');
+      expect(el.querySelector('h1')?.textContent).toContain('U14 Boys');
+      expect(el.textContent).toContain('Maya Smith');
+      expect(TestBed.inject(ClubStore).user('jordan')?.teams).toEqual(['U14B', 'U18B']);
+    });
+
+    it('takes a player off the roster after asking', async () => {
+      const { fixture, el } = await render('dana');
+      const h = helpers(fixture, el);
+      await h.openRow('Ava Chen');
+      await h.click('REMOVE FROM ROSTER');
+      await h.click('REMOVE');
+      expect(h.sheet()).toBeNull();
+      expect(el.textContent).not.toContain('Ava Chen');
+      expect(el.textContent).toContain('Wei ChenNo player linked yet');
+    });
+
+    it('gives a player their own sign-in and hands it over', async () => {
+      const { fixture, el } = await render('dana');
+      const h = helpers(fixture, el);
+      await h.openRow('Maya Smith');
+      await h.click('GIVE OWN SIGN-IN');
+      h.type('PLAYER’S EMAIL', 'maya@x.example');
+      await h.click('CREATE SIGN-IN');
+      expect(el.querySelector('aura-member-invited')?.textContent).toContain('maya@x.example');
+      expect(
+        TestBed.inject(ClubStore)
+          .profiles()
+          .find((p) => p.id === 'maya')?.userId,
+      ).toBeTruthy();
+    });
+
+    it('lets club staff change a member’s teams', async () => {
+      const { fixture, el } = await render('sam', 'U12G');
+      const h = helpers(fixture, el);
+      await h.openPerson('Wei Chen');
+      await h.click('EDIT');
+      Array.from(el.querySelectorAll<HTMLButtonElement>('aura-person-details button.card-row'))
+        .find((b) => b.textContent?.includes('U14 Boys'))
+        ?.click();
+      await h.click('SAVE');
+      expect(TestBed.inject(ClubStore).user('wei-chen')?.teams).toEqual(['U12G', 'U14B']);
+      expect(h.sheet()?.textContent).toContain('U12 Girls, U14 Boys');
+    });
+
+    it('lets team staff put a family on another of their teams, but not edit their details', async () => {
+      const { fixture, el } = await render('dana');
+      const h = helpers(fixture, el);
+      await h.openPerson('Wei Chen');
+      await h.click('EDIT');
+      const sheet = h.sheet()!;
+      expect(sheet.querySelector('input')).toBeNull();
+      expect(sheet.textContent).toContain('U14 Boys');
+      expect(sheet.textContent).not.toContain('U18 Boys');
+    });
+
     it('lists the club staff, and never offers to remove the club admin', async () => {
       const { fixture, el } = await render('lee');
       expect(el.textContent).toContain('CLUB STAFF');
@@ -273,5 +365,78 @@ describe('RosterPage', () => {
     expect(el.textContent).not.toContain('No player linked yet');
     // Dana is Davis's parent, so he shows as her player.
     expect(club.myPlayers().map((p) => p.name)).toEqual(['Davis Moore']);
+  });
+
+  it('adds someone already in the club to the team instead of inviting them again', async () => {
+    const { fixture, el } = await render('dana', 'U14B');
+    const click = (text: string) =>
+      Array.from(el.querySelectorAll<HTMLButtonElement>('button'))
+        .find((b) => b.textContent?.trim().startsWith(text))
+        ?.click();
+    click('INVITE MEMBER');
+    await fixture.whenStable();
+    click('ALREADY IN CLUB');
+    await fixture.whenStable();
+    click('Wei Chen');
+    click('ADD TO TEAM');
+    await fixture.whenStable();
+    await fixture.whenStable();
+    expect(el.querySelector('aura-invite-form')).toBeNull();
+    expect(TestBed.inject(ClubStore).user('wei-chen')?.teams).toEqual(['U12G', 'U14B']);
+    expect(el.textContent).toContain('Wei ChenNo player linked yet');
+  });
+
+  it('invites a missing parent while adding a player, then hands over both sign-ins', async () => {
+    const { fixture, el } = await render('dana');
+    const settle = async () => {
+      await fixture.whenStable();
+      await fixture.whenStable();
+    };
+    const type = (selector: string, value: string) => {
+      const input = el.querySelector<HTMLInputElement>(selector);
+      if (!input) throw new Error(`missing ${selector}`);
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+    };
+    const button = (text: string) =>
+      Array.from(el.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent?.trim().startsWith(text));
+
+    button('ADD PLAYER')?.click();
+    await settle();
+    type('aura-add-player-form input', 'Liam Ortiz');
+    button('+ Invite a parent')?.click();
+    await settle();
+    type('input[aria-label="Parent’s name"]', 'Rosa Ortiz');
+    type('input[aria-label="Parent’s email"]', 'rosa@x.example');
+    button('Signs in themselves')?.click();
+    await settle();
+    type('aura-add-player-form input[placeholder="name@email.com"]', 'liam@x.example');
+    Array.from(el.querySelectorAll<HTMLButtonElement>('aura-add-player-form button'))
+      .filter((b) => b.textContent?.trim() === 'ADD PLAYER')[0]
+      ?.click();
+    await settle();
+
+    const club = TestBed.inject(ClubStore);
+    const rosa = club.users().find((u) => u.name === 'Rosa Ortiz');
+    expect(club.profiles().find((p) => p.name === 'Liam Ortiz')?.parentIds).toEqual([rosa?.id]);
+    expect(el.querySelector('aura-member-invited')?.textContent).toContain('rosa@x.example');
+    el.querySelector<HTMLButtonElement>('aura-member-invited [aria-label=Close]')?.click();
+    await settle();
+    expect(el.querySelector('aura-member-invited')?.textContent).toContain('liam@x.example');
+  });
+
+  it('shows parents names only for other families, and no invites', async () => {
+    const { fixture, el } = await render('jordan');
+    const club = TestBed.inject(ClubStore);
+    expect(club.user('wei-chen')?.email).toBeUndefined();
+    expect(club.user('dana')?.email).toBe('dana@spartans.example');
+    await club.signOut();
+    await club.signIn('dana@spartans.example', 'password');
+    await club.inviteMember({ team: 'U12G', kind: 'staff', name: 'Tia Bank', email: 'tia@x.example' });
+    await club.signOut();
+    await club.signIn('jordan.smith@email.com', 'password');
+    await fixture.whenStable();
+    expect(el.textContent).not.toContain('INVITED');
+    expect(el.textContent).not.toContain('tia@x.example');
   });
 });

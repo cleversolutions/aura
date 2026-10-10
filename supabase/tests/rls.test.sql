@@ -1,10 +1,10 @@
 -- Row-level security: club isolation, thread membership, RSVPs, event editing, anonymous access,
--- disabled and removed members.
+-- disabled and removed members, contact details and roster corrections.
 -- Run with `npm run db:test` (supabase test db). Everything happens in one rolled-back transaction.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(100);
+select plan(125);
 
 -- ---------------------------------------------------------------------------------------------
 -- Fixture: two clubs, each with a Jordan Smith who shares a username but is a different person.
@@ -87,6 +87,7 @@ insert into public.messages (club_id, thread_id, from_member_id, text) values
 -- Default U12G #general, created by the teams trigger.
 create temporary table fx (name text primary key, id uuid);
 grant select on fx to authenticated, anon;
+grant insert on fx to authenticated;
 insert into fx
 select 'u12g_general', id from public.threads
 where club_id = 'c0000000-0000-0000-0000-000000000001' and scope = 'U12G' and name = '#general';
@@ -489,6 +490,96 @@ reset role;
 select ok(
   (select text = '' and deleted_at is not null from public.messages where id = (select id from fx where name = 'priya_msg')),
   '... which keeps the message, without its text'
+);
+
+-- ---------------------------------------------------------------------------------------------
+-- Contact details: emails only through member_contacts(), by the club's contacts setting
+-- ---------------------------------------------------------------------------------------------
+
+reset role;
+delete from public.club_settings where club_id = 'c0000000-0000-0000-0000-000000000001';
+select pg_temp.login('a0000000-0000-0000-0000-000000000004');
+select throws_ok($$select username from public.members limit 1$$, '42501', null, 'members'' usernames are not readable directly');
+select throws_ok($$select email from public.members limit 1$$, '42501', null, '... nor their emails');
+select set_eq(
+  $$select id from public.member_contacts()$$,
+  array[
+    'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002',
+    'a0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000004',
+    'a0000000-0000-0000-0000-000000000006'
+  ]::uuid[],
+  'parents see their own, the club staff''s, their teams'' staff''s and their own players'' contacts'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000003');
+select ok(
+  not exists (select 1 from public.member_contacts() where id = 'a0000000-0000-0000-0000-000000000005'),
+  'team staff do not see other teams'' families'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000002');
+select ok(
+  exists (select 1 from public.member_contacts() where id = 'a0000000-0000-0000-0000-000000000005'),
+  '... but do see their own teams'''
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000001');
+select is((select count(*)::int from public.member_contacts()), (select count(*)::int from public.members), 'club staff see everyone''s');
+insert into public.club_settings (club_id, contacts) values ('c0000000-0000-0000-0000-000000000001', 'everyone');
+select pg_temp.login('a0000000-0000-0000-0000-000000000004');
+select is((select count(*)::int from public.member_contacts()), (select count(*)::int from public.members), 'with contacts = everyone, everyone sees everyone''s');
+reset role;
+delete from public.club_settings where club_id = 'c0000000-0000-0000-0000-000000000001';
+
+-- ---------------------------------------------------------------------------------------------
+-- Roster corrections: link requests, moving and removing players, members' teams
+-- ---------------------------------------------------------------------------------------------
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000005');
+insert into fx select 'request', public.request_player_link('U12G', 'Kai Chen', '');
+select throws_ok($$select public.approve_player((select id from fx where name = 'request'))$$, '42501', null, 'parents cannot approve link requests');
+select pg_temp.login('a0000000-0000-0000-0000-000000000003');
+select throws_ok($$select public.approve_player((select id from fx where name = 'request'))$$, '42501', null, '... nor other teams'' staff');
+select throws_ok($$select public.remove_player((select id from fx where name = 'request'))$$, '42501', null, '... who cannot reject them either');
+select pg_temp.login('a0000000-0000-0000-0000-000000000002');
+select lives_ok($$select public.approve_player((select id from fx where name = 'request'))$$, 'the team''s staff approve link requests');
+select is((select pending from public.player_profiles where id = (select id from fx where name = 'request')), false, '... which joins the roster');
+select lives_ok($$select public.remove_player((select id from fx where name = 'request'))$$, 'the team''s staff remove players');
+select is_empty($$select 1 from public.player_profiles where id = (select id from fx where name = 'request')$$, '... who are gone');
+
+-- Ava (Wei's only player) moves from U12G to U18B, and back.
+select throws_ok(
+  $$select public.move_player('f0000000-0000-0000-0000-000000000002', 'U18B')$$,
+  '42501', null, 'team staff only move players to teams they manage'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000001');
+select lives_ok($$select public.move_player('f0000000-0000-0000-0000-000000000002', 'U18B')$$, 'club staff move players');
+select is(
+  public.member_teams('a0000000-0000-0000-0000-000000000005'), array['U18B'],
+  '... and their parents follow, leaving the old team when they have no other player on it'
+);
+select lives_ok($$select public.move_player('f0000000-0000-0000-0000-000000000002', 'U12G')$$, '... and back');
+select is(public.member_teams('a0000000-0000-0000-0000-000000000005'), array['U12G'], '... parents too');
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000003');
+select lives_ok(
+  $$select public.set_member_teams('a0000000-0000-0000-0000-000000000005', '{U12G,U18B}')$$,
+  'team staff put families on their own teams'
+);
+select throws_ok(
+  $$select public.set_member_teams('a0000000-0000-0000-0000-000000000005', '{U18B}')$$,
+  '42501', null, '... but not take them off other teams'
+);
+select throws_ok(
+  $$select public.set_member_teams('a0000000-0000-0000-0000-000000000002', '{U12G,U18B}')$$,
+  '42501', null, '... nor change staff''s teams'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000001');
+select lives_ok(
+  $$select public.set_member_teams('a0000000-0000-0000-0000-000000000005', '{U12G}')$$,
+  'club staff change anyone''s teams'
+);
+select is(public.member_teams('a0000000-0000-0000-0000-000000000005'), array['U12G'], '... as asked');
+select throws_ok(
+  $$select public.set_member_teams('a0000000-0000-0000-0000-000000000001', '{U12G}')$$,
+  '42501', null, 'club staff join no team'
 );
 
 -- ---------------------------------------------------------------------------------------------

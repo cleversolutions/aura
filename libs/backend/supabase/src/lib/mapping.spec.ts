@@ -61,9 +61,6 @@ describe('mapping', () => {
   it('maps members with their teams and leaves out empty optional fields', () => {
     const user = toUser({
       id: 'm1',
-      club_id: 'c1',
-      user_id: 'u1',
-      username: 'jordan.smith@email.com',
       name: 'Jordan Smith',
       kind: 'parent',
       title: null,
@@ -84,9 +81,6 @@ describe('mapping', () => {
   it('marks disabled members and the club admin', () => {
     const row = {
       id: 'm2',
-      club_id: 'c1',
-      user_id: 'u2',
-      username: 'sam@x.example',
       name: 'Sam Okoro',
       kind: 'club',
       title: 'Director',
@@ -186,8 +180,11 @@ describe('mapping', () => {
       editedAt: '2026-10-05T09:05:00.000Z',
     });
     expect(toMessage({ ...row, deleted_at: '2026-10-05T09:06:00+00:00' })).toMatchObject({ deleted: true });
-    expect(toSettings(null)).toEqual({ announcements: 'staff' });
-    expect(toSettings({ announcements: 'everyone' })).toEqual({ announcements: 'everyone' });
+    expect(toSettings(null)).toEqual({ announcements: 'staff', contacts: 'staff' });
+    expect(toSettings({ announcements: 'everyone', contacts: 'everyone' })).toEqual({
+      announcements: 'everyone',
+      contacts: 'everyone',
+    });
   });
 
   it('derives team ids from names like the mock', () => {

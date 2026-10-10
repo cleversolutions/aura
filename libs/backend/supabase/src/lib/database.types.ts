@@ -24,15 +24,18 @@ export type Database = {
         Row: {
           announcements: string;
           club_id: string;
+          contacts: string;
         };
         ComputedFields: never;
         Insert: {
           announcements?: string;
           club_id: string;
+          contacts?: string;
         };
         Update: {
           announcements?: string;
           club_id?: string;
+          contacts?: string;
         };
         Relationships: [
           {
@@ -343,7 +346,6 @@ export type Database = {
           club_id: string;
           id: string;
           jersey: string;
-          login: string;
           name: string;
           pending: boolean;
           team_id: string;
@@ -354,7 +356,6 @@ export type Database = {
           club_id: string;
           id?: string;
           jersey?: string;
-          login?: string;
           name: string;
           pending?: boolean;
           team_id: string;
@@ -364,7 +365,6 @@ export type Database = {
           club_id?: string;
           id?: string;
           jersey?: string;
-          login?: string;
           name?: string;
           pending?: boolean;
           team_id?: string;
@@ -786,6 +786,7 @@ export type Database = {
         Args: { p_jersey: string; p_name: string; p_parents: string[]; p_team: string; p_user_member: string };
         Returns: string;
       };
+      approve_player: { Args: { p_profile: string }; Returns: undefined };
       auth_club_id: { Args: Record<PropertyKey, never>; Returns: string };
       auth_member: {
         Args: Record<PropertyKey, never>;
@@ -809,6 +810,7 @@ export type Database = {
         };
       };
       auth_member_id: { Args: Record<PropertyKey, never>; Returns: string };
+      can_change_member_team: { Args: { p_member: string; p_team: string }; Returns: boolean };
       can_edit_event: { Args: { p_team: string }; Returns: boolean };
       can_manage_team: { Args: { p_team: string }; Returns: boolean };
       can_manage_thread: { Args: { p_thread: string }; Returns: boolean };
@@ -816,6 +818,7 @@ export type Database = {
       can_post_in_thread: { Args: { p_thread: string }; Returns: boolean };
       can_read_thread: { Args: { p_thread: string }; Returns: boolean };
       can_rsvp_for: { Args: { p_attendee: string }; Returns: boolean };
+      can_see_contact: { Args: { p_member: string }; Returns: boolean };
       club_announcements: { Args: { p_club: string }; Returns: string };
       delete_message: {
         Args: { p_message: string };
@@ -880,8 +883,17 @@ export type Database = {
           unread: number;
         }[];
       };
+      managed_profile_team: { Args: { p_action: string; p_profile: string }; Returns: string };
       mark_thread_read: { Args: { p_thread: string }; Returns: undefined };
+      member_contacts: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          email: string;
+          id: string;
+        }[];
+      };
       member_teams: { Args: { p_member: string }; Returns: string[] };
+      move_player: { Args: { p_profile: string; p_team: string }; Returns: undefined };
       platform_club_staff: {
         Args: { p_club: string };
         Returns: {
@@ -912,7 +924,9 @@ export type Database = {
           slug: string;
         }[];
       };
+      remove_player: { Args: { p_profile: string }; Returns: undefined };
       request_player_link: { Args: { p_jersey: string; p_name: string; p_team: string }; Returns: string };
+      set_member_teams: { Args: { p_member: string; p_teams: string[] }; Returns: undefined };
       set_player_parents: { Args: { p_parents: string[]; p_profile: string }; Returns: undefined };
       thread_member_ids: { Args: { p_thread: string }; Returns: string[] };
     };

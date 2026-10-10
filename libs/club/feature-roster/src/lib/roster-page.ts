@@ -6,6 +6,7 @@ import {
   AddPlayerForm,
   AddPlayerValue,
   CopiedValue,
+  ExistingMemberValue,
   InviteForm,
   InviteFormValue,
   InviteKind,
@@ -24,7 +25,7 @@ import {
 } from '@aura/club/ui';
 import { PlayerProfile, TeamId, User } from '@aura/shared/models';
 import { AppHeader, Chips, Choice } from '@aura/shared/ui';
-import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage, isClubWide } from '@aura/shared/util';
+import { KIND_GROUP, Submission, Toaster, errorMessage, isClubWide } from '@aura/shared/util';
 
 /** A new member's sign-in, as the store returns it. */
 type MemberInvite = Awaited<ReturnType<ClubStore['resendInvite']>>;
@@ -69,6 +70,15 @@ function disabledNote(u: User): string {
             </div>
           </div>
 
+          @if (requests().length) {
+            <h2 class="label-caps text-[13px]">PENDING REQUESTS · {{ requests().length }}</h2>
+            <div role="list" class="overflow-hidden rounded-lg border-2 border-dashed border-ink">
+              @for (p of requests(); track p.id) {
+                <aura-invited-row [vm]="p" (opened)="open('profile', p.id)" />
+              }
+            </div>
+          }
+
           <h2 class="label-caps text-[13px]">TEAM STAFF</h2>
           <div class="card">
             <div role="list" class="card-grid">
@@ -100,7 +110,7 @@ function disabledNote(u: User): string {
             </div>
           </div>
 
-          @if (invited().length) {
+          @if (club.seesInvites() && invited().length) {
             <h2 class="label-caps mt-1 text-[13px]">INVITED</h2>
             <div role="list" class="overflow-hidden rounded-lg border-2 border-dashed border-ink">
               @for (u of invited(); track u.id) {
@@ -128,10 +138,12 @@ function disabledNote(u: User): string {
         [linkedThreadCounts]="linkedThreadCounts()"
         [canInviteClubStaff]="club.isClubStaff()"
         [clubStaffThreadCount]="clubWideThreadCount()"
+        [existingByTeam]="existingByTeam()"
         [saving]="invite.saving()"
         [error]="invite.error()"
         (closed)="inviting.set(false)"
         (submitted)="sendInvite($event)"
+        (addedExisting)="addExisting($event)"
       />
     }
     @if (addingPlayer() && selected(); as teamId) {
@@ -157,10 +169,13 @@ function disabledNote(u: User): string {
         (disable)="setDisabled(true)"
         (enable)="setDisabled(false)"
         (remove)="removeMember()"
+        (approve)="approvePlayer()"
+        (removePlayer)="removePlayer()"
+        (giveSignIn)="givePlayerSignIn($event)"
       />
     }
     @if (inviteReady(); as ready) {
-      <aura-member-invited [vm]="ready" (copied)="copy($event)" (closed)="inviteReady.set(null)" />
+      <aura-member-invited [vm]="ready" (copied)="copy($event)" (closed)="readyQueue.update((q) => q.slice(1))" />
     }
   `,
 })
@@ -189,8 +204,9 @@ export class RosterPage {
     const profile = target && this.club.profiles().find((p) => p.id === target.id);
     return profile ? this.profileDetails(profile) : null;
   });
-  /** Sign-in details for the member just invited, to send them by hand. */
-  protected readonly inviteReady = signal<MemberInvitedVm | null>(null);
+  /** Sign-ins just created (a parent and their player, say), shown one after another to send by hand. */
+  protected readonly readyQueue = signal<MemberInvitedVm[]>([]);
+  protected readonly inviteReady = computed(() => this.readyQueue()[0] ?? null);
   protected readonly selectedTeam = linkedSignal<TeamId>(() => this.team() ?? '');
   protected readonly selected = computed(() => {
     const mine = this.club.myTeams();
@@ -253,20 +269,36 @@ export class RosterPage {
       .sort((a, b) => a.name.localeCompare(b.name));
   });
 
+  /** Parents' link requests, for the staff who approve them. */
+  protected readonly requests = computed<PersonRowVm[]>(() => {
+    const id = this.selected();
+    if (!id || !this.club.canManageTeam(id)) return [];
+    return this.club
+      .profiles()
+      .filter((p) => p.team === id && p.pending)
+      .map((p) => ({
+        id: p.id,
+        name: p.name + (p.jersey !== '–' ? ` · #${p.jersey}` : ''),
+        sub: `Requested by ${this.names(p.parentIds) || 'a former member'}`,
+      }));
+  });
+
   protected readonly players = computed<PlayerRowVm[]>(() => {
     const id = this.selected();
     const me = this.club.meId();
     const persona = this.club.persona();
     const mine = new Set(this.club.myPlayers().map((p) => p.id));
+    // Staff see requests in their own section; parents see their own, marked pending.
+    const showPending = (p: PlayerProfile) => !!me && p.parentIds.includes(me) && !this.club.canManageTeam(p.team);
     return this.club
       .profiles()
-      .filter((p) => p.team === id && (!p.pending || (!!me && p.parentIds.includes(me))))
+      .filter((p) => p.team === id && (!p.pending || showPending(p)))
       .map((p) => {
         const isMine = mine.has(p.id);
         const parents = this.names(p.parentIds);
         const sub = isMine
           ? (p.userId === me && persona === 'player' ? 'You' : 'Your player') + (p.pending ? ' · pending approval' : '')
-          : [p.userId ? 'Own login' : '', parents ? `Parents: ${parents}` : ''].filter(Boolean).join(' · ');
+          : [p.userId ? 'Own sign-in' : '', parents ? `Parents: ${parents}` : ''].filter(Boolean).join(' · ');
         return { id: p.id, name: p.name, jersey: p.jersey, mine: isMine, sub };
       })
       .sort((a, b) => (Number(a.jersey) || 99) - (Number(b.jersey) || 99));
@@ -274,29 +306,50 @@ export class RosterPage {
 
   /**
    * Parents on this team: parent members of the team, and anyone (a coach, say) who is the parent
-   * of one of its players.
+   * of one of its players. Invited parents too, marked; pending requests don't count until approved.
    */
   protected readonly parents = computed<PersonRowVm[]>(() => {
     const id = this.selected();
     const me = this.club.meId();
-    const players = this.club.profiles().filter((p) => p.team === id);
+    const players = this.club.profiles().filter((p) => p.team === id && !p.pending);
     const linked = new Set(players.flatMap((p) => p.parentIds));
     return this.club
       .users()
-      .filter(
-        (u) =>
-          !u.invited && this.shown(u) && ((u.kind === 'parent' && !!id && u.teams.includes(id)) || linked.has(u.id)),
-      )
+      .filter((u) => this.shown(u) && ((u.kind === 'parent' && !!id && u.teams.includes(id)) || linked.has(u.id)))
       .map((u) => {
         const children = players.filter((p) => p.parentIds.includes(u.id)).map((p) => p.name);
         const role = u.kind === 'parent' ? '' : `${KIND_LABEL[u.kind]} · `;
         return {
           id: u.id,
           name: u.name + (u.id === me ? ' (you)' : ''),
-          sub: role + (children.length ? `Parent of ${children.join(', ')}` : 'No player linked yet') + disabledNote(u),
+          sub:
+            role +
+            (children.length ? `Parent of ${children.join(', ')}` : 'No player linked yet') +
+            (u.invited ? ' · invited' : '') +
+            disabledNote(u),
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
+  });
+
+  /** team → people already in the club the viewer may add to it (instead of inviting them again). */
+  protected readonly existingByTeam = computed<Record<TeamId, ParentOptionVm[]>>(() => {
+    const out: Record<TeamId, ParentOptionVm[]> = {};
+    for (const team of this.club.myTeams()) {
+      out[team] = this.club
+        .users()
+        .filter((u) => !u.disabled && !u.teams.includes(team) && this.club.canChangeMemberTeam(u, team))
+        .map((u) => ({
+          id: u.id,
+          name: u.name,
+          sub:
+            KIND_LABEL[u.kind] +
+            (u.teams.length ? ` · ${this.teamNames(u.teams)}` : '') +
+            (u.invited ? ' · invited' : ''),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return out;
   });
 
   /** Who can be ticked as a player's parent: the team's parents and staff (a coach can be a parent). */
@@ -325,12 +378,17 @@ export class RosterPage {
       .join(', ');
   }
 
+  /** Invites to this team. Invited parents are listed under PARENTS instead. */
   protected readonly invited = computed<PersonRowVm[]>(() => {
     const id = this.selected();
     return this.club
       .users()
-      .filter((u) => u.invited && !!id && u.teams.includes(id))
-      .map((u) => ({ id: u.id, name: u.name, sub: `${KIND_LABEL[u.kind]} · invited as ${u.email}` }));
+      .filter((u) => u.invited && u.kind !== 'parent' && !!id && u.teams.includes(id))
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        sub: KIND_LABEL[u.kind] + (u.email ? ` · invited as ${u.email}` : ' · invited'),
+      }));
   });
 
   protected startInviting(): void {
@@ -348,7 +406,23 @@ export class RosterPage {
     if (!ok) return;
     this.toaster.show(`${value.name} invited. Added to ${count} chat threads automatically.`);
     this.inviting.set(false);
-    this.inviteReady.set(ready);
+    this.showReady(ready);
+  }
+
+  protected async addExisting({ team, userId }: ExistingMemberValue): Promise<void> {
+    const user = this.club.user(userId);
+    if (!user) return;
+    const ok = await this.invite.run(
+      () => this.club.setMemberTeams(userId, [...user.teams, team]),
+      errorMessage('Could not add them to the team. Try again.'),
+    );
+    if (!ok) return;
+    this.toaster.show(`${user.name} added to ${this.club.teamName(team)}.`);
+    this.inviting.set(false);
+  }
+
+  private showReady(ready: MemberInvitedVm | null): void {
+    if (ready) this.readyQueue.update((q) => [...q, ready]);
   }
 
   private teamNames(ids: TeamId[]): string {
@@ -370,11 +444,14 @@ export class RosterPage {
       },
       ...(user.kind === 'club'
         ? [{ key: 'title', label: 'TITLE', value: user.title ?? '', editable: true }]
-        : [{ key: 'teams', label: 'TEAMS', value: this.teamNames(user.teams), editable: false }]),
+        : [this.teamsField(user)]),
       ...(children.length
         ? [{ key: 'players', label: 'PLAYERS', value: children.map((p) => p.name).join(', '), editable: false }]
         : []),
     ];
+    const canEditDetails = this.club.canEditMember(user);
+    const teams = fields.find((f) => f.key === 'teams');
+    for (const f of fields) if (f !== teams) f.editable &&= canEditDetails;
     return {
       name: user.name,
       role:
@@ -384,7 +461,7 @@ export class RosterPage {
         (user.disabled ? ' · disabled' : ''),
       invited: !!user.invited,
       fields,
-      canEdit: this.club.canEditMember(user),
+      canEdit: canEditDetails || !!teams?.editable,
       canManageInvite: this.club.canManageInvite(user),
       disabled: !!user.disabled,
       canResetPassword: this.club.canResetPassword(user),
@@ -392,8 +469,31 @@ export class RosterPage {
     };
   }
 
+  /** The teams the viewer may put this member on or take them off; the others are kept as they are. */
+  private teamOptions(user: User): TeamId[] {
+    return this.club
+      .teams()
+      .map((t) => t.id)
+      .filter((t) => this.club.canChangeMemberTeam(user, t));
+  }
+
+  private teamsField(user: User): DetailFieldVm {
+    const options = this.teamOptions(user);
+    return {
+      key: 'teams',
+      label: 'TEAMS',
+      value: this.teamNames(user.teams),
+      editable: options.length > 0,
+      options: options.map((id) => ({ id, label: this.club.teamName(id), sub: '' })),
+      selected: user.teams.filter((t) => options.includes(t)),
+    };
+  }
+
   private profileDetails(p: PlayerProfile): PersonDetailsVm {
     const player = this.club.user(p.userId);
+    const manages = this.club.canManageTeam(p.team);
+    // Teams the player can move to: those the viewer also manages.
+    const moveTo = manages ? this.club.myTeams().filter((t) => this.club.canManageTeam(t)) : [];
     // Current parents stay listed even if they are not on the team.
     const options = [
       ...this.parentOptions(),
@@ -401,8 +501,6 @@ export class RosterPage {
         .filter((id) => !this.parentOptions().some((o) => o.id === id))
         .map((id) => ({ id, name: this.club.user(id)?.name ?? 'Unknown', sub: 'Not on this team' })),
     ];
-    // A separate login is for older players (16+), as on the More tab.
-    const loginEditable = ageOf(p.team) >= 16 || !!p.login;
     return {
       name: p.name,
       role: `Player · #${p.jersey} · ${this.club.teamName(p.team)}` + (p.pending ? ' · pending approval' : ''),
@@ -412,6 +510,15 @@ export class RosterPage {
         { key: 'name', label: 'NAME', value: p.name, editable: true, required: true, editOnly: true },
         { key: 'jersey', label: 'JERSEY', value: p.jersey, editable: true, required: true, editOnly: true },
         {
+          key: 'team',
+          label: 'TEAM',
+          value: this.club.teamName(p.team),
+          editable: moveTo.length > 1,
+          editOnly: true,
+          choices: moveTo.map((id) => ({ value: id, label: this.club.teamName(id) })),
+          selected: [p.team],
+        },
+        {
           key: 'parents',
           label: 'PARENTS',
           value: this.names(p.parentIds),
@@ -420,15 +527,17 @@ export class RosterPage {
           selected: p.parentIds,
         },
         {
-          key: 'login',
-          label: 'OWN LOGIN',
-          value: player?.email ?? p.login,
-          editable: loginEditable,
-          type: 'email',
+          key: 'signIn',
+          label: 'OWN SIGN-IN',
+          value: player ? (player.email ?? 'Yes') + (player.invited ? ' (invited)' : '') : '',
+          editable: false,
         },
       ],
       canEdit: this.club.canEditProfile(p),
       canManageInvite: false,
+      pending: !!p.pending,
+      canManagePlayer: manages,
+      canGiveSignIn: manages && !p.userId && !p.pending,
     };
   }
 
@@ -444,15 +553,25 @@ export class RosterPage {
       const v = values[key];
       return typeof v === 'string' ? v : undefined;
     };
+    let moved: TeamId | null = null;
     const ok = await this.detailsWork.run(async () => {
       if (target.kind === 'user') {
+        const user = this.club.user(target.id);
         const title = text('title');
-        await this.club.updateMember({
-          id: target.id,
-          name: text('name') ?? '',
-          email: text('email') ?? '',
-          ...(title !== undefined ? { title } : {}),
-        });
+        if (text('name') !== undefined) {
+          await this.club.updateMember({
+            id: target.id,
+            name: text('name') ?? '',
+            email: text('email') ?? '',
+            ...(title !== undefined ? { title } : {}),
+          });
+        }
+        const picked = values['teams'];
+        if (user && Array.isArray(picked)) {
+          const options = this.teamOptions(user);
+          const teams = [...user.teams.filter((t) => !options.includes(t)), ...picked];
+          if ([...teams].sort().join() !== user.teams.join()) await this.club.setMemberTeams(user.id, teams);
+        }
         return;
       }
       const profile = this.club.profiles().find((p) => p.id === target.id);
@@ -460,14 +579,21 @@ export class RosterPage {
       if (profile && Array.isArray(parents) && parents.join() !== profile.parentIds.join()) {
         await this.club.setPlayerParents(target.id, parents);
       }
-      await this.club.updateProfile({
-        id: target.id,
-        name: text('name') ?? '',
-        jersey: text('jersey') ?? '',
-        login: text('login') ?? profile?.login ?? '',
-      });
+      await this.club.updateProfile({ id: target.id, name: text('name') ?? '', jersey: text('jersey') ?? '' });
+      const team = text('team');
+      if (profile && team && team !== profile.team) {
+        await this.club.movePlayer(target.id, team);
+        moved = team;
+      }
     }, errorMessage('Could not save their details. Try again.'));
-    if (ok) this.toaster.show(`${text('name')} saved.`);
+    if (!ok) return;
+    if (moved) {
+      // Follow the player to their new team.
+      this.selectedTeam.set(moved);
+      this.toaster.show(`${text('name')} moved to ${this.club.teamName(moved)}.`);
+    } else {
+      this.toaster.show(`${text('name') ?? this.club.user(target.id)?.name} saved.`);
+    }
   }
 
   protected startAddingPlayer(): void {
@@ -475,15 +601,67 @@ export class RosterPage {
     this.addingPlayer.set(true);
   }
 
-  protected async addPlayer(team: TeamId, value: AddPlayerValue): Promise<void> {
-    let invite: MemberInvite | null = null;
+  /** Invites a new parent first, when the form names one, then adds the player with them. */
+  protected async addPlayer(team: TeamId, { newParent, ...value }: AddPlayerValue): Promise<void> {
+    const invites: MemberInvite[] = [];
     const ok = await this.playerWork.run(async () => {
-      invite = await this.club.addPlayer({ team, ...value });
+      const parentIds = [...value.parentIds];
+      if (newParent) {
+        const parent = await this.club.inviteMember({ kind: 'parent', team, ...newParent });
+        invites.push(parent);
+        parentIds.push(parent.user.id);
+      }
+      const player = await this.club.addPlayer({ team, ...value, parentIds });
+      if (player) invites.push(player);
     }, errorMessage('Could not add the player. Try again.'));
+    // A parent invited before adding the player failed stays invited: hand over their sign-in anyway.
+    for (const invite of invites) this.showReady(this.readyVm(invite));
     if (!ok) return;
     this.addingPlayer.set(false);
-    this.toaster.show(`${value.name} added to ${this.club.teamName(team)}.`);
-    if (invite) this.inviteReady.set(this.readyVm(invite));
+    this.toaster.show(
+      `${value.name} added to ${this.club.teamName(team)}.` + (newParent ? ` ${newParent.name} invited.` : ''),
+    );
+  }
+
+  /** The open profile, if any. */
+  private openProfile(): PlayerProfile | undefined {
+    const target = this.opened();
+    return target?.kind === 'profile' ? this.club.profiles().find((p) => p.id === target.id) : undefined;
+  }
+
+  protected async approvePlayer(): Promise<void> {
+    const p = this.openProfile();
+    if (!p) return;
+    const ok = await this.detailsWork.run(
+      () => this.club.approvePlayer(p.id),
+      errorMessage('Could not approve the player. Try again.'),
+    );
+    if (ok) this.toaster.show(`${p.name} approved and added to ${this.club.teamName(p.team)}.`);
+  }
+
+  protected async removePlayer(): Promise<void> {
+    const p = this.openProfile();
+    if (!p) return;
+    const ok = await this.detailsWork.run(
+      () => this.club.removePlayer(p.id),
+      errorMessage(p.pending ? 'Could not reject the request. Try again.' : 'Could not remove the player. Try again.'),
+    );
+    if (!ok) return;
+    this.opened.set(null);
+    this.toaster.show(p.pending ? `Request for ${p.name} rejected.` : `${p.name} removed from the roster.`);
+  }
+
+  protected async givePlayerSignIn(email: string): Promise<void> {
+    const p = this.openProfile();
+    if (!p) return;
+    let invite: MemberInvite | null = null;
+    const ok = await this.detailsWork.run(async () => {
+      invite = await this.club.givePlayerSignIn(p.id, email);
+    }, errorMessage('Could not create their sign-in. Try again.'));
+    if (!ok || !invite) return;
+    this.opened.set(null);
+    this.showReady(this.readyVm(invite));
+    this.toaster.show(`${p.name} can now sign in themselves.`);
   }
 
   protected async resendInvite(): Promise<void> {
@@ -495,7 +673,7 @@ export class RosterPage {
     }, errorMessage('Could not resend the invite. Try again.'));
     if (!ok || !invite) return;
     this.opened.set(null);
-    this.inviteReady.set(this.readyVm(invite));
+    this.showReady(this.readyVm(invite));
     this.toaster.show('New temporary password created. The previous one no longer works.');
   }
 
@@ -520,7 +698,7 @@ export class RosterPage {
     }, errorMessage('Could not reset their password. Try again.'));
     if (!ok || !reset) return;
     this.opened.set(null);
-    this.inviteReady.set({ ...this.readyVm(reset), reset: true });
+    this.showReady({ ...this.readyVm(reset), reset: true });
     this.toaster.show('New temporary password created. The previous password no longer works.');
   }
 

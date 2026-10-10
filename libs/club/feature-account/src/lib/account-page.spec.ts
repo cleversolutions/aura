@@ -19,7 +19,7 @@ describe('AccountPage', () => {
     expect(el.querySelector('h1')?.textContent).toContain('Jordan Smith');
     expect(el.textContent).toContain('Parent · 2 linked players');
     expect(el.textContent).toContain('PLAYER ACCESS');
-    expect(el.textContent).toContain('Has own login · eli.smith@email.com');
+    expect(el.textContent).toContain('Has own sign-in · eli.smith@email.com');
     expect(el.textContent).toContain('LINK NEW PLAYER');
     expect(el.textContent).not.toContain('CLUB TEAMS');
   });
@@ -52,7 +52,7 @@ describe('AccountPage', () => {
     await fixture.whenStable();
     await new Promise((r) => setTimeout(r));
     await fixture.whenStable();
-    expect(club.settings()).toEqual({ announcements: 'everyone' });
+    expect(club.settings()).toEqual({ announcements: 'everyone', contacts: 'staff' });
     expect(el.textContent).toContain('Everyone posts');
     expect(el.querySelector('aura-club-settings-form')).toBeNull();
   });

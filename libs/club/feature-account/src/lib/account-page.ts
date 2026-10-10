@@ -26,7 +26,7 @@ import {
 } from '@aura/club/ui';
 import { ClubSettings, PlayerProfile, TeamId } from '@aura/shared/models';
 import { AppHeader, Chips, Choice } from '@aura/shared/ui';
-import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shared/util';
+import { KIND_GROUP, Submission, Toaster, errorMessage } from '@aura/shared/util';
 
 /** More tab container: profile, player access, teams, club settings and the demo account switcher. */
 @Component({
@@ -101,6 +101,8 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
                 <span>
                   <span class="block text-base font-semibold">Announcements</span>
                   <span class="block text-[13px]">{{ announcementsSummary() }}</span>
+                  <span class="mt-1.5 block text-base font-semibold">Contact details</span>
+                  <span class="block text-[13px]">{{ contactsSummary() }}</span>
                 </span>
                 <span class="font-display text-sm font-bold tracking-[0.05em]">EDIT</span>
               </button>
@@ -134,7 +136,6 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
       <aura-player-profile-form
         [player]="p"
         [teamName]="club.teamName(p.team)"
-        [showLogin]="club.persona() === 'parent' && ageOf(p.team) >= 16"
         [saving]="save.saving()"
         [error]="save.error()"
         (closed)="editingPlayerId.set(null)"
@@ -193,7 +194,6 @@ export class AccountPage {
   private readonly router = inject(Router);
   private readonly origin = inject(DOCUMENT).location.origin;
 
-  protected readonly ageOf = ageOf;
   protected readonly editingPlayerId = signal<string | null>(null);
   protected readonly linking = signal(false);
   protected readonly teamTarget = signal<TeamId | 'new' | null>(null);
@@ -218,15 +218,27 @@ export class AccountPage {
     this.club.settings().announcements === 'staff' ? 'Staff post, everyone reads' : 'Everyone posts',
   );
 
+  protected readonly contactsSummary = computed(() =>
+    this.club.settings().contacts === 'staff'
+      ? 'Staff see emails; families see their coaches’'
+      : 'Everyone sees emails',
+  );
+
   protected readonly playerTiles = computed<PlayerAccessVm[]>(() =>
     this.club.myPlayers().map((p) => ({
       id: p.id,
       name: p.name,
       jersey: p.jersey,
       teamName: this.club.teamName(p.team),
-      access: p.pending ? 'Pending team staff approval' : p.login ? `Has own login · ${p.login}` : this.managedBy(p),
+      access: p.pending ? 'Pending team staff approval' : p.userId ? this.ownSignIn(p.userId) : this.managedBy(p),
     })),
   );
+
+  /** `Has own sign-in · eli@…`, when the viewer may see the email. */
+  private ownSignIn(userId: string): string {
+    const email = this.club.user(userId)?.email;
+    return email ? `Has own sign-in · ${email}` : 'Has own sign-in';
+  }
 
   /** `Managed by you`, or `Managed by you and Jenn Buell` when there are other parents. */
   private managedBy(p: PlayerProfile): string {
@@ -352,11 +364,7 @@ export class AccountPage {
       'Could not save the player. Try again.',
     );
     if (!ok) return;
-    this.toaster.show(
-      value.login && value.login !== player.login
-        ? `Saved. Login invite sent to ${value.login}`
-        : 'Player profile saved.',
-    );
+    this.toaster.show('Player profile saved.');
     this.editingPlayerId.set(null);
   }
 

@@ -17,7 +17,9 @@ import {
 import { Club, ClubSettings, PlayerProfile, Team, TeamId, User, UserId } from '@aura/shared/models';
 import {
   DEFAULT_CLUB_SETTINGS,
+  canChangeMemberTeam,
   canManageInvite,
+  canManageTeam,
   canRemoveMember,
   canResetPassword,
   personaOf,
@@ -103,7 +105,12 @@ export const ClubStore = signalStore(
       }),
     };
   }),
-  withComputed(({ me, persona, teams, myPlayers, slug, meId, preview, mustChangePassword }) => ({
+  withComputed(({ me, persona, teams, myPlayers, slug, meId, preview, mustChangePassword, settings }) => ({
+    /** Who sees the INVITED list: staff, or everyone when the club shows everyone's contacts. */
+    seesInvites: computed(() => {
+      const kind = me()?.kind;
+      return kind === 'club' || kind === 'staff' || settings().contacts === 'everyone';
+    }),
     /** e.g. `Parent · 2 linked players`, `Team Staff · U12 Girls, U14 Boys`. */
     roleLine: computed(() => {
       const m = me();
@@ -256,7 +263,7 @@ export const ClubStore = signalStore(
               ? {
                   ...p,
                   parentIds: p.parentIds.filter((id) => id !== userId),
-                  ...(p.userId === userId ? { userId: null, login: '' } : {}),
+                  userId: p.userId === userId ? null : p.userId,
                 }
               : p,
           ),
@@ -280,10 +287,42 @@ export const ClubStore = signalStore(
         const me = store.me();
         return !!me && canManageInvite(me, user);
       },
-      /** Club staff, or staff of `team`: who adds players and sets their parents. */
+      /** Club staff, or staff of `team`: who adds, approves, moves and removes players and sets their parents. */
       canManageTeam(team: TeamId): boolean {
         const me = store.me();
-        return !!me && (me.kind === 'club' || (me.kind === 'staff' && me.teams.includes(team)));
+        return !!me && canManageTeam(me, team);
+      },
+      /** Who puts `user` on `team` or takes them off it. */
+      canChangeMemberTeam(user: User, team: TeamId): boolean {
+        const me = store.me();
+        return !!me && canChangeMemberTeam(me, user, team);
+      },
+      async setMemberTeams(userId: UserId, teams: TeamId[]): Promise<void> {
+        const updated = await directory.setMemberTeams(userId, teams);
+        patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
+      },
+      async approvePlayer(profileId: string): Promise<void> {
+        const updated = await directory.approvePlayer(profileId);
+        patchState(store, (s) => ({ profiles: s.profiles.map((p) => (p.id === updated.id ? updated : p)) }));
+      },
+      /** Also rejects a link request. */
+      async removePlayer(profileId: string): Promise<void> {
+        await directory.removePlayer(profileId);
+        patchState(store, (s) => ({ profiles: s.profiles.filter((p) => p.id !== profileId) }));
+      },
+      /** Their parents and own sign-in move with them, so the whole directory is refreshed. */
+      async movePlayer(profileId: string, team: TeamId): Promise<void> {
+        const dir = await directory.movePlayer(profileId, team);
+        patchState(store, { teams: dir.teams, users: dir.users, profiles: dir.profiles });
+      },
+      /** Resolves with the player's new sign-in to hand them. */
+      async givePlayerSignIn(profileId: string, email: string): Promise<MemberInvite> {
+        const invite = await directory.givePlayerSignIn(profileId, email);
+        patchState(store, (s) => ({
+          users: [...s.users, invite.user],
+          profiles: s.profiles.map((p) => (p.id === profileId ? { ...p, userId: invite.user.id } : p)),
+        }));
+        return invite;
       },
       /** The player's parents, the player themself, club staff and the team's staff. */
       canEditProfile(profile: PlayerProfile): boolean {
