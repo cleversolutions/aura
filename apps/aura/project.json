@@ -28,7 +28,7 @@
           "budgets": [
             {
               "type": "initial",
-              "maximumWarning": "500kb",
+              "maximumWarning": "700kb",
               "maximumError": "1mb"
             },
             {
@@ -37,12 +37,29 @@
               "maximumError": "8kb"
             }
           ],
-          "outputHashing": "all"
+          "outputHashing": "all",
+          "fileReplacements": [
+            {
+              "replace": "apps/aura/src/environments/environment.ts",
+              "with": "apps/aura/src/environments/environment.prod.ts"
+            }
+          ]
         },
         "development": {
           "optimization": false,
           "extractLicenses": false,
           "sourceMap": true
+        },
+        "mock": {
+          "optimization": false,
+          "extractLicenses": false,
+          "sourceMap": true,
+          "fileReplacements": [
+            {
+              "replace": "apps/aura/src/environments/environment.ts",
+              "with": "apps/aura/src/environments/environment.mock.ts"
+            }
+          ]
         }
       }
     },
@@ -56,6 +73,9 @@
         },
         "development": {
           "buildTarget": "aura:build:development"
+        },
+        "mock": {
+          "buildTarget": "aura:build:mock"
         }
       }
     },

@@ -1,10 +1,14 @@
+import { DOCUMENT } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { ChatStore } from '@aura/chat/data-access';
 import { ClubStore } from '@aura/club/data-access';
 import {
+  CopiedValue,
   LinkPlayerForm,
   LinkPlayerValue,
+  MemberInvited,
+  MemberInvitedVm,
   PlayerAccessTile,
   PlayerAccessVm,
   PlayerProfileForm,
@@ -24,7 +28,17 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
 /** More tab container: profile, player access, teams and the demo account switcher. */
 @Component({
   selector: 'aura-account-page',
-  imports: [AppHeader, Chips, ProfileHeader, PlayerAccessTile, TeamCard, PlayerProfileForm, LinkPlayerForm, TeamForm],
+  imports: [
+    AppHeader,
+    Chips,
+    ProfileHeader,
+    PlayerAccessTile,
+    TeamCard,
+    PlayerProfileForm,
+    LinkPlayerForm,
+    TeamForm,
+    MemberInvited,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
@@ -126,6 +140,9 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
         (submitted)="saveTeam(target, $event)"
       />
     }
+    @if (inviteReady(); as ready) {
+      <aura-member-invited [vm]="ready" (copied)="copy($event)" (closed)="inviteReady.set(null)" />
+    }
   `,
 })
 export class AccountPage {
@@ -133,11 +150,14 @@ export class AccountPage {
   private readonly chat = inject(ChatStore);
   private readonly toaster = inject(Toaster);
   private readonly router = inject(Router);
+  private readonly origin = inject(DOCUMENT).location.origin;
 
   protected readonly ageOf = ageOf;
   protected readonly editingPlayerId = signal<string | null>(null);
   protected readonly linking = signal(false);
   protected readonly teamTarget = signal<TeamId | 'new' | null>(null);
+  /** Sign-in details for staff just invited with a team, to send them by hand. */
+  protected readonly inviteReady = signal<MemberInvitedVm | null>(null);
   /** One sheet is open at a time, so they share a submission state. */
   protected readonly save = new Submission();
 
@@ -261,8 +281,18 @@ export class AccountPage {
   protected async saveTeam(target: TeamId | 'new', value: TeamFormValue): Promise<void> {
     const editing = target === 'new' ? null : target;
     const teamName = editing ? this.club.teamName(editing) : (value.name ?? '');
+    let ready: MemberInvitedVm | null = null;
     const ok = await this.save.run(async () => {
-      await this.club.saveTeam({ id: editing ?? undefined, ...value });
+      const invite = await this.club.saveTeam({ id: editing ?? undefined, ...value });
+      if (invite) {
+        ready = {
+          name: invite.user.name,
+          clubName: this.club.club()?.name ?? '',
+          url: `${this.origin}/${this.club.slug()}`,
+          username: invite.username,
+          temporaryPassword: invite.temporaryPassword,
+        };
+      }
       // New teams come with default channels.
       if (!editing) await this.chat.load();
     }, errorMessage('Could not save the team.'));
@@ -274,6 +304,12 @@ export class AccountPage {
         : `${teamName} created with ${count} staff. #announcements and #general are ready.`,
     );
     this.teamTarget.set(null);
+    this.inviteReady.set(ready);
+  }
+
+  protected copy({ label, value }: CopiedValue): void {
+    navigator.clipboard?.writeText(value).catch(() => undefined);
+    this.toaster.show(`${label} copied.`);
   }
 
   protected async signOut(): Promise<void> {

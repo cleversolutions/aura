@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { PlayerProfile } from '@aura/shared/models';
 import { InviteForm, PlayerProfileForm, TeamForm } from './forms';
+import { CopiedValue, MemberInvited } from './member-invited';
 import { TeamCard } from './people';
 
 const click = (el: HTMLElement, text: string) =>
@@ -112,5 +113,31 @@ describe('TeamCard', () => {
     fixture.componentInstance.opened.subscribe(opened);
     click(fixture.nativeElement, 'U12 Girls');
     expect(opened).toHaveBeenCalled();
+  });
+});
+
+describe('MemberInvited', () => {
+  it('shows the sign-in details and copies each one, or all as a message', async () => {
+    const fixture = TestBed.createComponent(MemberInvited);
+    fixture.componentRef.setInput('vm', {
+      name: 'Rae Moss',
+      clubName: 'Spartans',
+      url: 'https://aura.example/k3v9qp',
+      username: 'rae@x.example',
+      temporaryPassword: 'KMRT-a7bq-49',
+    });
+    const copied: CopiedValue[] = [];
+    fixture.componentInstance.copied.subscribe((c) => copied.push(c));
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('KMRT-a7bq-49');
+
+    el.querySelector<HTMLButtonElement>('[aria-label="Copy temporary password"]')?.click();
+    click(el, 'COPY INVITE MESSAGE');
+    expect(copied[0]).toEqual({ label: 'Password', value: 'KMRT-a7bq-49' });
+    expect(copied[1].value).toBe(
+      "You're invited to Spartans on Aura. Open https://aura.example/k3v9qp and sign in as rae@x.example " +
+        'with the temporary password KMRT-a7bq-49, then choose your own password.',
+    );
   });
 });

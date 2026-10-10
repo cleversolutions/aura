@@ -4,6 +4,7 @@
   "license": "MIT",
   "scripts": {
     "start": "nx serve aura",
+    "start:mock": "nx serve aura --configuration=mock",
     "build": "nx build aura",
     "test": "nx run-many -t test",
     "format": "nx format:write",

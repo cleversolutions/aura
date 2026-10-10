@@ -45,4 +45,32 @@ describe('RosterPage', () => {
     await fixture.whenStable();
     expect(el.querySelector('[role=alert]')?.textContent).toContain('Enter their name.');
   });
+
+  it('shows the new member’s sign-in after inviting them', async () => {
+    const { fixture, el } = await render('dana');
+    const click = (text: string) =>
+      Array.from(el.querySelectorAll('button'))
+        .find((b) => b.textContent?.includes(text))
+        ?.click();
+    const type = (selector: string, value: string) => {
+      const input = el.querySelector<HTMLInputElement>(selector);
+      if (!input) throw new Error(`missing ${selector}`);
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+    };
+    click('INVITE MEMBER');
+    await fixture.whenStable();
+    type('aura-invite-form input:not([type=email])', 'Rae Moss');
+    type('aura-invite-form input[type=email]', 'rae@x.example');
+    click('SEND INVITE');
+    await fixture.whenStable();
+    await fixture.whenStable();
+
+    expect(el.querySelector('aura-invite-form')).toBeNull();
+    const sheet = el.querySelector('aura-member-invited');
+    expect(sheet?.textContent).toContain('rae@x.example');
+    expect(sheet?.textContent).toMatch(/[A-Z]{4}-[a-z2-9]{4}-[2-9]{2}/);
+    expect(sheet?.textContent).toContain('/k3v9qp');
+    expect(el.textContent).toContain('Parent · invited as rae@x.example');
+  });
 });

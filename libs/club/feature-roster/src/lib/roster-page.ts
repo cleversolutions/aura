@@ -1,11 +1,15 @@
+import { DOCUMENT } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { ChatStore } from '@aura/chat/data-access';
 import { ClubStore } from '@aura/club/data-access';
 import {
+  CopiedValue,
   InviteForm,
   InviteFormValue,
   InviteKind,
   InvitedRow,
+  MemberInvited,
+  MemberInvitedVm,
   PersonRowVm,
   PlayerRow,
   PlayerRowVm,
@@ -13,7 +17,7 @@ import {
 } from '@aura/club/ui';
 import { TeamId } from '@aura/shared/models';
 import { AppHeader, Chips, Choice } from '@aura/shared/ui';
-import { KIND_GROUP, Submission, Toaster } from '@aura/shared/util';
+import { KIND_GROUP, Submission, Toaster, errorMessage } from '@aura/shared/util';
 
 const KIND_LABEL = { staff: 'Team Staff', parent: 'Parent', player: 'Player', club: 'Club Staff' } as const;
 const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
@@ -21,7 +25,7 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
 /** Roster tab container: picks the team and builds staff, player and invite lists. */
 @Component({
   selector: 'aura-roster-page',
-  imports: [AppHeader, Chips, StaffRow, PlayerRow, InvitedRow, InviteForm],
+  imports: [AppHeader, Chips, StaffRow, PlayerRow, InvitedRow, InviteForm, MemberInvited],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
@@ -89,18 +93,24 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
         (submitted)="sendInvite($event)"
       />
     }
+    @if (inviteReady(); as ready) {
+      <aura-member-invited [vm]="ready" (copied)="copy($event)" (closed)="inviteReady.set(null)" />
+    }
   `,
 })
 export class RosterPage {
   protected readonly club = inject(ClubStore);
   private readonly chat = inject(ChatStore);
   private readonly toaster = inject(Toaster);
+  private readonly origin = inject(DOCUMENT).location.origin;
 
   /** Optional `?team=` query parameter, e.g. when arriving from a team card. */
   readonly team = input<TeamId | undefined>();
 
   protected readonly inviting = signal(false);
   protected readonly invite = new Submission();
+  /** Sign-in details for the member just invited, to send them by hand. */
+  protected readonly inviteReady = signal<MemberInvitedVm | null>(null);
   protected readonly selectedTeam = linkedSignal<TeamId>(() => this.team() ?? '');
   protected readonly selected = computed(() => {
     const mine = this.club.myTeams();
@@ -168,7 +178,7 @@ export class RosterPage {
     return this.club
       .users()
       .filter((u) => u.invited && !!id && u.teams.includes(id))
-      .map((u) => ({ id: u.id, name: u.name, sub: `${KIND_LABEL[u.kind]} · invite sent to ${u.email}` }));
+      .map((u) => ({ id: u.id, name: u.name, sub: `${KIND_LABEL[u.kind]} · invited as ${u.email}` }));
   });
 
   protected startInviting(): void {
@@ -178,11 +188,27 @@ export class RosterPage {
 
   protected async sendInvite(value: InviteFormValue): Promise<void> {
     const count = this.linkedThreadCounts()[value.team]?.[value.kind] ?? 0;
-    const ok = await this.invite.run(() => this.club.inviteMember(value), 'Could not send the invite. Try again.');
+    let ready: MemberInvitedVm | null = null;
+    const ok = await this.invite.run(async () => {
+      const invite = await this.club.inviteMember(value);
+      ready = {
+        name: invite.user.name,
+        clubName: this.club.club()?.name ?? '',
+        url: `${this.origin}/${this.club.slug()}`,
+        username: invite.username,
+        temporaryPassword: invite.temporaryPassword,
+      };
+    }, errorMessage('Could not invite them. Try again.'));
     if (!ok) return;
     this.toaster.show(
-      `Invite sent to ${value.email}. Added to ${count} ${this.club.teamName(value.team)} threads automatically.`,
+      `${value.name} invited. Added to ${count} ${this.club.teamName(value.team)} threads automatically.`,
     );
     this.inviting.set(false);
+    this.inviteReady.set(ready);
+  }
+
+  protected copy({ label, value }: CopiedValue): void {
+    navigator.clipboard?.writeText(value).catch(() => undefined);
+    this.toaster.show(`${label} copied.`);
   }
 }
