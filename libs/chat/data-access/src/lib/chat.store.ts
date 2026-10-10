@@ -3,7 +3,15 @@ import { patchState, signalStore, withComputed, withHooks, withMethods, withStat
 import { ChatEvent, ChatRepository, NewThreadInput } from '@aura/backend/api';
 import { ClubStore } from '@aura/club/data-access';
 import { ChatMessage, Thread, ThreadMembership } from '@aura/shared/models';
-import { canManageThread, effectiveMembers } from '@aura/shared/util';
+import {
+  canDeleteMessage,
+  canEditMessage,
+  canManageThread,
+  canPostInThread,
+  canReadThread,
+  effectiveMembers,
+  isClubWide,
+} from '@aura/shared/util';
 
 /** A message from someone else that arrived while its thread was not open. */
 export interface IncomingNotice {
@@ -42,6 +50,12 @@ export const ChatStore = signalStore(
     return {
       withMembers,
       myThreads,
+      /** Team channels club staff read and post in without being members. */
+      teamChannels: computed(() => {
+        const me = club.me();
+        if (!me) return [];
+        return withMembers().filter((t) => !t.members.has(me.id) && canReadThread(t.thread, me, false));
+      }),
       /** Custom threads the user can manage but is not a member of (staff oversight). */
       managedElsewhere: computed(() => {
         const me = club.me();
@@ -64,9 +78,29 @@ export const ChatStore = signalStore(
         const me = club.me();
         return !!me && canManageThread(thread, me);
       },
-      /** How many custom/default threads someone joining `team` as `group` would land in. */
+      canRead({ thread, members }: ThreadWithMembers): boolean {
+        const me = club.me();
+        return !!me && canReadThread(thread, me, members.has(me.id));
+      },
+      canPost({ thread, members }: ThreadWithMembers): boolean {
+        const me = club.me();
+        return !!me && canPostInThread(thread, me, members.has(me.id), club.settings());
+      },
+      canEdit(message: ChatMessage): boolean {
+        const me = club.me();
+        return !!me && canEditMessage(message, me);
+      },
+      canDelete(message: ChatMessage, thread: Thread): boolean {
+        const me = club.me();
+        return !!me && canDeleteMessage(message, thread, me);
+      },
+      /**
+       * How many threads someone joining `team` as `group` would land in: the club-wide channel and
+       * the threads linked to the team. Whoever can invite to a team sees all of them: club staff
+       * every thread, team staff their teams'.
+       */
       linkedThreadCount(team: string, group: keyof Thread['include']): number {
-        return store.threads().filter((t) => t.teams.includes(team) && t.include[group]).length;
+        return store.threads().filter((t) => isClubWide(t) || (t.teams.includes(team) && t.include[group])).length;
       },
       async load(): Promise<void> {
         const [threads, muted] = await Promise.all([repo.listThreads(), repo.listMuted()]);
@@ -86,6 +120,14 @@ export const ChatStore = signalStore(
         if (!threadId || !from || !body) return;
         const message = await repo.sendMessage(threadId, from, body);
         updateThread(threadId, (t) => ({ ...t, messages: [...t.messages, message] }));
+      },
+      async editMessage(threadId: string, messageId: string, text: string): Promise<void> {
+        const message = await repo.editMessage(threadId, messageId, text.trim());
+        updateThread(threadId, (t) => ({ ...t, messages: replaceMessage(t.messages, message) }));
+      },
+      async deleteMessage(threadId: string, messageId: string): Promise<void> {
+        const message = await repo.deleteMessage(threadId, messageId);
+        updateThread(threadId, (t) => ({ ...t, messages: replaceMessage(t.messages, message) }));
       },
       async createThread(input: NewThreadInput): Promise<Thread> {
         const thread = await repo.createThread(input);
@@ -108,6 +150,10 @@ export const ChatStore = signalStore(
       /** Applies a realtime event from the backend. */
       receive(event: ChatEvent): void {
         const { threadId, message } = event;
+        if (event.type === 'updated') {
+          updateThread(threadId, (t) => ({ ...t, messages: replaceMessage(t.messages, message) }));
+          return;
+        }
         const isOpen = store.openThreadId() === threadId;
         updateThread(threadId, (t) => ({
           ...t,
@@ -118,7 +164,8 @@ export const ChatStore = signalStore(
           void repo.markRead(threadId);
           return;
         }
-        const thread = store.threads().find((t) => t.id === threadId);
+        // Only threads I am in: club staff also hear every team channel, which would be noise.
+        const thread = store.myThreads().find((t) => t.thread.id === threadId)?.thread;
         if (thread && !store.muted().includes(threadId)) {
           patchState(store, {
             notice: {
@@ -148,4 +195,9 @@ export type ChatStore = InstanceType<typeof ChatStore>;
 
 function appendOnce(messages: ChatMessage[], message: ChatMessage): ChatMessage[] {
   return messages.some((m) => m.id === message.id) ? messages : [...messages, message];
+}
+
+/** Swaps in an edited or deleted message; unknown ones (outside the loaded window) are ignored. */
+function replaceMessage(messages: ChatMessage[], message: ChatMessage): ChatMessage[] {
+  return messages.map((m) => (m.id === message.id ? message : m));
 }

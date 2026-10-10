@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Avatar, Icon } from '@aura/shared/ui';
@@ -45,24 +46,54 @@ export interface MessageVm {
   time: string;
   mine: boolean;
   sender: string;
+  edited?: boolean;
+  deleted?: boolean;
+  /** The viewer may edit or delete it: show the actions button. */
+  actions?: boolean;
 }
 
-/** One chat message: dark bubble on the right for mine, outlined with avatar for others. */
+/**
+ * One chat message: dark bubble on the right for mine, outlined with avatar for others. A deleted
+ * message keeps its place as a dashed outline. Emits `actions` from its edit/delete button.
+ */
 @Component({
   selector: 'aura-message-bubble',
-  imports: [Avatar],
+  imports: [NgTemplateOutlet, Avatar, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'contents' },
   template: `
     @let m = message();
+    <ng-template #meta>
+      <div class="flex items-center gap-1 text-[11px] font-medium">
+        <span>{{ m.time }}{{ m.edited && !m.deleted ? ' · edited' : '' }}</span>
+        @if (m.actions) {
+          <button
+            type="button"
+            aria-label="Message actions"
+            class="-my-2 flex size-8 items-center justify-center"
+            (click)="actions.emit()"
+          >
+            <aura-icon name="more" [size]="16" />
+          </button>
+        }
+      </div>
+    </ng-template>
     @if (m.mine) {
       <div class="flex max-w-[76%] flex-col items-end gap-[3px] self-end">
-        <div
-          class="rounded-[14px_14px_4px_14px] bg-ink px-[13px] py-2.5 text-[15px] leading-[1.35] font-medium text-pretty text-paper"
-        >
-          {{ m.text }}
-        </div>
-        <div class="text-[11px] font-medium">{{ m.time }}</div>
+        @if (m.deleted) {
+          <div
+            class="rounded-[14px_14px_4px_14px] border-2 border-dashed border-ink px-[13px] py-2 text-[15px] leading-[1.35] italic"
+          >
+            Message deleted
+          </div>
+        } @else {
+          <div
+            class="rounded-[14px_14px_4px_14px] bg-ink px-[13px] py-2.5 text-[15px] leading-[1.35] font-medium text-pretty text-paper"
+          >
+            {{ m.text }}
+          </div>
+        }
+        <ng-container [ngTemplateOutlet]="meta" />
       </div>
     } @else {
       <div class="flex max-w-[82%] items-end gap-2 self-start">
@@ -70,11 +101,12 @@ export interface MessageVm {
         <div class="flex min-w-0 flex-col gap-[3px]">
           <div class="text-xs font-semibold">{{ m.sender }}</div>
           <div
-            class="rounded-[14px_14px_14px_4px] border-2 border-ink bg-paper px-3 py-2 text-[15px] leading-[1.35] font-medium text-pretty"
+            class="rounded-[14px_14px_14px_4px] border-2 border-ink bg-paper px-3 py-2 text-[15px] leading-[1.35] text-pretty"
+            [class]="m.deleted ? 'border-dashed italic' : 'font-medium'"
           >
-            {{ m.text }}
+            {{ m.deleted ? 'Message deleted' : m.text }}
           </div>
-          <div class="text-[11px] font-medium">{{ m.time }}</div>
+          <ng-container [ngTemplateOutlet]="meta" />
         </div>
       </div>
     }
@@ -82,6 +114,7 @@ export interface MessageVm {
 })
 export class MessageBubble {
   readonly message = input.required<MessageVm>();
+  readonly actions = output<void>();
 }
 
 /** Message input and send button. Emits trimmed, non-empty text and clears itself. */

@@ -130,9 +130,14 @@ export type IncludeGroups = Record<MemberGroup, boolean>;
 export interface ChatMessage {
   id: string;
   from: UserId;
+  /** Empty once deleted. */
   text: string;
   /** ISO timestamp. */
   sentAt: string;
+  /** ISO timestamp of the last edit. */
+  editedAt?: string;
+  /** Deleted by the sender or staff; keeps its place in the conversation. */
+  deleted?: boolean;
 }
 
 export interface Thread {
@@ -145,11 +150,24 @@ export interface Thread {
   /** People added individually. */
   members: UserId[];
   creatorId: UserId | null;
-  /** Default `#announcements` / `#general` team channels. Membership is fixed. */
+  /**
+   * Default channels, whose membership is fixed: a team's `#announcements` and `#general` (everyone
+   * on the team), and the club's `#club-announcements` (scope `club`: everyone in the club).
+   */
   isDefault: boolean;
+  /** Announcement channel: only staff post, unless the club lets everyone (`ClubSettings`). */
+  announceOnly: boolean;
   messages: ChatMessage[];
   unread: number;
 }
 
 /** The parts of a thread that decide who is in it. */
 export type ThreadMembership = Pick<Thread, 'teams' | 'include' | 'members' | 'creatorId'>;
+
+/** Who may post in announcement channels: staff only, or everyone in the channel. */
+export type AnnouncementsPosting = 'staff' | 'everyone';
+
+/** Club-wide choices made by club staff. A club that never changed them has the defaults. */
+export interface ClubSettings {
+  announcements: AnnouncementsPosting;
+}

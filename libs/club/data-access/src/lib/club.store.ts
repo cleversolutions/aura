@@ -14,8 +14,8 @@ import {
   UpdateMemberInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
-import { Club, PlayerProfile, Team, TeamId, User, UserId } from '@aura/shared/models';
-import { canManageInvite, personaOf, teamLabel } from '@aura/shared/util';
+import { Club, ClubSettings, PlayerProfile, Team, TeamId, User, UserId } from '@aura/shared/models';
+import { DEFAULT_CLUB_SETTINGS, canManageInvite, personaOf, teamLabel } from '@aura/shared/util';
 
 interface ClubState {
   /** Slug of the open club; set even when the link turned out not to exist. */
@@ -25,6 +25,7 @@ interface ClubState {
   teams: Team[];
   users: User[];
   profiles: PlayerProfile[];
+  settings: ClubSettings;
   meId: UserId | null;
   /** Signed in with a temporary password that must be replaced first. */
   mustChangePassword: boolean;
@@ -41,6 +42,7 @@ const initialState: ClubState = {
   teams: [],
   users: [],
   profiles: [],
+  settings: DEFAULT_CLUB_SETTINGS,
   meId: null,
   mustChangePassword: false,
   preview: false,
@@ -48,7 +50,15 @@ const initialState: ClubState = {
   loaded: false,
 };
 
-const signedOut = { teams: [], users: [], profiles: [], meId: null, mustChangePassword: false, demoAccounts: [] };
+const signedOut = {
+  teams: [],
+  users: [],
+  profiles: [],
+  settings: DEFAULT_CLUB_SETTINGS,
+  meId: null,
+  mustChangePassword: false,
+  demoAccounts: [],
+};
 
 /**
  * The open club: its branding, its directory (teams, people, player profiles) and who is
@@ -258,6 +268,10 @@ export const ClubStore = signalStore(
       async updateProfile(input: UpdateProfileInput): Promise<void> {
         const updated = await directory.updateProfile(input);
         patchState(store, (s) => ({ profiles: s.profiles.map((p) => (p.id === updated.id ? updated : p)) }));
+      },
+      /** Club staff only. */
+      async saveSettings(settings: ClubSettings): Promise<void> {
+        patchState(store, { settings: await directory.saveSettings(settings) });
       },
       async requestPlayerLink(input: LinkPlayerInput): Promise<void> {
         const created = await directory.requestPlayerLink(input);

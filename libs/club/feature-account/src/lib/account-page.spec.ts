@@ -37,6 +37,30 @@ describe('AccountPage', () => {
     expect(el.querySelectorAll('.tile')).toHaveLength(5);
   });
 
+  it('lets club staff choose who posts in announcement channels', async () => {
+    const { fixture, club, el } = await render('sam');
+    const click = (text: string) =>
+      Array.from(el.querySelectorAll('button'))
+        .find((b) => b.textContent?.includes(text))
+        ?.click();
+    expect(el.textContent).toContain('CLUB SETTINGS');
+    expect(el.textContent).toContain('Staff post, everyone reads');
+    click('Announcements');
+    await fixture.whenStable();
+    click('EVERYONE');
+    click('SAVE');
+    await fixture.whenStable();
+    await new Promise((r) => setTimeout(r));
+    await fixture.whenStable();
+    expect(club.settings()).toEqual({ announcements: 'everyone' });
+    expect(el.textContent).toContain('Everyone posts');
+    expect(el.querySelector('aura-club-settings-form')).toBeNull();
+  });
+
+  it('hides club settings from everyone else', async () => {
+    expect((await render('dana')).el.textContent).not.toContain('CLUB SETTINGS');
+  });
+
   it('switches demo accounts', async () => {
     const { fixture, club, el } = await render('jordan');
     Array.from(el.querySelectorAll('button'))

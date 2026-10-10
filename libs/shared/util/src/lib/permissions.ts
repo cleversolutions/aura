@@ -1,5 +1,7 @@
 import {
+  ChatMessage,
   ClubEvent,
+  ClubSettings,
   IncludeGroups,
   MemberGroup,
   Persona,
@@ -33,11 +35,23 @@ export function personaOf(user: Pick<User, 'kind'>): Persona {
   }
 }
 
+export const DEFAULT_CLUB_SETTINGS: ClubSettings = { announcements: 'staff' };
+
+/** The club's default channel (`#club-announcements`): everyone in the club is in it. */
+export function isClubWide(t: Partial<Pick<Thread, 'isDefault' | 'scope'>>): boolean {
+  return !!t.isDefault && t.scope === 'club';
+}
+
 /**
- * Everyone in a thread: the creator, people added individually, and members of the
- * linked teams whose group is included.
+ * Everyone in a thread. The club's default channel has everyone in the club; otherwise the
+ * creator, people added individually, and members of the linked teams whose group is included.
+ * Mirrors thread_member_ids() in the migrations.
  */
-export function effectiveMembers(t: ThreadMembership, users: readonly User[]): Set<UserId> {
+export function effectiveMembers(
+  t: ThreadMembership & Partial<Pick<Thread, 'isDefault' | 'scope'>>,
+  users: readonly User[],
+): Set<UserId> {
+  if (isClubWide(t)) return new Set(users.map((u) => u.id));
   const out = new Set<UserId>(t.members);
   if (t.creatorId) out.add(t.creatorId);
   for (const u of users) {
@@ -62,6 +76,49 @@ export function canManageThread(t: Pick<Thread, 'isDefault' | 'creatorId' | 'sco
   if (t.isDefault) return false;
   if (me.kind === 'club' || t.creatorId === me.id) return true;
   return me.kind === 'staff' && t.scope !== 'club' && me.teams.includes(t.scope);
+}
+
+/**
+ * Members read a thread; club staff also read and post in every default channel without being
+ * members, so they can reach any team. Mirrors can_read_thread().
+ */
+export function canReadThread(t: Pick<Thread, 'isDefault'>, me: User, isMember: boolean): boolean {
+  return isMember || (t.isDefault && me.kind === 'club');
+}
+
+/** Club staff anywhere; team staff in their own teams' threads. Mirrors can_moderate_thread(). */
+export function canModerateThread(t: Pick<Thread, 'scope'>, me: User): boolean {
+  if (me.kind === 'club') return true;
+  return me.kind === 'staff' && t.scope !== 'club' && me.teams.includes(t.scope);
+}
+
+/**
+ * Whoever reads a thread posts in it, except that announcement channels take staff only (club
+ * staff, and a team's staff in its own) unless the club lets everyone post. Mirrors
+ * can_post_in_thread().
+ */
+export function canPostInThread(
+  t: Pick<Thread, 'isDefault' | 'scope' | 'announceOnly'>,
+  me: User,
+  isMember: boolean,
+  settings: ClubSettings,
+): boolean {
+  if (!canReadThread(t, me, isMember)) return false;
+  return !t.announceOnly || settings.announcements === 'everyone' || canModerateThread(t, me);
+}
+
+/** Senders edit their own messages. Mirrors edit_message(). */
+export function canEditMessage(m: Pick<ChatMessage, 'from' | 'deleted'>, me: User): boolean {
+  return !m.deleted && m.from === me.id;
+}
+
+/** Senders delete their own messages; moderators delete any they can read. Mirrors delete_message(). */
+export function canDeleteMessage(
+  m: Pick<ChatMessage, 'from' | 'deleted'>,
+  t: Pick<Thread, 'scope'>,
+  me: User,
+): boolean {
+  return !m.deleted && (m.from === me.id || canModerateThread(t, me));
 }
 
 /**

@@ -299,9 +299,7 @@ export class RosterPage {
       ready = this.readyVm(await this.club.inviteMember(value));
     }, errorMessage('Could not invite them. Try again.'));
     if (!ok) return;
-    this.toaster.show(
-      `${value.name} invited. Added to ${count} ${this.club.teamName(value.team)} threads automatically.`,
-    );
+    this.toaster.show(`${value.name} invited. Added to ${count} chat threads automatically.`);
     this.inviting.set(false);
     this.inviteReady.set(ready);
   }

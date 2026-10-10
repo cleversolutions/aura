@@ -20,6 +20,37 @@ export type Database = {
   };
   public: {
     Tables: {
+      club_settings: {
+        Row: {
+          announcements: string;
+          club_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          announcements?: string;
+          club_id: string;
+        };
+        Update: {
+          announcements?: string;
+          club_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'club_settings_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: true;
+            referencedRelation: 'club_public';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'club_settings_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: true;
+            referencedRelation: 'clubs';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       clubs: {
         Row: {
           admin_member_id: string | null;
@@ -196,6 +227,8 @@ export type Database = {
       messages: {
         Row: {
           club_id: string;
+          deleted_at: string | null;
+          edited_at: string | null;
           from_member_id: string;
           id: string;
           sent_at: string;
@@ -205,6 +238,8 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           club_id: string;
+          deleted_at?: string | null;
+          edited_at?: string | null;
           from_member_id: string;
           id?: string;
           sent_at?: string;
@@ -213,6 +248,8 @@ export type Database = {
         };
         Update: {
           club_id?: string;
+          deleted_at?: string | null;
+          edited_at?: string | null;
           from_member_id?: string;
           id?: string;
           sent_at?: string;
@@ -636,6 +673,7 @@ export type Database = {
       };
       threads: {
         Row: {
+          announce_only: boolean;
           club_id: string;
           created_at: string;
           creator_member_id: string | null;
@@ -650,6 +688,7 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
+          announce_only?: boolean;
           club_id: string;
           created_at?: string;
           creator_member_id?: string | null;
@@ -663,6 +702,7 @@ export type Database = {
           teams?: string[];
         };
         Update: {
+          announce_only?: boolean;
           club_id?: string;
           created_at?: string;
           creator_member_id?: string | null;
@@ -768,7 +808,49 @@ export type Database = {
       can_edit_event: { Args: { p_team: string }; Returns: boolean };
       can_manage_team: { Args: { p_team: string }; Returns: boolean };
       can_manage_thread: { Args: { p_thread: string }; Returns: boolean };
+      can_moderate_thread: { Args: { p_thread: string }; Returns: boolean };
+      can_post_in_thread: { Args: { p_thread: string }; Returns: boolean };
+      can_read_thread: { Args: { p_thread: string }; Returns: boolean };
       can_rsvp_for: { Args: { p_attendee: string }; Returns: boolean };
+      club_announcements: { Args: { p_club: string }; Returns: string };
+      delete_message: {
+        Args: { p_message: string };
+        Returns: {
+          club_id: string;
+          deleted_at: string | null;
+          edited_at: string | null;
+          from_member_id: string;
+          id: string;
+          sent_at: string;
+          text: string;
+          thread_id: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'messages';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      edit_message: {
+        Args: { p_message: string; p_text: string };
+        Returns: {
+          club_id: string;
+          deleted_at: string | null;
+          edited_at: string | null;
+          from_member_id: string;
+          id: string;
+          sent_at: string;
+          text: string;
+          thread_id: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'messages';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       is_club_staff: { Args: Record<PropertyKey, never>; Returns: boolean };
       is_platform_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
       is_thread_member: { Args: { p_thread: string }; Returns: boolean };
@@ -779,6 +861,7 @@ export type Database = {
       list_my_threads: {
         Args: Record<PropertyKey, never>;
         Returns: {
+          announce_only: boolean;
           created_at: string;
           creator_member_id: string;
           id: string;

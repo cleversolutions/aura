@@ -29,6 +29,13 @@ describe('ChatListPage', () => {
     expect(el.textContent).toContain('Priya: Zoe too if there is space. Pickup 5:30?');
   });
 
+  it('lists every team channel for club staff, apart from their own threads', async () => {
+    const { el } = await render('sam');
+    const headings = Array.from(el.querySelectorAll('h2')).map((h) => h.textContent?.trim());
+    expect(headings).toContain('TEAM CHANNELS');
+    expect(el.textContent).toContain('Dana: Gym change for Tuesday practice');
+  });
+
   it('creates a thread, toasts and opens it', async () => {
     const { fixture, el, chat, click } = await render();
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);

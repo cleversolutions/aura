@@ -3,6 +3,7 @@ import {
   Club,
   ClubAccount,
   ClubEvent,
+  ClubSettings,
   ClubEventDraft,
   PlatformAdmin,
   PlayerProfile,
@@ -87,6 +88,7 @@ export interface Directory {
   teams: Team[];
   users: User[];
   profiles: PlayerProfile[];
+  settings: ClubSettings;
 }
 
 export interface InviteMemberInput {
@@ -189,6 +191,8 @@ export abstract class DirectoryRepository {
   abstract addPlayer(input: AddPlayerInput): Promise<AddPlayerResult>;
   /** Club staff, or the team's staff, change who a player's parents are. */
   abstract setPlayerParents(profileId: string, parentIds: UserId[]): Promise<PlayerProfile>;
+  /** Club staff only. */
+  abstract saveSettings(settings: ClubSettings): Promise<ClubSettings>;
 }
 
 export abstract class ScheduleRepository {
@@ -206,13 +210,21 @@ export interface NewThreadInput extends Omit<ThreadMembership, 'creatorId'> {
   creatorId: UserId;
 }
 
-export type ChatEvent = { type: 'message'; threadId: string; message: ChatMessage };
+/** A new message from someone else, or an edit or deletion of any message (yours included). */
+export type ChatEvent =
+  | { type: 'message'; threadId: string; message: ChatMessage }
+  | { type: 'updated'; threadId: string; message: ChatMessage };
 
 export abstract class ChatRepository {
   abstract listThreads(): Promise<Thread[]>;
   abstract createThread(input: NewThreadInput): Promise<Thread>;
   abstract updateMembership(threadId: string, membership: Omit<ThreadMembership, 'creatorId'>): Promise<Thread>;
+  /** Members post; announcement channels take staff only unless the club lets everyone post. */
   abstract sendMessage(threadId: string, from: UserId, text: string): Promise<ChatMessage>;
+  /** Senders edit their own messages. */
+  abstract editMessage(threadId: string, messageId: string, text: string): Promise<ChatMessage>;
+  /** Senders delete their own messages; staff delete any in threads they moderate. */
+  abstract deleteMessage(threadId: string, messageId: string): Promise<ChatMessage>;
   abstract markRead(threadId: string): Promise<void>;
   abstract listMuted(): Promise<string[]>;
   abstract setMuted(threadId: string, muted: boolean): Promise<void>;
