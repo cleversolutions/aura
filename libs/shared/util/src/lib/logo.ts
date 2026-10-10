@@ -14,9 +14,15 @@ export function readFileAsDataUrl(file: Blob): Promise<string> {
   });
 }
 
+/**
+ * Loads an image for drawing to a canvas. Stored logos are on the backend's storage host, a
+ * different origin from the app, so they are requested with CORS; without it the canvas is
+ * tainted and reading it back throws.
+ */
 function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
     img.src = src;
@@ -98,6 +104,11 @@ export async function renderAppIcon(src: string, background: string, size: numbe
   const h0 = img.naturalHeight || box;
   const k = Math.min(box / w0, box / h0);
   const [w, h] = [w0 * k, h0 * k];
-  ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-  return ctx.canvas.toDataURL('image/png');
+  try {
+    ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+    return ctx.canvas.toDataURL('image/png');
+  } catch {
+    // A cross-origin image without CORS headers taints the canvas.
+    return null;
+  }
 }

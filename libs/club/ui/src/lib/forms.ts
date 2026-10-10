@@ -373,3 +373,74 @@ export class TeamForm {
     });
   }
 }
+
+export interface MemberFormValue {
+  name: string;
+  email: string;
+  /** Only when `showTitle`. */
+  title?: string;
+}
+
+/** Edit a member's name, sign-in email and (club staff) title. */
+@Component({
+  selector: 'aura-member-form',
+  imports: [Sheet],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <aura-sheet [title]="heading()" (closed)="closed.emit()">
+      <label class="field">
+        NAME
+        <input class="field-input" [value]="name()" (input)="name.set(value($event))" />
+      </label>
+      <label class="field">
+        EMAIL
+        <input class="field-input" type="email" [value]="email()" (input)="email.set(value($event))" />
+      </label>
+      <p class="-mt-1.5 text-[13px] leading-snug">This is also the username for signing in to the club.</p>
+      @if (showTitle()) {
+        <label class="field">
+          TITLE
+          <input
+            class="field-input"
+            [value]="title()"
+            (input)="title.set(value($event))"
+            placeholder="e.g. Club Director"
+          />
+        </label>
+      }
+      @if (shownError()) {
+        <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
+      }
+      <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">SAVE</button>
+    </aura-sheet>
+  `,
+})
+export class MemberForm {
+  readonly heading = input('EDIT PROFILE');
+  readonly member = input.required<MemberFormValue>();
+  readonly showTitle = input(false);
+  readonly saving = input(false);
+  readonly error = input('');
+
+  readonly submitted = output<MemberFormValue>();
+  readonly closed = output<void>();
+
+  protected readonly name = linkedSignal(() => this.member().name);
+  protected readonly email = linkedSignal(() => this.member().email);
+  protected readonly title = linkedSignal(() => this.member().title ?? '');
+  private readonly validationError = signal('');
+  protected readonly shownError = computed(() => this.validationError() || this.error());
+
+  protected value(e: Event): string {
+    return (e.target as HTMLInputElement).value;
+  }
+
+  protected submit(): void {
+    const name = this.name().trim();
+    const email = this.email().trim();
+    if (!name) return this.validationError.set('Enter a name.');
+    if (!/^\S+@\S+\.\S+$/.test(email)) return this.validationError.set('Enter a valid email.');
+    this.validationError.set('');
+    this.submitted.emit({ name, email, ...(this.showTitle() ? { title: this.title().trim() } : {}) });
+  }
+}

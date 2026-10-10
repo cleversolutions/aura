@@ -8,11 +8,13 @@ import {
   DirectoryRepository,
   InviteMemberInput,
   LinkPlayerInput,
+  MemberInvite,
   SaveTeamInput,
+  UpdateMemberInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
 import { Club, PlayerProfile, Team, User, UserId } from '@aura/shared/models';
-import { personaOf, teamLabel } from '@aura/shared/util';
+import { canManageInvite, personaOf, teamLabel } from '@aura/shared/util';
 
 interface ClubState {
   /** Slug of the open club; set even when the link turned out not to exist. */
@@ -191,14 +193,43 @@ export const ClubStore = signalStore(
       close(): void {
         patchState(store, initialState);
       },
-      async inviteMember(input: InviteMemberInput): Promise<User> {
-        const user = await directory.inviteMember(input);
-        patchState(store, (s) => ({ users: [...s.users, user] }));
-        return user;
+      /** Resolves with the sign-in to hand the new member. */
+      async inviteMember(input: InviteMemberInput): Promise<MemberInvite> {
+        const invite = await directory.inviteMember(input);
+        patchState(store, (s) => ({ users: [...s.users, invite.user] }));
+        return invite;
       },
-      async saveTeam(input: SaveTeamInput): Promise<void> {
-        const dir = await directory.saveTeam(input);
+      /** Resolves with the sign-in for `newStaff`, if any. */
+      async saveTeam(input: SaveTeamInput): Promise<MemberInvite | null> {
+        const { directory: dir, invite } = await directory.saveTeam(input);
         patchState(store, { teams: dir.teams, users: dir.users, profiles: dir.profiles });
+        return invite;
+      },
+      async updateMember(input: UpdateMemberInput): Promise<void> {
+        const updated = await directory.updateMember(input);
+        patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
+      },
+      async cancelInvite(userId: UserId): Promise<void> {
+        await directory.cancelInvite(userId);
+        patchState(store, (s) => ({ users: s.users.filter((u) => u.id !== userId) }));
+      },
+      /** Resolves with the new sign-in to hand them. */
+      resendInvite(userId: UserId): Promise<MemberInvite> {
+        return directory.resendInvite(userId);
+      },
+      /** Yourself; anyone, for club staff; invites to their teams, for team staff. */
+      canEditMember(user: User): boolean {
+        const me = store.me();
+        return !!me && (me.id === user.id || me.kind === 'club' || canManageInvite(me, user));
+      },
+      canManageInvite(user: User): boolean {
+        const me = store.me();
+        return !!me && canManageInvite(me, user);
+      },
+      /** The player's parent, the player themself, and club staff edit a player profile. */
+      canEditProfile(profile: PlayerProfile): boolean {
+        const me = store.me();
+        return !!me && (me.kind === 'club' || profile.parentId === me.id || profile.userId === me.id);
       },
       async updateProfile(input: UpdateProfileInput): Promise<void> {
         const updated = await directory.updateProfile(input);

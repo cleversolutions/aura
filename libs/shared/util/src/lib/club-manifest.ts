@@ -1,4 +1,4 @@
-import { Club } from '@aura/shared/models';
+import type { Club } from '@aura/shared/models';
 
 export interface ManifestIcon {
   src: string;

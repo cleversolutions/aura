@@ -64,6 +64,16 @@ export function canManageThread(t: Pick<Thread, 'isDefault' | 'creatorId' | 'sco
   return me.kind === 'staff' && t.scope !== 'club' && me.teams.includes(t.scope);
 }
 
+/**
+ * Whoever could have invited someone manages their invite until they join: club staff, or team
+ * staff on one of their teams. Mirrors managesInvite() in supabase/functions/_shared/admin.ts.
+ */
+export function canManageInvite(me: User, user: User): boolean {
+  if (!user.invited) return false;
+  if (me.kind === 'club') return true;
+  return me.kind === 'staff' && user.teams.some((t) => me.teams.includes(t));
+}
+
 export function canEditEvent(e: Pick<ClubEvent, 'team'>, me: User): boolean {
   if (me.kind === 'club') return true;
   return me.kind === 'staff' && e.team !== 'ALL' && me.teams.includes(e.team);

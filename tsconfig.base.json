@@ -19,6 +19,7 @@
       "@aura/shared/ui": ["./libs/shared/ui/src/index.ts"],
       "@aura/backend/api": ["./libs/backend/api/src/index.ts"],
       "@aura/backend/mock": ["./libs/backend/mock/src/index.ts"],
+      "@aura/backend/supabase": ["./libs/backend/supabase/src/index.ts"],
       "@aura/club/data-access": ["./libs/club/data-access/src/index.ts"],
       "@aura/club/feature-roster": ["./libs/club/feature-roster/src/index.ts"],
       "@aura/club/feature-account": ["./libs/club/feature-account/src/index.ts"],

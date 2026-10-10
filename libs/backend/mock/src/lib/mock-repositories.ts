@@ -11,11 +11,14 @@ import {
   DirectoryRepository,
   InviteMemberInput,
   LinkPlayerInput,
+  MemberInvite,
   NewClubInput,
   NewThreadInput,
   PlatformRepository,
   SaveTeamInput,
+  SaveTeamResult,
   ScheduleRepository,
+  UpdateMemberInput,
   SignInInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
@@ -34,7 +37,7 @@ import {
   User,
   UserId,
 } from '@aura/shared/models';
-import { ALL_GROUPS, effectiveMembers } from '@aura/shared/util';
+import { ALL_GROUPS, canManageInvite, effectiveMembers, temporaryPassword } from '@aura/shared/util';
 import { DEMO_PLATFORM_ADMIN, createEmptyClubData } from './clubs';
 import { MockDb } from './mock-db';
 
@@ -78,6 +81,8 @@ export class MockAuthRepository extends AuthRepository {
     if (newPassword.length < 8) return this.db.fail('Use at least 8 characters.');
     Object.assign(cred, { password: newPassword, mustChangePassword: false });
     session.mustChangePassword = false;
+    const user = this.db.data.users.find((u) => u.id === session.userId);
+    if (user) delete user.invited;
     return this.db.respond(undefined);
   }
 
@@ -155,20 +160,23 @@ export class MockDirectoryRepository extends DirectoryRepository {
     return this.db.respond(this.snapshot());
   }
 
-  inviteMember(input: InviteMemberInput): Promise<User> {
-    const user: User = {
-      id: this.db.nextId('u'),
-      name: input.name,
-      kind: input.kind,
-      teams: [input.team],
-      email: input.email,
-      invited: true,
-    };
-    this.db.data.users.push(user);
-    return this.db.respond(user);
+  inviteMember(input: InviteMemberInput): Promise<MemberInvite> {
+    const invite = this.invite(input);
+    return invite instanceof Error ? this.db.fail(invite.message) : this.db.respond(invite);
   }
 
-  saveTeam(input: SaveTeamInput): Promise<Directory> {
+  /** Adds an invited member with a sign-in they must replace, like the real invite-member function. */
+  private invite({ team, kind, name, email }: InviteMemberInput): MemberInvite | Error {
+    const taken = this.db.club.credentials.some((c) => c.username.toLowerCase() === email.trim().toLowerCase());
+    if (taken) return new Error(`${email} already has an account at this club.`);
+    const user: User = { id: this.db.nextId('u'), name, kind, teams: [team], email, invited: true };
+    const password = temporaryPassword();
+    this.db.data.users.push(user);
+    this.db.club.credentials.push({ userId: user.id, username: email, password, mustChangePassword: true });
+    return { user, username: email, temporaryPassword: password };
+  }
+
+  saveTeam(input: SaveTeamInput): Promise<SaveTeamResult> {
     const data = this.db.data;
     let teamId = input.id;
     if (!teamId) {
@@ -204,17 +212,68 @@ export class MockDirectoryRepository extends DirectoryRepository {
       if (!want && has) return { ...u, teams: u.teams.filter((t) => t !== id) };
       return u;
     });
+    let invite: MemberInvite | null = null;
     if (input.newStaff) {
-      data.users.push({
-        id: this.db.nextId('u'),
-        name: input.newStaff.name,
-        kind: 'staff',
-        teams: [id],
-        email: input.newStaff.email,
-        invited: true,
-      });
+      const result = this.invite({ team: id, kind: 'staff', ...input.newStaff });
+      if (result instanceof Error) return this.db.fail(result.message);
+      invite = result;
     }
-    return this.db.respond(this.snapshot());
+    return this.db.respond({ directory: this.snapshot(), invite });
+  }
+
+  private me(): User | undefined {
+    const meId = this.db.preview?.session.userId ?? this.db.sessions.get(this.db.activeSlug)?.userId;
+    return this.db.data.users.find((u) => u.id === meId);
+  }
+
+  /** The invited member `id`, if the signed-in user may manage their invite. */
+  private invited(id: UserId): User | Error {
+    const user = this.db.data.users.find((u) => u.id === id);
+    if (!user) return new Error('Member not found.');
+    if (!user.invited) return new Error(`${user.name} has already joined.`);
+    const me = this.me();
+    if (!me || !canManageInvite(me, user))
+      return new Error('Only club staff and the team’s staff can manage this invite.');
+    return user;
+  }
+
+  cancelInvite(id: UserId): Promise<void> {
+    const user = this.invited(id);
+    if (user instanceof Error) return this.db.fail(user.message);
+    const club = this.db.club;
+    club.data.users = club.data.users.filter((u) => u.id !== id);
+    club.credentials = club.credentials.filter((c) => c.userId !== id);
+    return this.db.respond(undefined);
+  }
+
+  resendInvite(id: UserId): Promise<MemberInvite> {
+    const user = this.invited(id);
+    if (user instanceof Error) return this.db.fail(user.message);
+    const password = temporaryPassword();
+    const username = user.email ?? '';
+    const cred = this.db.club.credentials.find((c) => c.userId === id);
+    if (cred) Object.assign(cred, { password, mustChangePassword: true });
+    else this.db.club.credentials.push({ userId: id, username, password, mustChangePassword: true });
+    return this.db.respond({ user, username: cred?.username ?? username, temporaryPassword: password });
+  }
+
+  updateMember({ id, name, email, title }: UpdateMemberInput): Promise<User> {
+    const club = this.db.club;
+    const me = this.me();
+    const user = club.data.users.find((u) => u.id === id);
+    if (!user) return this.db.fail('Member not found.');
+    if (!me || (me.id !== id && me.kind !== 'club' && !canManageInvite(me, user))) {
+      return this.db.fail('Only club staff can edit other people’s details.');
+    }
+    const username = email.trim();
+    const taken = club.credentials.some((c) => c.userId !== id && c.username.toLowerCase() === username.toLowerCase());
+    if (taken) return this.db.fail(`${username} already has an account at this club.`);
+    Object.assign(user, { name: name.trim(), email: username });
+    if (user.kind === 'club' && title !== undefined) user.title = title.trim();
+    const cred = club.credentials.find((c) => c.userId === id);
+    if (cred) cred.username = username;
+    if (id === club.adminUserId) Object.assign(club.account, { adminName: user.name, adminEmail: username });
+    return this.db.respond(user);
   }
 
   updateProfile(input: UpdateProfileInput): Promise<PlayerProfile> {

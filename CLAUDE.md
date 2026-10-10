@@ -8,6 +8,10 @@ adds what the README does not say or what is easy to get wrong.
 
 - Node is managed by Volta. Non-interactive shells do not have it on `PATH`, so prefix commands with
   `export PATH="$HOME/.volta/bin:$PATH";` or `npx` is not found.
+- Docker Desktop's CLI is at `~/.docker/bin`, also not on the non-interactive `PATH`; add it for the Supabase
+  commands. They talk to the Docker socket, so run them with the sandbox disabled.
+- Local Supabase (`npm run db:start`): API 54321, database 54322, Studio 54323, Mailpit 54324. `npm start` needs it
+  running and seeded (`npm run db:reset`); `npm run start:mock` does not.
 - The GitHub CLI is at `/usr/local/bin/gh`. Git and `gh` credentials live in the macOS keychain, which the sandbox
   cannot reach: run `git push`, `git fetch` and `gh` with the sandbox disabled.
 
@@ -20,6 +24,9 @@ npx nx run-many -t test build                # all unit tests + production build
 npx nx format:check --base=origin/main       # Prettier; fix with npx nx format:write
 npx tsc -p libs/<scope>/<lib>/tsconfig.lib.json --noEmit   # Vitest does not typecheck; also tsconfig.spec.json
 ```
+
+After touching `supabase/` or `libs/backend/supabase`, also run what the CI `supabase` job runs: `npm run db:reset`,
+`npm run db:test`, `npm run functions:test` and `npm run test:supabase`. After a migration, `npm run db:types`.
 
 New libraries are scaffolded by copying an existing one's `project.json`, `tsconfig*.json`, `vite.config.mts` and
 `src/test-setup.ts`, then adding the path alias to `tsconfig.base.json`. Tag them `scope:*` and `type:*`.
@@ -40,6 +47,12 @@ New libraries are scaffolded by copying an existing one's `project.json`, `tscon
   styling uses the `wide:` (900px) and `full:` (1200px) variants. Both use the same breakpoints, defined in `rem` in
   `theme.css` and `WIDE_QUERY`; change them together.
 - Pages own their `<h1>`. Shared headers and shells must not add another.
+- **Club sign-ins are derived** (`authEmailFor` in shared/util, copied verbatim into `supabase/functions/_shared`):
+  change both copies together, and never let a club's id change. Only edge functions create auth users or set
+  `app_metadata`; row-level security trusts `app_metadata.club_id`.
+- Permission rules exist twice: in `permissions.ts`, and as SQL helpers in the migrations or checks in the edge
+  functions (`managesInvite` in `supabase/functions/_shared/admin.ts`); change them together.
+- A new edge function directory is only picked up when local Supabase restarts (`npm run db:stop && npm run db:start`).
 - Keep the mock backend (`libs/backend/mock`) honest: it models what the real backend must do (per-club sessions,
   per-club credentials, permission checks), not just the happy path.
 

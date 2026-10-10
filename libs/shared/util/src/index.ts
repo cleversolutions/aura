@@ -8,3 +8,4 @@ export * from './lib/codes';
 export * from './lib/color';
 export * from './lib/logo';
 export * from './lib/club-manifest';
+export * from './lib/auth-identity';

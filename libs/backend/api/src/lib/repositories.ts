@@ -62,6 +62,7 @@ export abstract class AuthRepository {
   /** The active club's session, or null when signed out of it. */
   abstract session(): Promise<ClubSession | null>;
   abstract signIn(input: SignInInput): Promise<ClubSession>;
+  /** Replaces a temporary password; an invited member has then accepted their invite. */
   abstract changePassword(newPassword: string): Promise<void>;
   abstract signOut(): Promise<void>;
 
@@ -95,6 +96,17 @@ export interface InviteMemberInput {
   email: string;
 }
 
+/**
+ * Someone just invited, with the sign-in to hand them. There is no invite email yet: staff share
+ * the club link, username and temporary password themselves, and the member chooses their own
+ * password on first sign-in.
+ */
+export interface MemberInvite {
+  user: User;
+  username: string;
+  temporaryPassword: string;
+}
+
 export interface SaveTeamInput {
   /** Set when editing an existing team. */
   id?: TeamId;
@@ -102,6 +114,21 @@ export interface SaveTeamInput {
   name?: string;
   staffIds: UserId[];
   newStaff?: { name: string; email: string };
+}
+
+export interface SaveTeamResult {
+  directory: Directory;
+  /** Set when `newStaff` was invited. */
+  invite: MemberInvite | null;
+}
+
+/** A member's own details. The email is also their sign-in username at the club. */
+export interface UpdateMemberInput {
+  id: UserId;
+  name: string;
+  email: string;
+  /** Job title; club staff only. */
+  title?: string;
 }
 
 export interface UpdateProfileInput {
@@ -128,9 +155,18 @@ export abstract class DirectoryRepository {
   abstract manifestUrl(slug: string): string | null;
   /** The active club's directory. */
   abstract load(): Promise<Directory>;
-  abstract inviteMember(input: InviteMemberInput): Promise<User>;
+  abstract inviteMember(input: InviteMemberInput): Promise<MemberInvite>;
   /** Creates or updates a team and its staff assignments. Returns the refreshed directory. */
-  abstract saveTeam(input: SaveTeamInput): Promise<Directory>;
+  abstract saveTeam(input: SaveTeamInput): Promise<SaveTeamResult>;
+  /**
+   * Members edit themselves; club staff edit anyone in the club; team staff edit invites to their
+   * teams. Rejects an email already in use.
+   */
+  abstract updateMember(input: UpdateMemberInput): Promise<User>;
+  /** Removes someone invited who has not joined yet. Club staff, or staff of one of their teams. */
+  abstract cancelInvite(userId: UserId): Promise<void>;
+  /** A new temporary password for someone invited; the previous one stops working. */
+  abstract resendInvite(userId: UserId): Promise<MemberInvite>;
   abstract updateProfile(input: UpdateProfileInput): Promise<PlayerProfile>;
   abstract requestPlayerLink(input: LinkPlayerInput): Promise<PlayerProfile>;
 }

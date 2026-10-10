@@ -1,7 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { PlayerProfile } from '@aura/shared/models';
-import { InviteForm, PlayerProfileForm, TeamForm } from './forms';
+import { InviteForm, MemberForm, PlayerProfileForm, TeamForm } from './forms';
+import { CopiedValue, MemberInvited } from './member-invited';
 import { TeamCard } from './people';
+import { PersonDetails, PersonDetailsVm } from './person-details';
 
 const click = (el: HTMLElement, text: string) =>
   Array.from(el.querySelectorAll<HTMLButtonElement>('button'))
@@ -112,5 +114,118 @@ describe('TeamCard', () => {
     fixture.componentInstance.opened.subscribe(opened);
     click(fixture.nativeElement, 'U12 Girls');
     expect(opened).toHaveBeenCalled();
+  });
+});
+
+describe('MemberInvited', () => {
+  it('shows the sign-in details and copies each one, or all as a message', async () => {
+    const fixture = TestBed.createComponent(MemberInvited);
+    fixture.componentRef.setInput('vm', {
+      name: 'Rae Moss',
+      clubName: 'Spartans',
+      url: 'https://aura.example/k3v9qp',
+      username: 'rae@x.example',
+      temporaryPassword: 'KMRT-a7bq-49',
+    });
+    const copied: CopiedValue[] = [];
+    fixture.componentInstance.copied.subscribe((c) => copied.push(c));
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('KMRT-a7bq-49');
+
+    el.querySelector<HTMLButtonElement>('[aria-label="Copy temporary password"]')?.click();
+    click(el, 'COPY INVITE MESSAGE');
+    expect(copied[0]).toEqual({ label: 'Password', value: 'KMRT-a7bq-49' });
+    expect(copied[1].value).toBe(
+      "You're invited to Spartans on Aura. Open https://aura.example/k3v9qp and sign in as rae@x.example " +
+        'with the temporary password KMRT-a7bq-49, then choose your own password.',
+    );
+  });
+});
+
+describe('MemberForm', () => {
+  it('validates, then emits the details, with a title only when shown', async () => {
+    const fixture = TestBed.createComponent(MemberForm);
+    fixture.componentRef.setInput('member', { name: 'Sam Okoro', email: 'sam@x.example', title: 'Director' });
+    fixture.componentRef.setInput('showTitle', true);
+    const emitted: unknown[] = [];
+    fixture.componentInstance.submitted.subscribe((v) => emitted.push(v));
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+
+    type(el, 'input[type=email]', 'not-an-email');
+    click(el, 'SAVE');
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Enter a valid email.');
+
+    type(el, 'input[type=email]', 'sam@new.example');
+    click(el, 'SAVE');
+    expect(emitted).toEqual([{ name: 'Sam Okoro', email: 'sam@new.example', title: 'Director' }]);
+  });
+});
+
+describe('PersonDetails', () => {
+  const vm = (o: Partial<PersonDetailsVm> = {}): PersonDetailsVm => ({
+    name: 'Rae Moss',
+    role: 'Parent',
+    invited: false,
+    canEdit: true,
+    canManageInvite: false,
+    fields: [
+      { key: 'name', label: 'NAME', value: 'Rae Moss', editable: true, required: true, editOnly: true },
+      { key: 'email', label: 'EMAIL', value: 'rae@x.example', editable: true, required: true, type: 'email' },
+      { key: 'teams', label: 'TEAMS', value: 'U12 Girls', editable: false },
+    ],
+    ...o,
+  });
+
+  async function render(value: PersonDetailsVm) {
+    const fixture = TestBed.createComponent(PersonDetails);
+    fixture.componentRef.setInput('vm', value);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    return { fixture, el };
+  }
+
+  it('shows details, then edits the editable fields in place', async () => {
+    const { fixture, el } = await render(vm());
+    const saved: unknown[] = [];
+    fixture.componentInstance.saved.subscribe((v) => saved.push(v));
+    expect(el.textContent).toContain('U12 Girls');
+    expect(el.querySelector('input')).toBeNull();
+
+    click(el, 'EDIT');
+    await fixture.whenStable();
+    expect(el.querySelectorAll('input')).toHaveLength(2);
+    type(el, 'input[type=email]', 'nope');
+    click(el, 'SAVE');
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Enter a valid email.');
+    type(el, 'input[type=email]', 'rae@new.example');
+    click(el, 'SAVE');
+    expect(saved).toEqual([{ name: 'Rae Moss', email: 'rae@new.example' }]);
+
+    fixture.componentRef.setInput('vm', vm({ fields: [] }));
+    await fixture.whenStable();
+    expect(el.querySelector('input')).toBeNull();
+  });
+
+  it('hides edit without permission and confirms cancelling an invite', async () => {
+    const { fixture, el } = await render(vm({ canEdit: false, invited: true, canManageInvite: true }));
+    const events: string[] = [];
+    fixture.componentInstance.resend.subscribe(() => events.push('resend'));
+    fixture.componentInstance.cancelInvite.subscribe(() => events.push('cancel'));
+    expect(Array.from(el.querySelectorAll('button')).some((b) => b.textContent?.trim() === 'EDIT')).toBe(false);
+
+    click(el, 'RESEND INVITE');
+    click(el, 'CANCEL INVITE');
+    await fixture.whenStable();
+    expect(events).toEqual(['resend']);
+    click(el, 'KEEP');
+    await fixture.whenStable();
+    click(el, 'CANCEL INVITE');
+    await fixture.whenStable();
+    click(el, 'CANCEL INVITE');
+    expect(events).toEqual(['resend', 'cancel']);
   });
 });
