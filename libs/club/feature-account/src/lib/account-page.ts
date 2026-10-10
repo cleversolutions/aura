@@ -7,6 +7,8 @@ import {
   CopiedValue,
   LinkPlayerForm,
   LinkPlayerValue,
+  MemberForm,
+  MemberFormValue,
   MemberInvited,
   MemberInvitedVm,
   PlayerAccessTile,
@@ -38,6 +40,7 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
     LinkPlayerForm,
     TeamForm,
     MemberInvited,
+    MemberForm,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
@@ -47,7 +50,7 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
     <main class="min-h-0 flex-1 overflow-y-auto">
       @if (profile(); as me) {
         <div class="max-w-[1100px]">
-          <aura-profile-header [vm]="me" />
+          <aura-profile-header [vm]="me" [editable]="true" (edited)="startEditingMe()" />
 
           @if (club.persona() === 'parent' || club.persona() === 'player') {
             <section class="flex flex-col gap-2.5 px-3.5 py-[18px] wide:px-6">
@@ -140,6 +143,16 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
         (submitted)="saveTeam(target, $event)"
       />
     }
+    @if (editingMe() && club.me(); as me) {
+      <aura-member-form
+        [member]="{ name: me.name, email: me.email ?? '', title: me.title }"
+        [showTitle]="me.kind === 'club'"
+        [saving]="save.saving()"
+        [error]="save.error()"
+        (closed)="editingMe.set(false)"
+        (submitted)="saveMe($event)"
+      />
+    }
     @if (inviteReady(); as ready) {
       <aura-member-invited [vm]="ready" (copied)="copy($event)" (closed)="inviteReady.set(null)" />
     }
@@ -156,6 +169,7 @@ export class AccountPage {
   protected readonly editingPlayerId = signal<string | null>(null);
   protected readonly linking = signal(false);
   protected readonly teamTarget = signal<TeamId | 'new' | null>(null);
+  protected readonly editingMe = signal(false);
   /** Sign-in details for staff just invited with a team, to send them by hand. */
   protected readonly inviteReady = signal<MemberInvitedVm | null>(null);
   /** One sheet is open at a time, so they share a submission state. */
@@ -240,6 +254,23 @@ export class AccountPage {
   protected startEditingPlayer(id: string): void {
     this.save.reset();
     this.editingPlayerId.set(id);
+  }
+
+  protected startEditingMe(): void {
+    this.save.reset();
+    this.editingMe.set(true);
+  }
+
+  protected async saveMe(value: MemberFormValue): Promise<void> {
+    const me = this.club.meId();
+    if (!me) return;
+    const ok = await this.save.run(
+      () => this.club.updateMember({ id: me, ...value }),
+      errorMessage('Could not save your profile. Try again.'),
+    );
+    if (!ok) return;
+    this.toaster.show('Profile saved.');
+    this.editingMe.set(false);
   }
 
   protected startLinking(): void {

@@ -10,6 +10,7 @@ import {
   LinkPlayerInput,
   MemberInvite,
   SaveTeamInput,
+  UpdateMemberInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
 import { Club, PlayerProfile, Team, User, UserId } from '@aura/shared/models';
@@ -203,6 +204,10 @@ export const ClubStore = signalStore(
         const { directory: dir, invite } = await directory.saveTeam(input);
         patchState(store, { teams: dir.teams, users: dir.users, profiles: dir.profiles });
         return invite;
+      },
+      async updateMember(input: UpdateMemberInput): Promise<void> {
+        const updated = await directory.updateMember(input);
+        patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
       },
       async updateProfile(input: UpdateProfileInput): Promise<void> {
         const updated = await directory.updateProfile(input);

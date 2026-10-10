@@ -13,7 +13,7 @@ export interface PlayerRowVm extends PersonRowVm {
   mine: boolean;
 }
 
-/** Team staff member in a roster list. */
+/** Team staff member in a roster list. Club staff get an edit button. */
 @Component({
   selector: 'aura-staff-row',
   imports: [Avatar],
@@ -21,14 +21,21 @@ export interface PlayerRowVm extends PersonRowVm {
   host: { role: 'listitem', class: 'card-row' },
   template: `
     <aura-avatar [name]="vm().name" look="solid" />
-    <div>
+    <div class="min-w-0 flex-1">
       <div class="text-base font-semibold">{{ vm().name }}</div>
       <div class="text-[13px]">{{ vm().sub }}</div>
     </div>
+    @if (editable()) {
+      <button type="button" class="btn-small" [attr.aria-label]="'Edit ' + vm().name" (click)="edited.emit()">
+        EDIT
+      </button>
+    }
   `,
 })
 export class StaffRow {
   readonly vm = input.required<PersonRowVm>();
+  readonly editable = input(false);
+  readonly edited = output<void>();
 }
 
 /** Player in a roster list, with their jersey number. */
@@ -72,7 +79,7 @@ export interface ProfileVm {
   email: string;
 }
 
-/** Signed-in user's name, role line and email. */
+/** Signed-in user's name, role line and email, with an edit button. */
 @Component({
   selector: 'aura-profile-header',
   imports: [Avatar],
@@ -80,15 +87,20 @@ export interface ProfileVm {
   host: { class: 'flex items-center gap-4 border-b-2 border-ink px-[18px] py-[22px]' },
   template: `
     <aura-avatar [name]="vm().name" [size]="66" class="[&>span]:border-[2.5px]" />
-    <div>
+    <div class="min-w-0 flex-1">
       <h1 class="font-display text-2xl leading-[1.1] font-bold uppercase">{{ vm().name }}</h1>
       <div class="mt-[3px] text-sm font-medium">{{ vm().info }}</div>
       <div class="text-[13px]">{{ vm().email }}</div>
     </div>
+    @if (editable()) {
+      <button type="button" class="btn-small" (click)="edited.emit()">EDIT PROFILE</button>
+    }
   `,
 })
 export class ProfileHeader {
   readonly vm = input.required<ProfileVm>();
+  readonly editable = input(false);
+  readonly edited = output<void>();
 }
 
 export interface PlayerAccessVm {

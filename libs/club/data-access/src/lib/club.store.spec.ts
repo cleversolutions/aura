@@ -159,4 +159,28 @@ describe('ClubStore', () => {
       expect(store.demoAccounts()).toEqual([]);
     });
   });
+
+  it('lets members edit themselves and club staff edit anyone, moving the sign-in', async () => {
+    const store = await setup('jordan');
+    await store.updateMember({ id: 'jordan', name: 'Jordan A. Smith', email: 'jordan@new.example' });
+    expect(store.me()).toMatchObject({ name: 'Jordan A. Smith', email: 'jordan@new.example' });
+    await expect(store.updateMember({ id: 'dana', name: 'X', email: 'x@x.example' })).rejects.toThrow(
+      'Only club staff',
+    );
+
+    await store.signOut();
+    await store.signIn('sam@spartans.example', 'password');
+    await store.updateMember({ id: 'dana', name: 'Dana R.', email: 'dana@new.example', title: 'ignored' });
+    expect(store.user('dana')).toMatchObject({ name: 'Dana R.', email: 'dana@new.example' });
+    expect(store.user('dana')?.title).toBeUndefined();
+    await store.updateMember({ id: 'sam', name: 'Sam Okoro', email: 'sam@spartans.example', title: 'President' });
+    expect(store.me()?.title).toBe('President');
+    await expect(store.updateMember({ id: 'lee', name: 'Lee', email: 'DANA@new.example' })).rejects.toThrow(
+      'already has an account',
+    );
+
+    await store.signOut();
+    await store.signIn('dana@new.example', 'password');
+    expect(store.meId()).toBe('dana');
+  });
 });

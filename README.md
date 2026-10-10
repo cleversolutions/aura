@@ -71,7 +71,7 @@ supabase/
   config.toml                Local Supabase settings (sign-ups off: accounts come from edge functions)
   migrations/                Schema, row-level security and helper functions
   tests/                     pgTAP tests for row-level security (npm run db:test)
-  functions/                 Edge functions: create-club, update-club, invite-member (+ _shared, tests)
+  functions/                 Edge functions: create-club, update-club, invite-member, update-member
 functions/                   Cloudflare Pages Functions: /<slug>/manifest.webmanifest
 tools/                       Seed script and test runners
 ```
@@ -133,7 +133,8 @@ Feature code only sees the ports in `@aura/backend/api`; `app.config.ts` binds t
   and `can_edit_event` mirror `permissions.ts`; change both together. `npm run test:supabase` checks SQL and
   TypeScript agree on every seeded thread's members.
 - **Edge functions** do the work that needs the service-role key: `create-club` and `update-club` (platform admin)
-  and `invite-member` (club staff, or team staff for their teams). Logos and icons go to the `club-assets` bucket.
+  `invite-member` (club staff, or team staff for their teams) and `update-member` (yourself, or anyone at the club for
+  club staff; a new email moves the person's sign-in). Logos and icons go to the `club-assets` bucket.
 - **Invites have no email yet.** `invite-member` creates the member's sign-in with a temporary password and returns
   it once; staff see the club link, username and password with copy buttons and send them by hand. The member must
   choose their own password at first sign-in, which also takes them off the invited list.

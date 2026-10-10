@@ -7,10 +7,20 @@ import {
   MemberInvite,
   SaveTeamInput,
   SaveTeamResult,
+  UpdateMemberInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
-import { Club, PlayerProfile } from '@aura/shared/models';
-import { dbError, functionError, teamIdFor, toClub, toDirectory, toMemberInvite, toProfile } from './mapping';
+import { Club, PlayerProfile, User } from '@aura/shared/models';
+import {
+  dbError,
+  functionError,
+  teamIdFor,
+  toClub,
+  toDirectory,
+  toMemberInvite,
+  toProfile,
+  toUserResult,
+} from './mapping';
 import { PreviewData } from './preview';
 import { SupabaseClients } from './supabase-clients';
 
@@ -87,6 +97,14 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
 
     const invite = input.newStaff ? await this.inviteMember({ team: teamId, kind: 'staff', ...input.newStaff }) : null;
     return { directory: await this.load(), invite };
+  }
+
+  /** Through an edge function: the email is the sign-in username, so its auth identity moves with it. */
+  async updateMember(input: UpdateMemberInput): Promise<User> {
+    if (this.clients.previewing) return this.preview.directory.updateMember(input);
+    const { data, error } = await this.clients.active().client.functions.invoke('update-member', { body: input });
+    if (error) throw await functionError(error);
+    return toUserResult(data);
   }
 
   async updateProfile(input: UpdateProfileInput): Promise<PlayerProfile> {

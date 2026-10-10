@@ -328,6 +328,38 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       ).toEqual(['#announcements', '#general']);
     });
 
+    it('lets club staff edit team staff details, moving their sign-in', async () => {
+      const { auth, directory } = setup();
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
+      const mike = await memberId(SPARTANS_SLUG, 'mike@spartans.example');
+      const restore = () => directory.updateMember({ id: mike, name: 'Mike Tran', email: 'mike@spartans.example' });
+      cleanups.push(async () => {
+        await auth.useClub(SPARTANS_SLUG);
+        await restore();
+      });
+
+      const updated = await directory.updateMember({ id: mike, name: 'Mike T.', email: 'mike.t@spartans.example' });
+      expect(updated).toMatchObject({ id: mike, name: 'Mike T.', email: 'mike.t@spartans.example', kind: 'staff' });
+      await expect(directory.updateMember({ id: mike, name: 'Mike', email: 'dana@spartans.example' })).rejects.toThrow(
+        'already has an account',
+      );
+
+      await auth.signOut();
+      expect(
+        (await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'mike.t@spartans.example', password: 'password' }))
+          .userId,
+      ).toBe(mike);
+      await expect(
+        directory.updateMember({
+          id: await memberId(SPARTANS_SLUG, 'dana@spartans.example'),
+          name: 'X',
+          email: 'x@x.example',
+        }),
+      ).rejects.toThrow('Only club staff');
+      await auth.signOut();
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
+    });
+
     it('lets a parent request a player link and edit their own players', async () => {
       const { auth, directory } = setup();
       const session = await auth.signIn({

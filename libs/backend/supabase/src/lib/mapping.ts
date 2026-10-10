@@ -170,6 +170,11 @@ export function teamIdFor(name: string): string {
   return (age ?? '') + (division?.[0] ?? '');
 }
 
+/** A User as the edge functions return it. */
+export function toUserResult(body: unknown): User {
+  return defined(body as User);
+}
+
 /** The shape the invite-member edge function returns. */
 export function toMemberInvite(body: unknown): MemberInvite {
   const { user, username, temporaryPassword } = body as MemberInvite;

@@ -8,6 +8,8 @@ import {
   InviteFormValue,
   InviteKind,
   InvitedRow,
+  MemberForm,
+  MemberFormValue,
   MemberInvited,
   MemberInvitedVm,
   PersonRowVm,
@@ -25,7 +27,7 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
 /** Roster tab container: picks the team and builds staff, player and invite lists. */
 @Component({
   selector: 'aura-roster-page',
-  imports: [AppHeader, Chips, StaffRow, PlayerRow, InvitedRow, InviteForm, MemberInvited],
+  imports: [AppHeader, Chips, StaffRow, PlayerRow, InvitedRow, InviteForm, MemberInvited, MemberForm],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
@@ -54,7 +56,7 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
           <div class="card">
             <div role="list" class="card-grid">
               @for (s of staff(); track s.id) {
-                <aura-staff-row [vm]="s" />
+                <aura-staff-row [vm]="s" [editable]="club.isClubStaff()" (edited)="startEditingStaff(s.id)" />
               } @empty {
                 <div class="card-row text-sm">No staff assigned.</div>
               }
@@ -93,6 +95,16 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
         (submitted)="sendInvite($event)"
       />
     }
+    @if (editingStaff(); as staff) {
+      <aura-member-form
+        heading="EDIT STAFF"
+        [member]="{ name: staff.name, email: staff.email ?? '' }"
+        [saving]="memberEdit.saving()"
+        [error]="memberEdit.error()"
+        (closed)="editingStaffId.set(null)"
+        (submitted)="saveStaff(staff.id, $event)"
+      />
+    }
     @if (inviteReady(); as ready) {
       <aura-member-invited [vm]="ready" (copied)="copy($event)" (closed)="inviteReady.set(null)" />
     }
@@ -109,6 +121,9 @@ export class RosterPage {
 
   protected readonly inviting = signal(false);
   protected readonly invite = new Submission();
+  protected readonly memberEdit = new Submission();
+  protected readonly editingStaffId = signal<string | null>(null);
+  protected readonly editingStaff = computed(() => this.club.user(this.editingStaffId()) ?? null);
   /** Sign-in details for the member just invited, to send them by hand. */
   protected readonly inviteReady = signal<MemberInvitedVm | null>(null);
   protected readonly selectedTeam = linkedSignal<TeamId>(() => this.team() ?? '');
@@ -205,6 +220,21 @@ export class RosterPage {
     );
     this.inviting.set(false);
     this.inviteReady.set(ready);
+  }
+
+  protected startEditingStaff(id: string): void {
+    this.memberEdit.reset();
+    this.editingStaffId.set(id);
+  }
+
+  protected async saveStaff(id: string, value: MemberFormValue): Promise<void> {
+    const ok = await this.memberEdit.run(
+      () => this.club.updateMember({ id, ...value }),
+      errorMessage('Could not save their details. Try again.'),
+    );
+    if (!ok) return;
+    this.toaster.show(`${value.name} saved.`);
+    this.editingStaffId.set(null);
   }
 
   protected copy({ label, value }: CopiedValue): void {

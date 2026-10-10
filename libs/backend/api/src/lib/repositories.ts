@@ -122,6 +122,15 @@ export interface SaveTeamResult {
   invite: MemberInvite | null;
 }
 
+/** A member's own details. The email is also their sign-in username at the club. */
+export interface UpdateMemberInput {
+  id: UserId;
+  name: string;
+  email: string;
+  /** Job title; club staff only. */
+  title?: string;
+}
+
 export interface UpdateProfileInput {
   id: string;
   name: string;
@@ -149,6 +158,8 @@ export abstract class DirectoryRepository {
   abstract inviteMember(input: InviteMemberInput): Promise<MemberInvite>;
   /** Creates or updates a team and its staff assignments. Returns the refreshed directory. */
   abstract saveTeam(input: SaveTeamInput): Promise<SaveTeamResult>;
+  /** Members edit themselves; club staff edit anyone in the club. Rejects an email already in use. */
+  abstract updateMember(input: UpdateMemberInput): Promise<User>;
   abstract updateProfile(input: UpdateProfileInput): Promise<PlayerProfile>;
   abstract requestPlayerLink(input: LinkPlayerInput): Promise<PlayerProfile>;
 }

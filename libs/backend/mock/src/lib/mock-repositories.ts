@@ -18,6 +18,7 @@ import {
   SaveTeamInput,
   SaveTeamResult,
   ScheduleRepository,
+  UpdateMemberInput,
   SignInInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
@@ -218,6 +219,25 @@ export class MockDirectoryRepository extends DirectoryRepository {
       invite = result;
     }
     return this.db.respond({ directory: this.snapshot(), invite });
+  }
+
+  updateMember({ id, name, email, title }: UpdateMemberInput): Promise<User> {
+    const club = this.db.club;
+    const meId = this.db.preview?.session.userId ?? this.db.sessions.get(this.db.activeSlug)?.userId;
+    const me = club.data.users.find((u) => u.id === meId);
+    if (!me || (me.id !== id && me.kind !== 'club'))
+      return this.db.fail('Only club staff can edit other people’s details.');
+    const user = club.data.users.find((u) => u.id === id);
+    if (!user) return this.db.fail('Member not found.');
+    const username = email.trim();
+    const taken = club.credentials.some((c) => c.userId !== id && c.username.toLowerCase() === username.toLowerCase());
+    if (taken) return this.db.fail(`${username} already has an account at this club.`);
+    Object.assign(user, { name: name.trim(), email: username });
+    if (user.kind === 'club' && title !== undefined) user.title = title.trim();
+    const cred = club.credentials.find((c) => c.userId === id);
+    if (cred) cred.username = username;
+    if (id === club.adminUserId) Object.assign(club.account, { adminName: user.name, adminEmail: username });
+    return this.db.respond(user);
   }
 
   updateProfile(input: UpdateProfileInput): Promise<PlayerProfile> {

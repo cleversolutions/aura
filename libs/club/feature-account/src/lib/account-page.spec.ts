@@ -100,4 +100,22 @@ describe('AccountPage', () => {
     expect(club.user('dana')?.teams).toContain('U10B');
     expect(club.user('chris-bell')?.teams).not.toContain('U10B');
   });
+
+  it('edits my own profile', async () => {
+    const { fixture, club, el } = await render('sam');
+    Array.from(el.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'EDIT PROFILE')
+      ?.click();
+    await fixture.whenStable();
+    const title = Array.from(el.querySelectorAll<HTMLInputElement>('aura-member-form input')).at(-1)!;
+    title.value = 'Club President';
+    title.dispatchEvent(new Event('input'));
+    Array.from(el.querySelectorAll('aura-member-form button'))
+      .find((b) => b.textContent?.trim() === 'SAVE')
+      ?.dispatchEvent(new Event('click'));
+    await fixture.whenStable();
+    expect(club.me()?.title).toBe('Club President');
+    expect(el.querySelector('aura-member-form')).toBeNull();
+    expect(el.textContent).toContain('Club Staff · Club President');
+  });
 });

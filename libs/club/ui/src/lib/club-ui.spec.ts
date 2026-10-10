@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { PlayerProfile } from '@aura/shared/models';
-import { InviteForm, PlayerProfileForm, TeamForm } from './forms';
+import { InviteForm, MemberForm, PlayerProfileForm, TeamForm } from './forms';
 import { CopiedValue, MemberInvited } from './member-invited';
 import { TeamCard } from './people';
 
@@ -139,5 +139,26 @@ describe('MemberInvited', () => {
       "You're invited to Spartans on Aura. Open https://aura.example/k3v9qp and sign in as rae@x.example " +
         'with the temporary password KMRT-a7bq-49, then choose your own password.',
     );
+  });
+});
+
+describe('MemberForm', () => {
+  it('validates, then emits the details, with a title only when shown', async () => {
+    const fixture = TestBed.createComponent(MemberForm);
+    fixture.componentRef.setInput('member', { name: 'Sam Okoro', email: 'sam@x.example', title: 'Director' });
+    fixture.componentRef.setInput('showTitle', true);
+    const emitted: unknown[] = [];
+    fixture.componentInstance.submitted.subscribe((v) => emitted.push(v));
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+
+    type(el, 'input[type=email]', 'not-an-email');
+    click(el, 'SAVE');
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Enter a valid email.');
+
+    type(el, 'input[type=email]', 'sam@new.example');
+    click(el, 'SAVE');
+    expect(emitted).toEqual([{ name: 'Sam Okoro', email: 'sam@new.example', title: 'Director' }]);
   });
 });

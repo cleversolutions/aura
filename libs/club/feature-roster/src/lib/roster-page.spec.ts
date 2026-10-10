@@ -73,4 +73,24 @@ describe('RosterPage', () => {
     expect(sheet?.textContent).toContain('/k3v9qp');
     expect(el.textContent).toContain('Parent · invited as rae@x.example');
   });
+
+  it('lets club staff edit team staff, and only club staff', async () => {
+    const { fixture, el } = await render('sam');
+    const club = TestBed.inject(ClubStore);
+    el.querySelector<HTMLButtonElement>('[aria-label="Edit Chris Bell"]')?.click();
+    await fixture.whenStable();
+    const email = el.querySelector<HTMLInputElement>('aura-member-form input[type=email]')!;
+    email.value = 'chris@new.example';
+    email.dispatchEvent(new Event('input'));
+    Array.from(el.querySelectorAll('aura-member-form button'))
+      .find((b) => b.textContent?.trim() === 'SAVE')
+      ?.dispatchEvent(new Event('click'));
+    await fixture.whenStable();
+    expect(club.user('chris-bell')?.email).toBe('chris@new.example');
+    expect(el.querySelector('aura-member-form')).toBeNull();
+
+    TestBed.resetTestingModule();
+    const dana = await render('dana');
+    expect(dana.el.querySelector('[aria-label^="Edit "]')).toBeNull();
+  });
 });
