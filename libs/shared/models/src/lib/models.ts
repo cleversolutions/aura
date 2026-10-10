@@ -76,6 +76,7 @@ export interface User {
   teams: TeamId[];
   /** Job title, used for club staff. */
   title?: string;
+  /** Also their sign-in username. Left out when the viewer may not see it (`ClubSettings.contacts`). */
   email?: string;
   /** Invited but has not accepted yet. */
   invited?: boolean;
@@ -95,8 +96,8 @@ export interface PlayerProfile {
   jersey: string;
   team: TeamId;
   parentIds: UserId[];
+  /** The player's own sign-in, when they have one. */
   userId: UserId | null;
-  login: string;
   /** Link requested by a parent, waiting for team staff approval. */
   pending?: boolean;
 }
@@ -185,7 +186,15 @@ export type ThreadMembership = Pick<Thread, 'teams' | 'include' | 'members' | 'c
 /** Who may post in announcement channels: staff only, or everyone in the channel. */
 export type AnnouncementsPosting = 'staff' | 'everyone';
 
+/**
+ * Who sees members' contact details (emails): `staff` lets club staff see everyone's, team staff
+ * their teams' people, and families their teams' staff and the club staff; `everyone` lets everyone
+ * in the club see everyone's.
+ */
+export type ContactsVisibility = 'staff' | 'everyone';
+
 /** Club-wide choices made by club staff. A club that never changed them has the defaults. */
 export interface ClubSettings {
   announcements: AnnouncementsPosting;
+  contacts: ContactsVisibility;
 }

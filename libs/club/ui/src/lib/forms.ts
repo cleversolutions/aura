@@ -1,5 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
-import { AnnouncementsPosting, ClubSettings, PlayerProfile, TeamId, UserId, UserKind } from '@aura/shared/models';
+import {
+  AnnouncementsPosting,
+  ClubSettings,
+  ContactsVisibility,
+  PlayerProfile,
+  TeamId,
+  UserId,
+  UserKind,
+} from '@aura/shared/models';
 import { Check, Chips, Choice, Segmented, Sheet } from '@aura/shared/ui';
 
 /** Who joins a team: everyone but club staff. */
@@ -10,63 +18,103 @@ export type InviteFormValue =
   | { kind: InviteKind; team: TeamId; name: string; email: string }
   | { kind: 'club'; title: string; name: string; email: string };
 
-/** Invite a parent, player or staff member to a team; club staff may also invite club staff. */
+/** Someone already in the club, put on a team instead of being invited again. */
+export interface ExistingMemberValue {
+  team: TeamId;
+  userId: UserId;
+}
+
+type InviteMode = 'new' | 'existing';
+
+/**
+ * Invite a parent, player or staff member to a team; club staff may also invite club staff. Someone
+ * already in the club (a parent with a child on another team, a coach of two teams) is added to
+ * the team instead.
+ */
 @Component({
   selector: 'aura-invite-form',
-  imports: [Sheet, Chips],
+  imports: [Sheet, Chips, Segmented, Check],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <aura-sheet title="INVITE MEMBER" (closed)="closed.emit()">
-      @if (teamOptions().length > 1 && kind() !== 'club') {
+      @if (hasExisting()) {
+        <aura-segmented aria-label="Who" [options]="modeOptions" [(value)]="mode" [height]="40" [fontSize]="15" />
+      }
+      @if (teamOptions().length > 1 && (kind() !== 'club' || mode() === 'existing')) {
         <div class="label-caps">TEAM</div>
         <aura-chips [options]="teamOptions()" [(value)]="team" />
       }
-      <div class="label-caps">INVITE AS</div>
-      <aura-chips [options]="roleOptions()" [(value)]="kind" />
-      <label class="field">
-        NAME
-        <input
-          class="field-input"
-          [value]="name()"
-          (input)="name.set(value($event))"
-          placeholder="First and last name"
-        />
-      </label>
-      <label class="field">
-        EMAIL
-        <input
-          class="field-input"
-          type="email"
-          [value]="email()"
-          (input)="email.set(value($event))"
-          placeholder="name@email.com"
-        />
-      </label>
-      @if (kind() === 'club') {
+      @if (mode() === 'existing') {
+        <div class="label-caps">ADD TO {{ teamName().toUpperCase() }}</div>
+        <div class="card">
+          @for (o of existingForTeam(); track o.id) {
+            @let selected = existing() === o.id;
+            <button type="button" class="card-row py-[9px]" [attr.aria-pressed]="selected" (click)="pick(o.id)">
+              <aura-check [checked]="selected" />
+              <span class="min-w-0 flex-1">
+                <span class="block text-[15px] font-semibold">{{ o.name }}</span>
+                <span class="block text-xs">{{ o.sub }}</span>
+              </span>
+            </button>
+          } @empty {
+            <div class="card-row text-sm">Everyone you can add is already on this team.</div>
+          }
+        </div>
+        <p class="text-[13px] leading-snug">They keep their sign-in and join this team’s chat threads.</p>
+        @if (shownError()) {
+          <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
+        }
+        <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="addExisting()">
+          ADD TO TEAM
+        </button>
+      } @else {
+        <div class="label-caps">INVITE AS</div>
+        <aura-chips [options]="roleOptions()" [(value)]="kind" />
         <label class="field">
-          TITLE
+          NAME
           <input
             class="field-input"
-            [value]="title()"
-            (input)="title.set(value($event))"
-            placeholder="e.g. Registrar, Treasurer"
+            [value]="name()"
+            (input)="name.set(value($event))"
+            placeholder="First and last name"
           />
         </label>
-        <p class="text-[13px] leading-snug">
-          Club staff manage every team, the roster and the club’s settings. They will automatically join
-          {{ linkedCount() }} chat thread{{ linkedCount() === 1 ? '' : 's' }}, and can post in every team’s channels.
-        </p>
-      } @else {
-        <p class="text-[13px] leading-snug">
-          They will be added to {{ teamName() }} and automatically join {{ linkedCount() }} chat thread{{
-            linkedCount() === 1 ? '' : 's'
-          }}.
-        </p>
+        <label class="field">
+          EMAIL
+          <input
+            class="field-input"
+            type="email"
+            [value]="email()"
+            (input)="email.set(value($event))"
+            placeholder="name@email.com"
+          />
+        </label>
+        @if (kind() === 'club') {
+          <label class="field">
+            TITLE
+            <input
+              class="field-input"
+              [value]="title()"
+              (input)="title.set(value($event))"
+              placeholder="e.g. Registrar, Treasurer"
+            />
+          </label>
+          <p class="text-[13px] leading-snug">
+            Club staff manage every team, the roster and the club’s settings. They will automatically join
+            {{ linkedCount() }} chat thread{{ linkedCount() === 1 ? '' : 's' }}, and can post in every team’s channels.
+          </p>
+        } @else {
+          <p class="text-[13px] leading-snug">
+            They will be added to {{ teamName() }} and automatically join {{ linkedCount() }} chat thread{{
+              linkedCount() === 1 ? '' : 's'
+            }}.
+          </p>
+        }
+        @if (shownError()) {
+          <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
+        }
+        <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">SEND INVITE</button>
       }
-      @if (shownError()) {
-        <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
-      }
-      <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">SEND INVITE</button>
     </aura-sheet>
   `,
 })
@@ -79,11 +127,23 @@ export class InviteForm {
   readonly canInviteClubStaff = input(false);
   /** Chat threads club staff join automatically (the club-wide ones). */
   readonly clubStaffThreadCount = input(0);
+  /** team → people already in the club whom the viewer may add to it. */
+  readonly existingByTeam = input<Record<TeamId, ParentOptionVm[]>>({});
   readonly saving = input(false);
   readonly error = input('');
 
   readonly submitted = output<InviteFormValue>();
+  readonly addedExisting = output<ExistingMemberValue>();
   readonly closed = output<void>();
+
+  protected readonly modeOptions: Choice<InviteMode>[] = [
+    { value: 'new', label: 'NEW PERSON' },
+    { value: 'existing', label: 'ALREADY IN CLUB' },
+  ];
+  protected readonly mode = signal<InviteMode>('new');
+  protected readonly existing = signal<UserId | null>(null);
+  protected readonly hasExisting = computed(() => Object.values(this.existingByTeam()).some((o) => o.length));
+  protected readonly existingForTeam = computed(() => this.existingByTeam()[this.team()] ?? []);
 
   protected readonly roleOptions = computed<Choice<UserKind>[]>(() => [
     { value: 'parent', label: 'Parent' },
@@ -112,6 +172,20 @@ export class InviteForm {
     return (e.target as HTMLInputElement).value;
   }
 
+  protected pick(id: UserId): void {
+    this.existing.set(id);
+    this.validationError.set('');
+  }
+
+  protected addExisting(): void {
+    const userId = this.existing();
+    if (!userId || !this.existingForTeam().some((o) => o.id === userId)) {
+      return this.validationError.set('Choose who to add.');
+    }
+    this.validationError.set('');
+    this.addedExisting.emit({ team: this.team(), userId });
+  }
+
   protected submit(): void {
     const name = this.name().trim();
     const email = this.email().trim();
@@ -128,10 +202,9 @@ export class InviteForm {
 export interface PlayerProfileValue {
   name: string;
   jersey: string;
-  login: string;
 }
 
-/** Edit a linked player's name, jersey and (optionally) their own login. */
+/** Edit a linked player's name and jersey. */
 @Component({
   selector: 'aura-player-profile-form',
   imports: [Sheet],
@@ -150,19 +223,9 @@ export interface PlayerProfileValue {
         <div class="label-caps">TEAM / AGE GROUP</div>
         <div class="mt-0.5 text-base font-medium">{{ teamName() }}</div>
       </div>
-      @if (showLogin()) {
-        <label class="field">
-          PLAYER'S OWN LOGIN (OPTIONAL)
-          <input
-            class="field-input"
-            type="email"
-            placeholder="player@email.com"
-            [value]="login()"
-            (input)="login.set(value($event))"
-          />
-        </label>
+      @if (!player().userId) {
         <p class="-mt-1 text-[13px] leading-snug">
-          Older players can RSVP and chat from their own account. You keep access.
+          Older players can RSVP and chat from their own sign-in. Ask the team staff to give them one; you keep access.
         </p>
       }
       @if (shownError()) {
@@ -175,8 +238,6 @@ export interface PlayerProfileValue {
 export class PlayerProfileForm {
   readonly player = input.required<PlayerProfile>();
   readonly teamName = input('');
-  /** Offer a separate login (older players). */
-  readonly showLogin = input(false);
   readonly saving = input(false);
   readonly error = input('');
 
@@ -185,7 +246,6 @@ export class PlayerProfileForm {
 
   protected readonly name = linkedSignal(() => this.player().name);
   protected readonly jersey = linkedSignal(() => this.player().jersey);
-  protected readonly login = linkedSignal(() => this.player().login);
   private readonly validationError = signal('');
   protected readonly shownError = computed(() => this.validationError() || this.error());
 
@@ -194,11 +254,9 @@ export class PlayerProfileForm {
   }
 
   protected submit(): void {
-    const login = this.login().trim();
     if (!this.name().trim()) return this.validationError.set('Enter a name.');
-    if (login && !login.includes('@')) return this.validationError.set('Enter a valid email.');
     this.validationError.set('');
-    this.submitted.emit({ name: this.name().trim(), jersey: this.jersey().trim(), login });
+    this.submitted.emit({ name: this.name().trim(), jersey: this.jersey().trim() });
   }
 }
 
@@ -483,6 +541,8 @@ export interface AddPlayerValue {
   name: string;
   jersey: string;
   parentIds: UserId[];
+  /** A parent who isn't in the club yet, to invite first. */
+  newParent?: { name: string; email: string };
   /** Set when the player signs in themselves. */
   email?: string;
 }
@@ -515,9 +575,7 @@ export interface AddPlayerValue {
       </div>
 
       <div class="label-caps mt-1">PARENTS</div>
-      <p class="-mt-1.5 text-[13px] leading-snug">
-        They manage the player: RSVPs, profile and team chat. Invite a parent first if they are not listed.
-      </p>
+      <p class="-mt-1.5 text-[13px] leading-snug">They manage the player: RSVPs, profile and team chat.</p>
       <div class="card">
         @for (o of parentOptions(); track o.id) {
           @let selected = parents().includes(o.id);
@@ -532,6 +590,31 @@ export interface AddPlayerValue {
           <div class="card-row text-sm">No parents or staff on this team yet.</div>
         }
       </div>
+      @if (invitingParent()) {
+        <div class="label-caps mt-1">INVITE A PARENT</div>
+        <div class="grid grid-cols-2 gap-2">
+          <input
+            class="field-input"
+            aria-label="Parent’s name"
+            placeholder="Name"
+            [value]="parentName()"
+            (input)="parentName.set(value($event))"
+          />
+          <input
+            class="field-input"
+            aria-label="Parent’s email"
+            type="email"
+            placeholder="Email"
+            [value]="parentEmail()"
+            (input)="parentEmail.set(value($event))"
+          />
+        </div>
+        <p class="-mt-1 text-[13px] leading-snug">They’re invited to the team and get a sign-in to share with them.</p>
+      } @else {
+        <button type="button" class="btn-link h-10 self-start" (click)="invitingParent.set(true)">
+          + Invite a parent who isn’t listed
+        </button>
+      }
 
       <button
         type="button"
@@ -579,6 +662,9 @@ export class AddPlayerForm {
   protected readonly name = signal('');
   protected readonly jersey = signal('');
   protected readonly parents = signal<UserId[]>([]);
+  protected readonly invitingParent = signal(false);
+  protected readonly parentName = signal('');
+  protected readonly parentEmail = signal('');
   protected readonly ownLogin = signal(false);
   protected readonly email = signal('');
   private readonly validationError = signal('');
@@ -596,9 +682,15 @@ export class AddPlayerForm {
   protected submit(): void {
     const name = this.name().trim();
     const email = this.email().trim();
+    const parentName = this.parentName().trim();
+    const parentEmail = this.parentEmail().trim();
+    const newParent = this.invitingParent() && (parentName || parentEmail);
     if (!name) return this.validationError.set('Enter the player’s name.');
+    if (newParent && (!parentName || !/^\S+@\S+\.\S+$/.test(parentEmail))) {
+      return this.validationError.set('Enter a name and valid email for the new parent.');
+    }
     if (this.ownLogin() && !/^\S+@\S+\.\S+$/.test(email)) return this.validationError.set('Enter the player’s email.');
-    if (!this.ownLogin() && !this.parents().length) {
+    if (!this.ownLogin() && !this.parents().length && !newParent) {
       return this.validationError.set('Choose a parent, or let the player sign in themselves.');
     }
     this.validationError.set('');
@@ -606,12 +698,13 @@ export class AddPlayerForm {
       name,
       jersey: this.jersey().trim(),
       parentIds: this.parents(),
+      ...(newParent ? { newParent: { name: parentName, email: parentEmail } } : {}),
       ...(this.ownLogin() ? { email } : {}),
     });
   }
 }
 
-/** Club-wide choices for club staff: for now, who posts in announcement channels. */
+/** Club-wide choices for club staff: who posts in announcement channels, and who sees contact details. */
 @Component({
   selector: 'aura-club-settings-form',
   imports: [Sheet, Segmented],
@@ -631,6 +724,21 @@ export class AddPlayerForm {
           Everyone else reads them.
         } @else {
           Everyone in an announcement channel can post in it, like in #general.
+        }
+      </p>
+      <div class="label-caps mt-2" id="contacts-label">WHO SEES CONTACT DETAILS</div>
+      <aura-segmented
+        aria-labelledby="contacts-label"
+        [options]="contactOptions"
+        [(value)]="contacts"
+        [fontSize]="16"
+      />
+      <p class="text-[13px] leading-snug">
+        @if (contacts() === 'staff') {
+          Club staff see everyone’s email; team staff see their teams’ families. Parents and players see their coaches’
+          and the club staff’s, and only names for other families. Only staff see who is invited.
+        } @else {
+          Everyone in the club sees everyone’s email, and who is invited.
         }
       </p>
       @if (error()) {
@@ -653,8 +761,13 @@ export class ClubSettingsForm {
     { value: 'everyone', label: 'EVERYONE' },
   ];
   protected readonly announcements = linkedSignal(() => this.settings().announcements);
+  protected readonly contactOptions: Choice<ContactsVisibility>[] = [
+    { value: 'staff', label: 'STAFF' },
+    { value: 'everyone', label: 'EVERYONE' },
+  ];
+  protected readonly contacts = linkedSignal(() => this.settings().contacts);
 
   protected submit(): void {
-    this.submitted.emit({ ...this.settings(), announcements: this.announcements() });
+    this.submitted.emit({ ...this.settings(), announcements: this.announcements(), contacts: this.contacts() });
   }
 }

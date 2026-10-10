@@ -60,10 +60,7 @@ describe('mock backend: member lifecycle', () => {
     await expect(signIn(auth, 'jordan.smith@email.com', 'password')).rejects.toThrow();
 
     await directory.removeMember('eli');
-    expect((await directory.load()).profiles.find((p) => p.name === 'Eli Smith')).toMatchObject({
-      userId: null,
-      login: '',
-    });
+    expect((await directory.load()).profiles.find((p) => p.name === 'Eli Smith')).toMatchObject({ userId: null });
   });
 
   it('never disables or removes yourself or the club admin, and only club staff do it', async () => {

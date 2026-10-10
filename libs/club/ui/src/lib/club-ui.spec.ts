@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { PlayerProfile } from '@aura/shared/models';
-import { AddPlayerForm, InviteForm, MemberForm, PlayerProfileForm, TeamForm } from './forms';
+import { AddPlayerForm, ClubSettingsForm, InviteForm, MemberForm, PlayerProfileForm, TeamForm } from './forms';
 import { CopiedValue, MemberInvited } from './member-invited';
 import { TeamCard } from './people';
 import { PersonDetails, PersonDetailsVm } from './person-details';
@@ -84,6 +84,64 @@ describe('InviteForm', () => {
   });
 });
 
+describe('InviteForm: someone already in the club', () => {
+  it('adds an existing member to the chosen team instead of inviting them again', async () => {
+    const fixture = TestBed.createComponent(InviteForm);
+    fixture.componentRef.setInput('teamOptions', [
+      { value: 'U12G', label: 'U12 Girls' },
+      { value: 'U14B', label: 'U14 Boys' },
+    ]);
+    fixture.componentRef.setInput('initialTeam', 'U12G');
+    fixture.componentRef.setInput('existingByTeam', {
+      U12G: [],
+      U14B: [{ id: 'wei', name: 'Wei Chen', sub: 'Parent · U12 Girls' }],
+    });
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const added = vi.fn();
+    fixture.componentInstance.addedExisting.subscribe(added);
+
+    click(el, 'ALREADY IN CLUB');
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Everyone you can add is already on this team.');
+    click(el, 'U14 Boys');
+    await fixture.whenStable();
+    click(el, 'ADD TO TEAM');
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Choose who to add.');
+    click(el, 'Wei Chen');
+    click(el, 'ADD TO TEAM');
+    expect(added).toHaveBeenCalledWith({ team: 'U14B', userId: 'wei' });
+  });
+
+  it('only offers it when someone can be added', async () => {
+    const fixture = TestBed.createComponent(InviteForm);
+    fixture.componentRef.setInput('teamOptions', [{ value: 'U12G', label: 'U12 Girls' }]);
+    fixture.componentRef.setInput('initialTeam', 'U12G');
+    await fixture.whenStable();
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('ALREADY IN CLUB');
+  });
+});
+
+describe('ClubSettingsForm', () => {
+  it('saves who sees contact details', async () => {
+    const fixture = TestBed.createComponent(ClubSettingsForm);
+    fixture.componentRef.setInput('settings', { announcements: 'staff', contacts: 'staff' });
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const submitted = vi.fn();
+    fixture.componentInstance.submitted.subscribe(submitted);
+    expect(el.textContent).toContain('Only staff see who is invited.');
+    const everyone = Array.from(el.querySelectorAll<HTMLButtonElement>('[aria-labelledby=contacts-label] button')).find(
+      (b) => b.textContent?.includes('EVERYONE'),
+    );
+    everyone?.click();
+    await fixture.whenStable();
+    click(el, 'SAVE');
+    expect(submitted).toHaveBeenCalledWith({ announcements: 'staff', contacts: 'everyone' });
+  });
+});
+
 describe('TeamForm', () => {
   it('names a new team from age and division and requires staff', async () => {
     const fixture = TestBed.createComponent(TeamForm);
@@ -114,19 +172,20 @@ describe('PlayerProfileForm', () => {
     team: 'U18B',
     parentIds: ['jordan'],
     userId: 'eli',
-    login: 'eli.smith@email.com',
   };
 
-  it('only offers a separate login when asked to', async () => {
+  it('has no sign-in field: staff give players their own sign-in from the roster', async () => {
     const fixture = TestBed.createComponent(PlayerProfileForm);
-    fixture.componentRef.setInput('player', eli);
+    fixture.componentRef.setInput('player', { ...eli, userId: null });
     await fixture.whenStable();
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.textContent).not.toContain("PLAYER'S OWN LOGIN");
+    expect(el.querySelector('input[type=email]')).toBeNull();
+    expect(el.textContent).toContain('Ask the team staff');
 
-    fixture.componentRef.setInput('showLogin', true);
-    await fixture.whenStable();
-    expect(el.querySelector<HTMLInputElement>('input[type=email]')?.value).toBe('eli.smith@email.com');
+    const submitted = vi.fn();
+    fixture.componentInstance.submitted.subscribe(submitted);
+    click(el, 'SAVE PLAYER');
+    expect(submitted).toHaveBeenCalledWith({ name: 'Eli Smith', jersey: '1' });
   });
 });
 
@@ -314,6 +373,94 @@ describe('PersonDetails', () => {
   });
 });
 
+describe('PersonDetails: players', () => {
+  const player = (o: Partial<PersonDetailsVm> = {}): PersonDetailsVm => ({
+    name: 'Kai Chen',
+    role: 'Player · #– · U12 Girls',
+    jersey: '–',
+    invited: false,
+    canEdit: true,
+    canManageInvite: false,
+    canManagePlayer: true,
+    fields: [
+      { key: 'name', label: 'NAME', value: 'Kai Chen', editable: true, required: true, editOnly: true },
+      {
+        key: 'team',
+        label: 'TEAM',
+        value: 'U12 Girls',
+        editable: true,
+        editOnly: true,
+        choices: [
+          { value: 'U12G', label: 'U12 Girls' },
+          { value: 'U14B', label: 'U14 Boys' },
+        ],
+        selected: ['U12G'],
+      },
+    ],
+    ...o,
+  });
+
+  async function render(value: PersonDetailsVm) {
+    const fixture = TestBed.createComponent(PersonDetails);
+    fixture.componentRef.setInput('vm', value);
+    await fixture.whenStable();
+    return { fixture, el: fixture.nativeElement as HTMLElement };
+  }
+
+  it('approves a link request, or rejects it after asking', async () => {
+    const { fixture, el } = await render(player({ pending: true }));
+    const events: string[] = [];
+    fixture.componentInstance.approve.subscribe(() => events.push('approve'));
+    fixture.componentInstance.removePlayer.subscribe(() => events.push('remove'));
+    expect(el.textContent).not.toContain('REMOVE FROM ROSTER');
+    click(el, 'APPROVE');
+    click(el, 'REJECT');
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Reject the request to add Kai Chen?');
+    click(el, 'REJECT');
+    expect(events).toEqual(['approve', 'remove']);
+  });
+
+  it('removes a player from the roster after asking', async () => {
+    const { fixture, el } = await render(player());
+    const removed = vi.fn();
+    fixture.componentInstance.removePlayer.subscribe(removed);
+    expect(el.textContent).not.toContain('APPROVE');
+    click(el, 'REMOVE FROM ROSTER');
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Their parents, and their own sign-in if they have one, stay in the club.');
+    click(el, 'REMOVE');
+    expect(removed).toHaveBeenCalled();
+  });
+
+  it('moves a player with the team chips', async () => {
+    const { fixture, el } = await render(player());
+    const saved = vi.fn();
+    fixture.componentInstance.saved.subscribe(saved);
+    click(el, 'EDIT');
+    await fixture.whenStable();
+    click(el, 'U14 Boys');
+    await fixture.whenStable();
+    click(el, 'SAVE');
+    expect(saved).toHaveBeenCalledWith({ name: 'Kai Chen', team: 'U14B' });
+  });
+
+  it('gives a player their own sign-in with a valid email', async () => {
+    const { fixture, el } = await render(player({ canGiveSignIn: true }));
+    const given = vi.fn();
+    fixture.componentInstance.giveSignIn.subscribe(given);
+    click(el, 'GIVE OWN SIGN-IN');
+    await fixture.whenStable();
+    type(el, 'input[type=email]', 'kai');
+    click(el, 'CREATE SIGN-IN');
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Enter the player’s email.');
+    type(el, 'input[type=email]', 'kai@x.example');
+    click(el, 'CREATE SIGN-IN');
+    expect(given).toHaveBeenCalledWith('kai@x.example');
+  });
+});
+
 describe('AddPlayerForm', () => {
   it('needs a parent or the player’s own email, then emits the player', async () => {
     const fixture = TestBed.createComponent(AddPlayerForm);
@@ -351,5 +498,32 @@ describe('AddPlayerForm', () => {
       parentIds: ['evan', 'jenn'],
       email: 'davis@x.example',
     });
+  });
+
+  it('invites a parent who isn’t listed', async () => {
+    const fixture = TestBed.createComponent(AddPlayerForm);
+    fixture.componentRef.setInput('teamName', 'U11 Boys');
+    fixture.componentRef.setInput('parentOptions', []);
+    const emitted: unknown[] = [];
+    fixture.componentInstance.submitted.subscribe((v) => emitted.push(v));
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const add = () =>
+      Array.from(el.querySelectorAll<HTMLButtonElement>('button'))
+        .filter((b) => b.textContent?.trim() === 'ADD PLAYER')[0]
+        ?.click();
+
+    type(el, 'input', 'Liam Ortiz');
+    click(el, 'Invite a parent');
+    await fixture.whenStable();
+    type(el, 'input[aria-label="Parent’s name"]', 'Rosa Ortiz');
+    add();
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('valid email for the new parent');
+    type(el, 'input[aria-label="Parent’s email"]', 'rosa@x.example');
+    add();
+    expect(emitted).toEqual([
+      { name: 'Liam Ortiz', jersey: '', parentIds: [], newParent: { name: 'Rosa Ortiz', email: 'rosa@x.example' } },
+    ]);
   });
 });

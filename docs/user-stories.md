@@ -166,15 +166,34 @@ or the "club created" screen). Each person then chooses their own.
 - Then Davis's parents show only Jenn Buell.
 - And Evan no longer sees Davis as his player.
 
-**US-3.8 Remove a player from the roster** ❌ G10
+**US-3.8 Remove a player from the roster** ✅ (G10)
 
-**US-3.9 Move a player to another team** ❌ G9
+- When Casey opens Liam → REMOVE FROM ROSTER and confirms REMOVE
+- Then Liam is gone from PLAYERS, with his RSVPs.
+- And Rosa stays in the club ("No player linked yet"); a player's own sign-in stays too (remove it with REMOVE FROM
+  CLUB).
+- Only club staff and the team's staff can do it.
 
-**US-3.10 Put an existing parent on a second team (a sibling elsewhere)** ❌ G12
+**US-3.9 Move a player to another team** ✅ (G9)
 
-- Today, inviting the same email again fails with "already has an account at this club".
+- When Casey opens Davis → EDIT, picks another TEAM and saves
+- Then the roster follows Davis to his new team.
+- And his parents join the new team and its channels; Jenn leaves U11 Boys unless another of her players is on it,
+  and Evan (staff) keeps coaching it. His RSVPs for U11 Boys events go.
+- Team staff move players only between teams they coach.
 
-**US-3.11 Change an invite's team** ❌ G11
+**US-3.10 Put an existing parent on a second team (a sibling elsewhere)** ✅ (G12)
+
+- When Casey opens INVITE MEMBER → ALREADY IN CLUB, picks the other team and Jenn, and presses ADD TO TEAM
+- Then Jenn is on both teams with one sign-in, and in both teams' channels.
+- Or: Jenn's details → EDIT → tick the team under TEAMS.
+- Team staff add families to their own teams only; inviting the same email again still fails with "already has
+  an account at this club".
+
+**US-3.11 Change an invite's team** ✅ (G11)
+
+- When Casey opens an invited parent → EDIT, unticks the wrong team, ticks the right one and saves
+- Then the invite moves teams; their temporary password still works.
 
 **US-3.12 Disable or remove a member who has left the club** ✅ (G13)
 
@@ -192,9 +211,31 @@ or the "club created" screen). Each person then chooses their own.
 
 - Today the last coach can't be unticked: "Assign at least one team staff member."
 
-**US-3.14 Approve or reject a parent's link request** ❌ G3
+**US-3.14 Approve or reject a parent's link request** ✅ (G3)
 
-- See US-5.5.
+- Given Jenn requested Ava Moore (US-5.5)
+- When Evan (U11 Boys staff) opens the roster
+- Then PENDING REQUESTS lists "Ava Moore · Requested by Jenn Buell", and Ava isn't under PLAYERS or in Jenn's
+  PARENTS line.
+- When he opens Ava, corrects her jersey (EDIT), and presses APPROVE
+- Then Ava is on the roster, and Jenn reads "Parent of Ava Moore, Davis Moore".
+- Or REJECT, confirmed, deletes the request.
+- Parents and other teams' staff can't approve.
+
+**US-3.18 Give an older player their own sign-in** ✅ (G30)
+
+- When Casey opens Davis → GIVE OWN SIGN-IN, enters his email and presses CREATE SIGN-IN
+- Then the invite-ready sheet shows Davis's sign-in, and his details show OWN SIGN-IN.
+- And his parents keep access. Parents ask staff for this; the More tab no longer has an "own login" field that
+  did nothing.
+
+**US-3.19 Add a player and invite their parent in one go** ✅ (G29)
+
+- When Casey presses ADD PLAYER, enters "Liam Ortiz", presses "+ Invite a parent who isn't listed" and enters
+  Rosa's name and email
+- Then Rosa is invited to the team and linked to Liam, and the invite-ready sheet shows her sign-in (then Liam's,
+  if he signs in himself).
+- And Rosa shows under PARENTS as "Parent of Liam Ortiz · invited" until she joins (G28).
 
 **US-3.15 Reset a member's password** ✅ (G5)
 
@@ -317,15 +358,22 @@ or the "club created" screen). Each person then chooses their own.
 - She has no ADD PLAYER or INVITE MEMBER.
 - She has no EDIT on other families' players or on staff.
 
-**US-5.4 What parents can see about others** ❌ G26 (decision needed)
+**US-5.4 What parents can see about others** ✅ (G26)
 
-- Today parents can open anyone's details and see their email, and see the INVITED list with emails.
+- When Jenn opens Rosa's details
+- Then she sees Rosa's name, teams and players, but no email.
+- And she sees Evan's and Casey's emails (her coach and the club staff), and has no INVITED list.
+- When Casey sets More → CLUB SETTINGS → WHO SEES CONTACT DETAILS to EVERYONE
+- Then Jenn sees everyone's email, and the INVITED list.
+- The database enforces this: members' emails are only readable through `member_contacts()`.
 
-**US-5.5 Link a second child** ⚠ request ✅, approval ❌ G3
+**US-5.5 Link a second child** ✅ (G3)
 
 - When Jenn presses LINK NEW PLAYER and sends a request for Ava Moore
-- Then Ava shows on her More tab as "Pending team staff approval".
-- Missing: staff can't see or approve the request, and Ava already appears in the PARENTS line for Jenn.
+- Then Ava shows on her More tab as "Pending team staff approval", and on the roster as "Your player · pending
+  approval".
+- When the team's staff approve it (US-3.14)
+- Then Ava is her player like Davis.
 
 **US-5.6 Parents can't post in #announcements** ✅ (G4)
 

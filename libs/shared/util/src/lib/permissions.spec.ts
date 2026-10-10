@@ -2,6 +2,7 @@ import { Thread, User } from '@aura/shared/models';
 import {
   ALL_GROUPS,
   DEFAULT_CLUB_SETTINGS,
+  canChangeMemberTeam,
   canDeleteMessage,
   canEditEvent,
   canEditMessage,
@@ -10,6 +11,7 @@ import {
   canReadThread,
   canRemoveMember,
   canResetPassword,
+  canSeeContact,
   effectiveMembers,
   includedViaTeam,
 } from './permissions';
@@ -94,7 +96,7 @@ describe('canEditEvent', () => {
 });
 
 describe('reading and posting', () => {
-  const everyone = { announcements: 'everyone' as const };
+  const everyone = { ...DEFAULT_CLUB_SETTINGS, announcements: 'everyone' as const };
   const teamAnn = thread({ scope: 'U12G', teams: ['U12G'], isDefault: true, announceOnly: true });
   const clubAnn = thread({ scope: 'club', isDefault: true, announceOnly: true });
   const general = thread({ scope: 'U12G', teams: ['U12G'], isDefault: true });
@@ -166,5 +168,51 @@ describe('member lifecycle', () => {
     expect(effectiveMembers(clubWide, withDisabled).has('jordan')).toBe(false);
     expect(effectiveMembers(thread({ creatorId: 'jordan', members: ['jordan'] }), withDisabled).size).toBe(0);
     expect(effectiveMembers(thread({ teams: ['U12G'] }), withDisabled)).toEqual(new Set(['dana']));
+  });
+});
+
+describe('canSeeContact', () => {
+  const wei: User = { id: 'wei', name: 'Wei Chen', kind: 'parent', teams: ['U12G'] };
+  const mike: User = { id: 'mike', name: 'Mike Tran', kind: 'staff', teams: ['U18B'] };
+  const none: never[] = [];
+  const everyone = { ...DEFAULT_CLUB_SETTINGS, contacts: 'everyone' as const };
+
+  it('shows your own and the club staff’s to everyone', () => {
+    expect(canSeeContact(jordan, jordan, DEFAULT_CLUB_SETTINGS, none)).toBe(true);
+    expect(canSeeContact(jordan, sam, DEFAULT_CLUB_SETTINGS, none)).toBe(true);
+  });
+
+  it('shows club staff everyone’s', () => {
+    expect(canSeeContact(sam, wei, DEFAULT_CLUB_SETTINGS, none)).toBe(true);
+  });
+
+  it('shows team staff their teams’ people, and families their teams’ staff', () => {
+    expect(canSeeContact(dana, jordan, DEFAULT_CLUB_SETTINGS, none)).toBe(true);
+    expect(canSeeContact(jordan, dana, DEFAULT_CLUB_SETTINGS, none)).toBe(true);
+    expect(canSeeContact(mike, wei, DEFAULT_CLUB_SETTINGS, none)).toBe(false);
+  });
+
+  it('hides other families’ unless the club shows everyone’s', () => {
+    expect(canSeeContact(jordan, wei, DEFAULT_CLUB_SETTINGS, none)).toBe(false);
+    expect(canSeeContact(jordan, wei, everyone, none)).toBe(true);
+  });
+
+  it('shows parents their own players’ sign-ins', () => {
+    expect(canSeeContact(jordan, eli, DEFAULT_CLUB_SETTINGS, none)).toBe(false);
+    expect(canSeeContact(jordan, eli, DEFAULT_CLUB_SETTINGS, [{ userId: 'eli', parentIds: ['jordan'] }])).toBe(true);
+  });
+});
+
+describe('canChangeMemberTeam', () => {
+  it('lets club staff change anyone’s teams but club staff’s', () => {
+    expect(canChangeMemberTeam(sam, dana, 'U18B')).toBe(true);
+    expect(canChangeMemberTeam(sam, sam, 'U18B')).toBe(false);
+  });
+
+  it('lets team staff change families on their own teams only', () => {
+    expect(canChangeMemberTeam(dana, jordan, 'U12G')).toBe(true);
+    expect(canChangeMemberTeam(dana, jordan, 'U18B')).toBe(false);
+    expect(canChangeMemberTeam(dana, dana, 'U12G')).toBe(false);
+    expect(canChangeMemberTeam(jordan, eli, 'U18B')).toBe(false);
   });
 });

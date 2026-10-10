@@ -132,6 +132,28 @@ Deno.test('invite-member', async (t) => {
       assertEquals(res.status, 403);
     });
 
+    await t.step('team staff give a player on the roster their own sign-in', async () => {
+      const added = await coach.rpc('add_player', {
+        p_team: 'U12G',
+        p_name: 'Ola Player',
+        p_jersey: '5',
+        p_parents: [],
+        p_user_member: null,
+      });
+      if (added.error) throw added.error;
+      const profile = added.data as string;
+      const body = { team: 'U12G', kind: 'player', name: 'Ola Player', email: 'ola@test.example', profile };
+      const res = await invoke(coach, 'invite-member', body);
+      assertEquals(res.status, 200, JSON.stringify(res.data));
+      const { data } = await service.from('player_profiles').select('user_member_id').eq('id', profile).single();
+      assertEquals(data, { user_member_id: (res.data['user'] as { id: string }).id });
+
+      const again = await invoke(coach, 'invite-member', { ...body, email: 'ola2@test.example' });
+      assertEquals(again.status, 409, 'only once');
+      const otherTeam = await invoke(clubAdmin, 'invite-member', { ...body, team: 'U14B', email: 'ola3@test.example' });
+      assertEquals(otherTeam.status, 404, 'the player must be on the team');
+    });
+
     await t.step('rejects unknown teams', async () => {
       assertEquals(
         (await invoke(clubAdmin, 'invite-member', { team: 'U99X', kind: 'parent', name: 'X', email: 'y@test.example' }))

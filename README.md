@@ -131,15 +131,27 @@ Feature code only sees the ports in `@aura/backend/api`; `app.config.ts` binds t
 `provideMockBackend()` depending on the build configuration (`apps/aura/src/environments`).
 
 - **Schema and permissions** live in `supabase/migrations`. The SQL helpers `thread_member_ids`, `is_thread_member`,
-  `can_read_thread`, `can_post_in_thread`, `can_moderate_thread`, `can_manage_thread` and `can_edit_event` mirror
-  `permissions.ts`; change both together. `npm run test:supabase` checks SQL and TypeScript agree on every seeded
-  thread's members.
+  `can_read_thread`, `can_post_in_thread`, `can_moderate_thread`, `can_manage_thread`, `can_edit_event`,
+  `can_manage_team`, `can_change_member_team` and `can_see_contact` mirror `permissions.ts`; change both together.
+  `npm run test:supabase` checks SQL and TypeScript agree on every seeded thread's members and on whose emails each
+  kind of member sees.
 - **Club settings** (`club_settings`, one row per club, edited by club staff under More → Club settings) hold
   club-wide choices; a club without a row has the defaults (`DEFAULT_CLUB_SETTINGS`). Today: who posts in
-  announcement channels.
+  announcement channels, and who sees contact details.
+- **Contact details.** Members read each other's names, roles and teams, but not `members.email` or `username`
+  (column grants): emails come from `member_contacts()`, which applies `can_see_contact`. By default club staff see
+  everyone's, team staff their teams' people, and parents and players their teams' staff, the club staff and their
+  own players'; the `contacts` setting lets everyone see everyone's. Only staff see the INVITED list unless it does.
+- **Roster corrections** go through SQL functions that check `can_manage_team`: `approve_player` and
+  `remove_player` (parents' link requests, and taking a player off the roster with their RSVPs), `move_player`
+  (for staff of both teams; the player's parents and own sign-in join the new team, and parents leave the old one
+  unless another of their players is on it) and `set_member_teams` (`can_change_member_team`: club staff for
+  anyone but club staff, team staff for families on their teams; also how someone already in the club joins
+  another team).
 - **Edge functions** do the work that needs the service-role key: `create-club` and `update-club` (platform admin;
   `update-club` also makes another of the club's staff its admin), `invite-member` (club staff, or team staff for
-  their teams; club staff also invite club staff, who join no team), `update-member` (yourself, or anyone at the club
+  their teams; club staff also invite club staff, who join no team; with `profile`, gives a player already on the
+  roster their own sign-in), `update-member` (yourself, or anyone at the club
   for club staff; a new email moves the person's sign-in), `manage-invite` (resend with a new temporary password, or
   cancel, while someone has not joined; whoever could invite them) and `manage-member` (for people who have joined:
   reset a forgotten password, which club staff do for anyone and team staff for their teams' families, and the

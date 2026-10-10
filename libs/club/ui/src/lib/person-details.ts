@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
-import { Avatar, Check, Sheet } from '@aura/shared/ui';
+import { Avatar, Check, Chips, Choice, Sheet } from '@aura/shared/ui';
 
 export interface DetailFieldVm {
   key: string;
@@ -15,7 +15,9 @@ export interface DetailFieldVm {
   editOnly?: boolean;
   /** A checklist instead of a text input, e.g. a player's parents. `value` is the display text. */
   options?: { id: string; label: string; sub: string }[];
-  /** The ticked option ids. */
+  /** One of several, as chips, e.g. a player's team. `value` is the display text. */
+  choices?: Choice<string>[];
+  /** The ticked option ids, or the chosen choice. */
   selected?: string[];
 }
 
@@ -39,10 +41,16 @@ export interface PersonDetailsVm {
   canResetPassword?: boolean;
   /** Disable, re-enable or remove them from the club. */
   canRemove?: boolean;
+  /** A player a parent asked to link, waiting for the team's staff. */
+  pending?: boolean;
+  /** Approve or reject a link request, or take the player off the roster. */
+  canManagePlayer?: boolean;
+  /** Give the player their own sign-in (they have none yet). */
+  canGiveSignIn?: boolean;
 }
 
 /** An action that asks first. */
-type Confirming = 'cancel' | 'reset' | 'disable' | 'remove';
+type Confirming = 'cancel' | 'reset' | 'disable' | 'remove' | 'reject' | 'removePlayer' | 'signIn';
 
 /**
  * Someone on the roster: their details, and an EDIT button that turns the sheet into a form when
@@ -51,7 +59,7 @@ type Confirming = 'cancel' | 'reset' | 'disable' | 'remove';
  */
 @Component({
   selector: 'aura-person-details',
-  imports: [Sheet, Avatar, Check],
+  imports: [Sheet, Avatar, Check, Chips],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let v = vm();
@@ -73,7 +81,10 @@ type Confirming = 'cancel' | 'reset' | 'disable' | 'remove';
 
       @if (editing()) {
         @for (f of editableFields(); track f.key) {
-          @if (f.options) {
+          @if (f.choices) {
+            <div class="label-caps">{{ f.label }}</div>
+            <aura-chips [options]="f.choices" [value]="draft()[f.key] ?? ''" (valueChange)="choose(f.key, $event)" />
+          } @else if (f.options) {
             <div class="label-caps">{{ f.label }}</div>
             <div class="card">
               @for (o of f.options; track o.id) {
@@ -127,9 +138,35 @@ type Confirming = 'cancel' | 'reset' | 'disable' | 'remove';
         @if (v.canEdit) {
           <button type="button" class="btn-primary mt-1" (click)="editing.set(true)">EDIT</button>
         }
+        @if (v.pending && v.canManagePlayer && !confirming()) {
+          <p class="text-[13px] leading-snug">
+            A parent asked to link this player. Check their details (EDIT to correct them), then approve or reject.
+          </p>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" class="btn-outline h-11" (click)="confirming.set('reject')">REJECT</button>
+            <button type="button" class="btn-primary h-11" [disabled]="saving()" (click)="approve.emit()">
+              APPROVE
+            </button>
+          </div>
+        }
         @if (confirming(); as action) {
           <div class="flex flex-col gap-2 rounded-md border-2 border-dashed border-ink p-3" role="group">
             <p class="text-[15px] font-medium">{{ confirmText()[action] }}</p>
+            @if (action === 'signIn') {
+              <label class="field">
+                PLAYER’S EMAIL
+                <input
+                  class="field-input"
+                  type="email"
+                  placeholder="name@email.com"
+                  [value]="signInEmail()"
+                  (input)="signInEmail.set(value($event))"
+                />
+              </label>
+              @if (validationError()) {
+                <div class="error-box" role="alert">⚠ {{ validationError() }}</div>
+              }
+            }
             <div class="grid grid-cols-2 gap-2">
               <button type="button" class="btn-outline h-11" (click)="confirming.set(null)">
                 {{ action === 'cancel' ? 'KEEP' : 'BACK' }}
@@ -150,6 +187,14 @@ type Confirming = 'cancel' | 'reset' | 'disable' | 'remove';
           }
           @if (!v.invited && v.canResetPassword) {
             <button type="button" class="btn-outline h-11" (click)="confirming.set('reset')">RESET PASSWORD</button>
+          }
+          @if (v.canGiveSignIn) {
+            <button type="button" class="btn-outline h-11" (click)="confirming.set('signIn')">GIVE OWN SIGN-IN</button>
+          }
+          @if (!v.pending && v.canManagePlayer) {
+            <button type="button" class="btn-outline h-11" (click)="confirming.set('removePlayer')">
+              REMOVE FROM ROSTER
+            </button>
           }
           @if (!v.invited && v.canRemove) {
             <div class="grid grid-cols-2 gap-2">
@@ -183,6 +228,11 @@ export class PersonDetails {
   readonly disable = output<void>();
   readonly enable = output<void>();
   readonly remove = output<void>();
+  readonly approve = output<void>();
+  /** Rejects a link request, or takes the player off the roster. */
+  readonly removePlayer = output<void>();
+  /** The player's email, for their own sign-in. */
+  readonly giveSignIn = output<string>();
   readonly closed = output<void>();
 
   /** Back to viewing whenever the person's details change (e.g. after saving). */
@@ -197,6 +247,9 @@ export class PersonDetails {
     reset: 'RESET',
     disable: 'DISABLE',
     remove: 'REMOVE',
+    reject: 'REJECT',
+    removePlayer: 'REMOVE',
+    signIn: 'CREATE SIGN-IN',
   };
   protected readonly confirmText = computed<Record<Confirming, string>>(() => {
     const name = this.vm().name;
@@ -205,11 +258,15 @@ export class PersonDetails {
       reset: `Give ${name} a new temporary password? Their current password stops working, and they choose a new one when they sign in.`,
       disable: `Disable ${name}? They can’t sign in or take part until they’re enabled again. Nothing is deleted.`,
       remove: `Remove ${name} from the club? Their sign-in is deleted and they’re unlinked from players, teams and chats. Their messages stay, from “Former member”. This can’t be undone.`,
+      reject: `Reject the request to add ${name}? The request is deleted.`,
+      removePlayer: `Take ${name} off the roster? Their RSVPs are deleted. Their parents, and their own sign-in if they have one, stay in the club.`,
+      signIn: `Give ${name} their own sign-in, to RSVP and chat themselves? Their parents keep access.`,
     };
   });
   protected readonly draft = linkedSignal<Record<string, string>>(() =>
-    Object.fromEntries(this.vm().fields.map((f) => [f.key, f.value])),
+    Object.fromEntries(this.vm().fields.map((f) => [f.key, f.choices ? (f.selected?.[0] ?? '') : f.value])),
   );
+  protected readonly signInEmail = linkedSignal({ source: this.vm, computation: () => '' });
   protected readonly picked = linkedSignal<Record<string, string[]>>(() =>
     Object.fromEntries(
       this.vm()
@@ -217,20 +274,36 @@ export class PersonDetails {
         .map((f) => [f.key, f.selected ?? []]),
     ),
   );
-  private readonly validationError = signal('');
+  protected readonly validationError = signal('');
   protected readonly shownError = computed(() => this.validationError() || this.error());
 
   protected readonly viewFields = computed(() => this.vm().fields.filter((f) => !f.editOnly && f.value));
   protected readonly editableFields = computed(() => this.vm().fields.filter((f) => f.editable));
 
   protected confirm(action: Confirming): void {
+    if (action === 'signIn') {
+      const email = this.signInEmail().trim();
+      if (!/^\S+@\S+\.\S+$/.test(email)) return this.validationError.set('Enter the player’s email.');
+      this.validationError.set('');
+      return this.giveSignIn.emit(email);
+    }
     const outputs = {
       cancel: this.cancelInvite,
       reset: this.resetPassword,
       disable: this.disable,
       remove: this.remove,
+      reject: this.removePlayer,
+      removePlayer: this.removePlayer,
     };
     outputs[action].emit();
+  }
+
+  protected value(e: Event): string {
+    return (e.target as HTMLInputElement).value;
+  }
+
+  protected choose(key: string, id: string): void {
+    this.draft.update((d) => ({ ...d, [key]: id }));
   }
 
   protected setDraft(key: string, e: Event): void {
@@ -250,6 +323,10 @@ export class PersonDetails {
     for (const f of this.editableFields()) {
       if (f.options) {
         values[f.key] = this.picked()[f.key] ?? [];
+        continue;
+      }
+      if (f.choices) {
+        values[f.key] = this.draft()[f.key] ?? '';
         continue;
       }
       const value = (this.draft()[f.key] ?? '').trim();

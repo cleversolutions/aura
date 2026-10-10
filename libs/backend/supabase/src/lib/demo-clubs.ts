@@ -172,7 +172,6 @@ export async function seedDemoClub(
           jersey: p.jersey,
           team_id: p.team,
           user_member_id: member(p.userId),
-          login: p.login,
           pending: !!p.pending,
         })),
       ),
