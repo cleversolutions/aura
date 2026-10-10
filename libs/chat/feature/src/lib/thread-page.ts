@@ -22,7 +22,15 @@ import {
   ThreadHeader,
 } from '@aura/chat/ui';
 import { ClubStore } from '@aura/club/data-access';
-import { CLOCK, Submission, Toaster, errorMessage, formatMessageTime, isClubWide } from '@aura/shared/util';
+import {
+  CLOCK,
+  FORMER_MEMBER,
+  Submission,
+  Toaster,
+  errorMessage,
+  formatMessageTime,
+  isClubWide,
+} from '@aura/shared/util';
 
 /** Conversation container: opens the thread, sends, edits and deletes messages, manages membership. */
 @Component({
@@ -141,7 +149,7 @@ export class ThreadPage {
         id: m.id,
         text: m.text,
         mine: m.from === me,
-        sender: this.club.user(m.from)?.name ?? 'Unknown',
+        sender: this.club.user(m.from)?.name ?? FORMER_MEMBER,
         time: formatMessageTime(m.sentAt, now),
         edited: !!m.editedAt,
         deleted: !!m.deleted,

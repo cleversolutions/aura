@@ -2,28 +2,27 @@ import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, outp
 import { AnnouncementsPosting, ClubSettings, PlayerProfile, TeamId, UserId, UserKind } from '@aura/shared/models';
 import { Check, Chips, Choice, Segmented, Sheet } from '@aura/shared/ui';
 
+/** Who joins a team: everyone but club staff. */
 export type InviteKind = Exclude<UserKind, 'club'>;
 
-export interface InviteFormValue {
-  team: TeamId;
-  kind: InviteKind;
-  name: string;
-  email: string;
-}
+/** Someone invited to a team, or to the club staff (who belong to no team). */
+export type InviteFormValue =
+  | { kind: InviteKind; team: TeamId; name: string; email: string }
+  | { kind: 'club'; title: string; name: string; email: string };
 
-/** Invite a parent, player or staff member to a team. */
+/** Invite a parent, player or staff member to a team; club staff may also invite club staff. */
 @Component({
   selector: 'aura-invite-form',
   imports: [Sheet, Chips],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <aura-sheet title="INVITE MEMBER" (closed)="closed.emit()">
-      @if (teamOptions().length > 1) {
+      @if (teamOptions().length > 1 && kind() !== 'club') {
         <div class="label-caps">TEAM</div>
         <aura-chips [options]="teamOptions()" [(value)]="team" />
       }
       <div class="label-caps">INVITE AS</div>
-      <aura-chips [options]="roleOptions" [(value)]="kind" />
+      <aura-chips [options]="roleOptions()" [(value)]="kind" />
       <label class="field">
         NAME
         <input
@@ -43,11 +42,27 @@ export interface InviteFormValue {
           placeholder="name@email.com"
         />
       </label>
-      <p class="text-[13px] leading-snug">
-        They will be added to {{ teamName() }} and automatically join {{ linkedCount() }} chat thread{{
-          linkedCount() === 1 ? '' : 's'
-        }}.
-      </p>
+      @if (kind() === 'club') {
+        <label class="field">
+          TITLE
+          <input
+            class="field-input"
+            [value]="title()"
+            (input)="title.set(value($event))"
+            placeholder="e.g. Registrar, Treasurer"
+          />
+        </label>
+        <p class="text-[13px] leading-snug">
+          Club staff manage every team, the roster and the club’s settings. They will automatically join
+          {{ linkedCount() }} chat thread{{ linkedCount() === 1 ? '' : 's' }}, and can post in every team’s channels.
+        </p>
+      } @else {
+        <p class="text-[13px] leading-snug">
+          They will be added to {{ teamName() }} and automatically join {{ linkedCount() }} chat thread{{
+            linkedCount() === 1 ? '' : 's'
+          }}.
+        </p>
+      }
       @if (shownError()) {
         <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
       }
@@ -60,29 +75,38 @@ export class InviteForm {
   readonly initialTeam = input.required<TeamId>();
   /** team → invite kind → number of chat threads they would join automatically (club-wide ones too). */
   readonly linkedThreadCounts = input<Record<TeamId, Record<InviteKind, number>>>({});
+  /** Offer "Club Staff" (club staff only). */
+  readonly canInviteClubStaff = input(false);
+  /** Chat threads club staff join automatically (the club-wide ones). */
+  readonly clubStaffThreadCount = input(0);
   readonly saving = input(false);
   readonly error = input('');
 
   readonly submitted = output<InviteFormValue>();
   readonly closed = output<void>();
 
-  protected readonly roleOptions: Choice<InviteKind>[] = [
+  protected readonly roleOptions = computed<Choice<UserKind>[]>(() => [
     { value: 'parent', label: 'Parent' },
     { value: 'player', label: 'Player' },
     { value: 'staff', label: 'Team Staff' },
-  ];
+    ...(this.canInviteClubStaff() ? [{ value: 'club' as const, label: 'Club Staff' }] : []),
+  ]);
 
   protected readonly team = linkedSignal(() => this.initialTeam());
-  protected readonly kind = signal<InviteKind>('parent');
+  protected readonly kind = signal<UserKind>('parent');
   protected readonly name = signal('');
   protected readonly email = signal('');
+  protected readonly title = signal('');
   private readonly validationError = signal('');
   protected readonly shownError = computed(() => this.validationError() || this.error());
 
   protected readonly teamName = computed(
     () => this.teamOptions().find((o) => o.value === this.team())?.label ?? this.team(),
   );
-  protected readonly linkedCount = computed(() => this.linkedThreadCounts()[this.team()]?.[this.kind()] ?? 0);
+  protected readonly linkedCount = computed(() => {
+    const kind = this.kind();
+    return kind === 'club' ? this.clubStaffThreadCount() : (this.linkedThreadCounts()[this.team()]?.[kind] ?? 0);
+  });
 
   protected value(e: Event): string {
     return (e.target as HTMLInputElement).value;
@@ -94,7 +118,10 @@ export class InviteForm {
     if (!name) return this.validationError.set('Enter their name.');
     if (!email.includes('@')) return this.validationError.set('Enter a valid email.');
     this.validationError.set('');
-    this.submitted.emit({ team: this.team(), kind: this.kind(), name, email });
+    const kind = this.kind();
+    this.submitted.emit(
+      kind === 'club' ? { kind, title: this.title().trim(), name, email } : { kind, team: this.team(), name, email },
+    );
   }
 }
 

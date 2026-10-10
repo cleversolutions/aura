@@ -84,4 +84,43 @@ describe('ClubEditPage', () => {
       'Northside Aura',
     );
   });
+
+  it('resets the club admin’s password and changes who the admin is', async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideTestBackend({ platformSignedIn: true, initialUserId: null }),
+        provideRouter([{ path: 'admin/clubs/:clubId', component: ClubEditPage }], withComponentInputBinding()),
+      ],
+    });
+    const platform = TestBed.inject(PlatformStore);
+    await platform.loadClubs();
+    const spartans = platform.clubs().find((c) => c.name === 'Spartans')!;
+    const harness = await RouterTestingHarness.create(`/admin/clubs/${spartans.id}`);
+    const fixture = harness.fixture;
+    await settle(fixture);
+    const el = fixture.nativeElement as HTMLElement;
+    const click = async (text: string) => {
+      Array.from(el.querySelectorAll<HTMLButtonElement>('aura-club-admin-panel button'))
+        .find((b) => b.textContent?.trim() === text)
+        ?.click();
+      await settle(fixture);
+    };
+
+    expect(el.textContent).toContain('ADMIN ACCOUNT');
+    await click('RESET PASSWORD');
+    await click('RESET');
+    const password = /[A-Z]{4}-[a-z2-9]{4}-[2-9]{2}/.exec(el.querySelector('aura-club-admin-panel')?.textContent ?? '');
+    expect(password).not.toBeNull();
+    const club = TestBed.inject(ClubStore);
+    await club.open(spartans.slug);
+    await club.signIn('sam@spartans.example', password?.[0] ?? '');
+    expect(club.mustChangePassword()).toBe(true);
+
+    el.querySelector<HTMLButtonElement>('[aria-label="Make Lee Fontaine the club admin"]')?.click();
+    await settle(fixture);
+    await click('MAKE ADMIN');
+    expect(platform.club(spartans.id)?.adminName).toBe('Lee Fontaine');
+    expect(TestBed.inject(Toaster).message()?.text).toBe('Lee Fontaine is now the club admin.');
+    expect(el.querySelector('[aria-label="Make Sam Okoro the club admin"]')).not.toBeNull();
+  });
 });

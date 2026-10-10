@@ -78,3 +78,6 @@ export function teamLabel(teams: readonly { id: string; name: string }[], id: st
   if (id === 'ALL' || id === 'club') return 'Club-wide';
   return teams.find((t) => t.id === id)?.name ?? id;
 }
+
+/** Who sent a message whose sender has been removed from the club (or is unknown). */
+export const FORMER_MEMBER = 'Former member';

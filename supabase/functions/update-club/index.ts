@@ -1,6 +1,8 @@
 // Platform admin: updates a club's branding and admin. Input is `{ id, ...ClubInput }` without the
 // slug, which never changes. A new admin email is a new username, so the admin's derived sign-in
 // address changes with it.
+//
+// `{ id, adminMemberId }` instead makes another of the club's staff its admin (setClubAdmin).
 import {
   ClubRow,
   HttpError,
@@ -22,6 +24,7 @@ serve(async (req, body) => {
   await requirePlatformAdmin(req, admin);
 
   const id = text(body, 'id');
+  if (body['adminMemberId'] !== undefined) return await setAdmin(admin, id, text(body, 'adminMemberId'));
   const adminName = text(body, 'adminName');
   const adminEmail = text(body, 'adminEmail');
   const icons = body['icons'] as { size192?: string; size512?: string } | undefined;
@@ -86,3 +89,34 @@ serve(async (req, body) => {
     throw e;
   }
 });
+
+/** Makes `memberId`, one of the club's staff who has joined and is not disabled, the club admin. */
+async function setAdmin(admin: ReturnType<typeof adminClient>, id: string, memberId: string) {
+  const member = /^[0-9a-f-]{36}$/i.test(memberId)
+    ? (check(
+        await admin
+          .from('members')
+          .select('id, name, username, kind, invited, disabled')
+          .eq('club_id', id)
+          .eq('id', memberId)
+          .maybeSingle(),
+        'Load member',
+      ) as {
+        id: string;
+        name: string;
+        username: string | null;
+        kind: string;
+        invited: boolean;
+        disabled: boolean;
+      } | null)
+    : null;
+  if (!member || member.kind !== 'club') throw new HttpError(404, 'Choose one of the club’s staff.');
+  if (member.invited || member.disabled) {
+    throw new HttpError(409, `${member.name} has to have joined, and not be disabled, to be the club admin.`);
+  }
+  const club = checkOne<ClubRow>(
+    await admin.from('clubs').update({ admin_member_id: member.id }).eq('id', id).select().single(),
+    'Set admin',
+  );
+  return clubAccount(club, member);
+}

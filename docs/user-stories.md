@@ -61,13 +61,21 @@ or the "club created" screen). Each person then chooses their own.
 - When Alex presses OPEN APP PREVIEW
 - Then the club opens with its own branding over sample data, and no real member's data is shown.
 
-**US-1.5 Reset a club admin's password** ❌ G5
+**US-1.5 Reset a club admin's password** ✅ (G5)
 
 - Given Casey has forgotten their password
-- When Alex chooses "Reset password" for Casey
-- Then a new temporary password is shown, and Casey must choose their own at next sign-in.
+- When Alex opens the club → ADMIN ACCOUNT → RESET PASSWORD and confirms RESET
+- Then a new temporary password is shown once, with a copy button.
+- And Casey's old password no longer signs in, open sessions end, and Casey must choose their own password at next
+  sign-in.
 
-**US-1.6 Change who the club admin is, or add a second one** ❌ G16, G24
+**US-1.6 Change who the club admin is, or add a second one** ✅ (G16)
+
+- Given Casey has invited a second club staff member (US-3.16), who has signed in
+- When Alex opens the club → CHANGE ADMIN → MAKE ADMIN next to them, and confirms
+- Then they are the club admin: the CLUBS list shows them, and the club form edits their details.
+- And Casey stays on the club staff.
+- Club staff who are still invited, or disabled, have no MAKE ADMIN.
 
 **US-1.7 Archive a club** ❌ G24
 
@@ -168,7 +176,17 @@ or the "club created" screen). Each person then chooses their own.
 
 **US-3.11 Change an invite's team** ❌ G11
 
-**US-3.12 Remove a member who has left the club** ❌ G13
+**US-3.12 Disable or remove a member who has left the club** ✅ (G13)
+
+- When Casey opens Rosa's details → DISABLE and confirms
+- Then Rosa can't sign in ("This account is disabled. Ask your club’s staff."), any session she has open reads
+  nothing, and she drops out of every chat thread.
+- And club staff still see her, marked "disabled", with ENABLE to restore her.
+- When Casey chooses REMOVE FROM CLUB instead and confirms
+- Then Rosa is gone from the roster and her sign-in is deleted. She is unlinked from Liam, and her RSVPs are
+  deleted.
+- And her messages stay, from "Former member".
+- Nobody can disable or remove themselves or the club admin, and only club staff can do either.
 
 **US-3.13 A coach steps down before a replacement is found** ❌ G14
 
@@ -178,9 +196,21 @@ or the "club created" screen). Each person then chooses their own.
 
 - See US-5.5.
 
-**US-3.15 Reset a member's password** ❌ G5
+**US-3.15 Reset a member's password** ✅ (G5)
 
-**US-3.16 Invite another club staff member** ❌ G16
+- Given Jenn has joined and forgotten her password
+- When Casey, or Evan as U11 Boys staff, opens Jenn's details → RESET PASSWORD and confirms RESET
+- Then the "PASSWORD RESET" sheet shows the club link, Jenn's username and a new temporary password, with COPY
+  MESSAGE.
+- And Jenn's old password no longer signs in; she chooses a new one at her next sign-in.
+- Team staff reset only their teams' parents and players. Invites are resent instead (US-3.2).
+
+**US-3.16 Invite another club staff member** ✅ (G16)
+
+- When Casey opens Roster → INVITE MEMBER → Club Staff, and enters a name, email and title ("Registrar")
+- Then the invite-ready sheet shows their sign-in. They join no team, and the CLUB STAFF section lists them as
+  invited.
+- Coaches and parents have no Club Staff option.
 
 **US-3.17 Edit own profile** ✅
 
@@ -307,7 +337,12 @@ or the "club created" screen). Each person then chooses their own.
 
 - More shows "Davis Moore · Managed by you and Evan Moore".
 
-**US-5.8 Forgot password** ❌ G5
+**US-5.8 Forgot password** ✅ (G5, by staff)
+
+- Given Jenn has forgotten her password
+- When she asks the club's staff, and they reset it (US-3.15)
+- Then she signs in with the temporary password and chooses a new one.
+- Resetting it herself by email waits for email delivery.
 
 ---
 

@@ -175,6 +175,7 @@ export type Database = {
       members: {
         Row: {
           club_id: string;
+          disabled: boolean;
           email: string | null;
           id: string;
           invited: boolean;
@@ -187,6 +188,7 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           club_id: string;
+          disabled?: boolean;
           email?: string | null;
           id?: string;
           invited?: boolean;
@@ -198,6 +200,7 @@ export type Database = {
         };
         Update: {
           club_id?: string;
+          disabled?: boolean;
           email?: string | null;
           id?: string;
           invited?: boolean;
@@ -229,7 +232,7 @@ export type Database = {
           club_id: string;
           deleted_at: string | null;
           edited_at: string | null;
-          from_member_id: string;
+          from_member_id: string | null;
           id: string;
           sent_at: string;
           text: string;
@@ -240,7 +243,7 @@ export type Database = {
           club_id: string;
           deleted_at?: string | null;
           edited_at?: string | null;
-          from_member_id: string;
+          from_member_id?: string | null;
           id?: string;
           sent_at?: string;
           text: string;
@@ -250,7 +253,7 @@ export type Database = {
           club_id?: string;
           deleted_at?: string | null;
           edited_at?: string | null;
-          from_member_id?: string;
+          from_member_id?: string | null;
           id?: string;
           sent_at?: string;
           text?: string;
@@ -788,6 +791,7 @@ export type Database = {
         Args: Record<PropertyKey, never>;
         Returns: {
           club_id: string;
+          disabled: boolean;
           email: string | null;
           id: string;
           invited: boolean;
@@ -819,7 +823,7 @@ export type Database = {
           club_id: string;
           deleted_at: string | null;
           edited_at: string | null;
-          from_member_id: string;
+          from_member_id: string | null;
           id: string;
           sent_at: string;
           text: string;
@@ -838,7 +842,7 @@ export type Database = {
           club_id: string;
           deleted_at: string | null;
           edited_at: string | null;
-          from_member_id: string;
+          from_member_id: string | null;
           id: string;
           sent_at: string;
           text: string;
@@ -878,6 +882,18 @@ export type Database = {
       };
       mark_thread_read: { Args: { p_thread: string }; Returns: undefined };
       member_teams: { Args: { p_member: string }; Returns: string[] };
+      platform_club_staff: {
+        Args: { p_club: string };
+        Returns: {
+          disabled: boolean;
+          id: string;
+          invited: boolean;
+          is_admin: boolean;
+          name: string;
+          title: string;
+          username: string;
+        }[];
+      };
       platform_clubs: {
         Args: Record<PropertyKey, never>;
         Returns: {

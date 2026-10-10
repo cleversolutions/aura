@@ -71,10 +71,13 @@ export class MockDb {
     return this.club.data;
   }
 
-  /** Who is signed in to the active club (or the preview's sample club staff). */
+  /**
+   * Who is signed in to the active club (or the preview's sample club staff). A disabled member
+   * has no access, as row-level security gives them none.
+   */
   me(): User | undefined {
     const meId = this.preview?.session.userId ?? this.sessions.get(this.activeSlug)?.userId;
-    return this.data.users.find((u) => u.id === meId);
+    return this.data.users.find((u) => u.id === meId && !u.disabled);
   }
 
   startPreview(account: MockClub['account']): void {

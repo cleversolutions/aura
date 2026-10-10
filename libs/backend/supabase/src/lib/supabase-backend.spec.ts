@@ -485,6 +485,51 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       );
     });
 
+    it('lets staff reset a member’s password, and club staff disable, enable and remove them', async () => {
+      const { auth, directory, chat } = setup();
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
+      const invite = await directory.inviteMember({
+        team: 'U12G',
+        kind: 'parent',
+        name: 'Lee Park',
+        email: 'lee@x.example',
+      });
+      cleanups.push(async () => {
+        const { data } = await service.from('members').select('user_id').eq('id', invite.user.id);
+        for (const m of data ?? []) if (m.user_id) await service.auth.admin.deleteUser(m.user_id);
+        await service.from('members').delete().eq('id', invite.user.id);
+      });
+      await expect(directory.resetPassword(invite.user.id)).rejects.toThrow('hasn’t joined yet');
+      await service.from('members').update({ invited: false }).eq('id', invite.user.id);
+
+      const reset = await directory.resetPassword(invite.user.id);
+      expect(reset).toMatchObject({ username: 'lee@x.example', user: { id: invite.user.id } });
+      expect(reset.temporaryPassword).not.toBe(invite.temporaryPassword);
+
+      expect(await directory.setMemberDisabled(invite.user.id, true)).toMatchObject({ disabled: true });
+      expect((await directory.load()).users.find((u) => u.id === invite.user.id)?.disabled).toBe(true);
+      await expect(
+        auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'lee@x.example', password: reset.temporaryPassword }),
+      ).rejects.toThrow('This account is disabled. Ask your club’s staff.');
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
+      expect((await directory.setMemberDisabled(invite.user.id, false)).disabled).toBeUndefined();
+
+      // Lee posts, then is removed: the message stays, from a former member.
+      const general = (await chat.listThreads()).find((t) => t.scope === 'U12G' && t.name === '#general')!;
+      const clubId = (await directory.load()).club.id;
+      await service
+        .from('messages')
+        .insert({ club_id: clubId, thread_id: general.id, from_member_id: invite.user.id, text: 'Bye!' });
+      await directory.removeMember(invite.user.id);
+      expect((await directory.load()).users.some((u) => u.id === invite.user.id)).toBe(false);
+      const after = (await chat.listThreads()).find((t) => t.id === general.id)!;
+      expect(after.messages.find((m) => m.text === 'Bye!')?.from).toBeNull();
+      await service.from('messages').delete().eq('thread_id', general.id).eq('text', 'Bye!');
+
+      const sam = await memberId(SPARTANS_SLUG, 'sam@spartans.example');
+      await expect(directory.setMemberDisabled(sam, true)).rejects.toThrow();
+    });
+
     it('lets team staff add players with several parents, or with their own sign-in', async () => {
       const { auth, directory } = setup();
       const dana = await auth.signIn({
@@ -590,6 +635,35 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       expect(dir.teams).toHaveLength(5); // sample data, not the Panthers' two teams
       expect((await schedule.listEvents()).length).toBeGreaterThan(5);
 
+      const panthers = clubs.find((c) => c.slug === PANTHERS_SLUG)!;
+      expect(await platform.listClubStaff(panthers.id)).toEqual([
+        {
+          id: await memberId(PANTHERS_SLUG, 'morgan@panthers.example'),
+          name: 'Morgan Lee',
+          email: 'morgan@panthers.example',
+          title: expect.any(String),
+          admin: true,
+        },
+      ]);
+      await expect(
+        platform.setClubAdmin(panthers.id, await memberId(PANTHERS_SLUG, 'jordan.smith@email.com')),
+      ).rejects.toThrow('Choose one of the club’s staff.');
+      const morganUser = (
+        await service
+          .from('members')
+          .select('user_id')
+          .eq('id', await memberId(PANTHERS_SLUG, 'morgan@panthers.example'))
+          .single()
+      ).data!.user_id!;
+      cleanups.push(() =>
+        service.auth.admin.updateUserById(morganUser, {
+          password: 'password',
+          user_metadata: { must_change_password: false },
+        }),
+      );
+      const reset = await platform.resetAdminPassword(panthers.id);
+      expect(reset.username).toBe('morgan@panthers.example');
+
       await auth.useClub(PANTHERS_SLUG);
       expect(await auth.session()).toBeNull();
       await auth.signOutPlatform();
@@ -599,16 +673,26 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
 
   describe('effective thread membership', () => {
     it('is the same in SQL (thread_member_ids) as in TypeScript (effectiveMembers)', async () => {
+      // A disabled member is in no thread, in either.
+      const jordan = await memberId(SPARTANS_SLUG, 'jordan.smith@email.com');
+      await service.from('members').update({ disabled: true }).eq('id', jordan);
+      cleanups.push(() => service.from('members').update({ disabled: false }).eq('id', jordan));
       for (const slug of [SPARTANS_SLUG, PANTHERS_SLUG]) {
         const club = await service.from('clubs').select('id').eq('slug', slug).single();
         const clubId = club.data!.id;
         const [members, threads, threadMembers] = await Promise.all([
-          service.from('members').select('id, kind, team_members(team_id)').eq('club_id', clubId),
+          service.from('members').select('id, kind, disabled, team_members(team_id)').eq('club_id', clubId),
           service.from('threads').select().eq('club_id', clubId),
           service.from('thread_members').select().eq('club_id', clubId),
         ]);
         const users = members.data!.map(
-          (m) => ({ id: m.id, kind: m.kind, teams: m.team_members.map((t) => t.team_id) }) as unknown as User,
+          (m) =>
+            ({
+              id: m.id,
+              kind: m.kind,
+              disabled: m.disabled,
+              teams: m.team_members.map((t) => t.team_id),
+            }) as unknown as User,
         );
         expect(threads.data!.length).toBeGreaterThan(4);
         for (const t of threads.data!) {

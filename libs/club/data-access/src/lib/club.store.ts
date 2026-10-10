@@ -15,7 +15,14 @@ import {
   UpdateProfileInput,
 } from '@aura/backend/api';
 import { Club, ClubSettings, PlayerProfile, Team, TeamId, User, UserId } from '@aura/shared/models';
-import { DEFAULT_CLUB_SETTINGS, canManageInvite, personaOf, teamLabel } from '@aura/shared/util';
+import {
+  DEFAULT_CLUB_SETTINGS,
+  canManageInvite,
+  canRemoveMember,
+  canResetPassword,
+  personaOf,
+  teamLabel,
+} from '@aura/shared/util';
 
 interface ClubState {
   /** Slug of the open club; set even when the link turned out not to exist. */
@@ -230,6 +237,39 @@ export const ClubStore = signalStore(
       /** Resolves with the new sign-in to hand them. */
       resendInvite(userId: UserId): Promise<MemberInvite> {
         return directory.resendInvite(userId);
+      },
+      /** A forgotten password: resolves with a new temporary one to hand them. */
+      resetPassword(userId: UserId): Promise<MemberInvite> {
+        return directory.resetPassword(userId);
+      },
+      async setMemberDisabled(userId: UserId, disabled: boolean): Promise<void> {
+        const updated = await directory.setMemberDisabled(userId, disabled);
+        patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
+      },
+      /** Their messages stay, from a former member; they are unlinked from their players. */
+      async removeMember(userId: UserId): Promise<void> {
+        await directory.removeMember(userId);
+        patchState(store, (s) => ({
+          users: s.users.filter((u) => u.id !== userId),
+          profiles: s.profiles.map((p) =>
+            p.parentIds.includes(userId) || p.userId === userId
+              ? {
+                  ...p,
+                  parentIds: p.parentIds.filter((id) => id !== userId),
+                  ...(p.userId === userId ? { userId: null, login: '' } : {}),
+                }
+              : p,
+          ),
+        }));
+      },
+      canResetPassword(user: User): boolean {
+        const me = store.me();
+        return !!me && canResetPassword(me, user);
+      },
+      /** Disable, re-enable or remove them from the club. */
+      canRemoveMember(user: User): boolean {
+        const me = store.me();
+        return !!me && canRemoveMember(me, user);
       },
       /** Yourself; anyone, for club staff; invites to their teams, for team staff. */
       canEditMember(user: User): boolean {

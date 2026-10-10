@@ -24,13 +24,17 @@ import {
 } from '@aura/club/ui';
 import { PlayerProfile, TeamId, User } from '@aura/shared/models';
 import { AppHeader, Chips, Choice } from '@aura/shared/ui';
-import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shared/util';
+import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage, isClubWide } from '@aura/shared/util';
 
 /** A new member's sign-in, as the store returns it. */
 type MemberInvite = Awaited<ReturnType<ClubStore['resendInvite']>>;
 
 const KIND_LABEL = { staff: 'Team Staff', parent: 'Parent', player: 'Player', club: 'Club Staff' } as const;
 const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
+
+function disabledNote(u: User): string {
+  return u.disabled ? ' · disabled' : '';
+}
 
 /** Roster tab container: picks the team and builds staff, player and invite lists. */
 @Component({
@@ -104,6 +108,15 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
               }
             </div>
           }
+
+          <h2 class="label-caps mt-1 text-[13px]">CLUB STAFF</h2>
+          <div class="card">
+            <div role="list" class="card-grid">
+              @for (s of clubStaff(); track s.id) {
+                <aura-staff-row [vm]="s" (opened)="open('user', s.id)" />
+              }
+            </div>
+          </div>
         </div>
       }
     </main>
@@ -113,6 +126,8 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
         [teamOptions]="inviteTeamOptions()"
         [initialTeam]="teamId"
         [linkedThreadCounts]="linkedThreadCounts()"
+        [canInviteClubStaff]="club.isClubStaff()"
+        [clubStaffThreadCount]="clubWideThreadCount()"
         [saving]="invite.saving()"
         [error]="invite.error()"
         (closed)="inviting.set(false)"
@@ -138,6 +153,10 @@ const INVITE_KINDS: InviteKind[] = ['parent', 'player', 'staff'];
         (saved)="saveDetails($event)"
         (resend)="resendInvite()"
         (cancelInvite)="cancelInvite()"
+        (resetPassword)="resetPassword()"
+        (disable)="setDisabled(true)"
+        (enable)="setDisabled(false)"
+        (remove)="removeMember()"
       />
     }
     @if (inviteReady(); as ready) {
@@ -187,6 +206,8 @@ export class RosterPage {
   protected readonly canInvite = computed(
     () => this.club.isClubStaff() || (this.club.isTeamStaff() && this.club.myTeams().includes(this.selected() ?? '')),
   );
+  /** Club-wide channels, which club staff join automatically. */
+  protected readonly clubWideThreadCount = computed(() => this.chat.threads().filter(isClubWide).length);
   protected readonly linkedThreadCounts = computed(() => {
     const counts: Record<TeamId, Record<InviteKind, number>> = {};
     for (const team of this.club.myTeams()) {
@@ -204,15 +225,32 @@ export class RosterPage {
     const me = this.club.meId();
     return this.club
       .users()
-      .filter((u) => u.kind === 'staff' && !u.invited && !!id && u.teams.includes(id))
+      .filter((u) => u.kind === 'staff' && !u.invited && !!id && u.teams.includes(id) && this.shown(u))
       .map((u) => {
         const others = u.teams.filter((t) => t !== id);
         return {
           id: u.id,
           name: u.name + (u.id === me ? ' (you)' : ''),
-          sub: 'Team Staff' + (others.length ? ` · also ${others.join(', ')}` : ''),
+          sub: 'Team Staff' + (others.length ? ` · also ${others.join(', ')}` : '') + disabledNote(u),
         };
       });
+  });
+
+  /** The club's staff, who belong to no team. Invited ones only for club staff, who manage them. */
+  protected readonly clubStaff = computed<PersonRowVm[]>(() => {
+    const me = this.club.meId();
+    return this.club
+      .users()
+      .filter((u) => u.kind === 'club' && this.shown(u) && (!u.invited || this.club.isClubStaff()))
+      .map((u) => ({
+        id: u.id,
+        name: u.name + (u.id === me ? ' (you)' : ''),
+        sub:
+          [u.title || 'Club Staff', u.clubAdmin ? 'Club admin' : ''].filter(Boolean).join(' · ') +
+          (u.invited ? ` · invited as ${u.email}` : '') +
+          disabledNote(u),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   });
 
   protected readonly players = computed<PlayerRowVm[]>(() => {
@@ -245,14 +283,17 @@ export class RosterPage {
     const linked = new Set(players.flatMap((p) => p.parentIds));
     return this.club
       .users()
-      .filter((u) => !u.invited && ((u.kind === 'parent' && !!id && u.teams.includes(id)) || linked.has(u.id)))
+      .filter(
+        (u) =>
+          !u.invited && this.shown(u) && ((u.kind === 'parent' && !!id && u.teams.includes(id)) || linked.has(u.id)),
+      )
       .map((u) => {
         const children = players.filter((p) => p.parentIds.includes(u.id)).map((p) => p.name);
         const role = u.kind === 'parent' ? '' : `${KIND_LABEL[u.kind]} · `;
         return {
           id: u.id,
           name: u.name + (u.id === me ? ' (you)' : ''),
-          sub: role + (children.length ? `Parent of ${children.join(', ')}` : 'No player linked yet'),
+          sub: role + (children.length ? `Parent of ${children.join(', ')}` : 'No player linked yet') + disabledNote(u),
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -263,7 +304,7 @@ export class RosterPage {
     const id = this.selected();
     return this.club
       .users()
-      .filter((u) => (u.kind === 'parent' || u.kind === 'staff') && !!id && u.teams.includes(id))
+      .filter((u) => (u.kind === 'parent' || u.kind === 'staff') && !u.disabled && !!id && u.teams.includes(id))
       .map((u) => ({
         id: u.id,
         name: u.name,
@@ -271,6 +312,11 @@ export class RosterPage {
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   });
+
+  /** Disabled members are listed for club staff, who can enable them again, and hidden from others. */
+  private shown(u: User): boolean {
+    return !u.disabled || this.club.isClubStaff();
+  }
 
   private names(ids: string[]): string {
     return ids
@@ -293,7 +339,8 @@ export class RosterPage {
   }
 
   protected async sendInvite(value: InviteFormValue): Promise<void> {
-    const count = this.linkedThreadCounts()[value.team]?.[value.kind] ?? 0;
+    const count =
+      value.kind === 'club' ? this.clubWideThreadCount() : (this.linkedThreadCounts()[value.team]?.[value.kind] ?? 0);
     let ready: MemberInvitedVm | null = null;
     const ok = await this.invite.run(async () => {
       ready = this.readyVm(await this.club.inviteMember(value));
@@ -330,11 +377,18 @@ export class RosterPage {
     ];
     return {
       name: user.name,
-      role: KIND_LABEL[user.kind] + (user.invited ? ' · invited, not signed in yet' : ''),
+      role:
+        KIND_LABEL[user.kind] +
+        (user.clubAdmin ? ' · Club admin' : '') +
+        (user.invited ? ' · invited, not signed in yet' : '') +
+        (user.disabled ? ' · disabled' : ''),
       invited: !!user.invited,
       fields,
       canEdit: this.club.canEditMember(user),
       canManageInvite: this.club.canManageInvite(user),
+      disabled: !!user.disabled,
+      canResetPassword: this.club.canResetPassword(user),
+      canRemove: this.club.canRemoveMember(user),
     };
   }
 
@@ -455,6 +509,41 @@ export class RosterPage {
     if (!ok) return;
     this.opened.set(null);
     this.toaster.show(`${user.name}’s invite cancelled.`);
+  }
+
+  protected async resetPassword(): Promise<void> {
+    const id = this.opened()?.id;
+    if (!id) return;
+    let reset: MemberInvite | null = null;
+    const ok = await this.detailsWork.run(async () => {
+      reset = await this.club.resetPassword(id);
+    }, errorMessage('Could not reset their password. Try again.'));
+    if (!ok || !reset) return;
+    this.opened.set(null);
+    this.inviteReady.set({ ...this.readyVm(reset), reset: true });
+    this.toaster.show('New temporary password created. The previous password no longer works.');
+  }
+
+  protected async setDisabled(disabled: boolean): Promise<void> {
+    const user = this.club.user(this.opened()?.id);
+    if (!user) return;
+    const ok = await this.detailsWork.run(
+      () => this.club.setMemberDisabled(user.id, disabled),
+      errorMessage(`Could not ${disabled ? 'disable' : 'enable'} them. Try again.`),
+    );
+    if (ok) this.toaster.show(`${user.name} ${disabled ? 'disabled' : 'enabled'}.`);
+  }
+
+  protected async removeMember(): Promise<void> {
+    const user = this.club.user(this.opened()?.id);
+    if (!user) return;
+    const ok = await this.detailsWork.run(
+      () => this.club.removeMember(user.id),
+      errorMessage('Could not remove them. Try again.'),
+    );
+    if (!ok) return;
+    this.opened.set(null);
+    this.toaster.show(`${user.name} removed from the club.`);
   }
 
   private readyVm(invite: MemberInvite): MemberInvitedVm {
