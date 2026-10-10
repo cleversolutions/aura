@@ -8,6 +8,8 @@ export interface MemberInvitedVm {
   url: string;
   username: string;
   temporaryPassword: string;
+  /** A forgotten password was reset, rather than someone invited. */
+  reset?: boolean;
 }
 
 /** Something copied to the clipboard, with a label for the confirmation toast. */
@@ -17,7 +19,8 @@ export interface CopiedValue {
 }
 
 /**
- * After inviting someone: the sign-in details for staff to send them. There is no invite email
+ * After inviting someone, or resetting a forgotten password: the sign-in details for staff to send
+ * them. There is no invite email
  * yet, so staff share these by hand; the member chooses their own password on first sign-in.
  */
 @Component({
@@ -26,7 +29,7 @@ export interface CopiedValue {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let v = vm();
-    <aura-sheet title="INVITE READY" (closed)="closed.emit()">
+    <aura-sheet [title]="v.reset ? 'PASSWORD RESET' : 'INVITE READY'" (closed)="closed.emit()">
       <p class="text-[15px] leading-[1.45] text-pretty">
         Send {{ v.name }} these details. They sign in at the club link with the temporary password, then choose their
         own. It is shown only now.
@@ -53,9 +56,9 @@ export interface CopiedValue {
       <button
         type="button"
         class="btn-primary mt-1"
-        (click)="copied.emit({ label: 'Invite message', value: message() })"
+        (click)="copied.emit({ label: v.reset ? 'Message' : 'Invite message', value: message() })"
       >
-        COPY INVITE MESSAGE
+        {{ v.reset ? 'COPY MESSAGE' : 'COPY INVITE MESSAGE' }}
       </button>
       <button type="button" class="btn-link h-10 self-center" (click)="closed.emit()">Done</button>
     </aura-sheet>
@@ -78,8 +81,11 @@ export class MemberInvited {
   /** Everything in one message, ready to paste into a text or email. */
   protected readonly message = computed(() => {
     const v = this.vm();
+    const opening = v.reset
+      ? `Your password for ${v.clubName} on Aura has been reset.`
+      : `You're invited to ${v.clubName} on Aura.`;
     return (
-      `You're invited to ${v.clubName} on Aura. Open ${v.url} and sign in as ${v.username} ` +
+      `${opening} Open ${v.url} and sign in as ${v.username} ` +
       `with the temporary password ${v.temporaryPassword}, then choose your own password.`
     );
   });

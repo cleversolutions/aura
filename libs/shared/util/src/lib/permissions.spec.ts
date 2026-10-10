@@ -8,6 +8,8 @@ import {
   canManageThread,
   canPostInThread,
   canReadThread,
+  canRemoveMember,
+  canResetPassword,
   effectiveMembers,
   includedViaTeam,
 } from './permissions';
@@ -132,5 +134,37 @@ describe('editing and deleting messages', () => {
     expect(canDeleteMessage(mine, thread({ scope: 'club' }), dana)).toBe(false);
     expect(canDeleteMessage(mine, thread({ scope: 'club' }), sam)).toBe(true);
     expect(canDeleteMessage(mine, thread(), eli)).toBe(false);
+  });
+});
+
+describe('member lifecycle', () => {
+  const admin: User = { ...sam, clubAdmin: true };
+  const lee: User = { id: 'lee', name: 'Lee Fontaine', kind: 'club', teams: [] };
+  const invited: User = { ...jordan, id: 'new', invited: true };
+
+  it('lets club staff reset anyone’s password, and team staff their teams’ families', () => {
+    expect(canResetPassword(sam, dana)).toBe(true);
+    expect(canResetPassword(dana, jordan)).toBe(true);
+    expect(canResetPassword(dana, eli)).toBe(false);
+    expect(canResetPassword(dana, sam)).toBe(false);
+    expect(canResetPassword(jordan, eli)).toBe(false);
+    expect(canResetPassword(sam, sam)).toBe(false);
+    expect(canResetPassword(sam, invited)).toBe(false);
+  });
+
+  it('lets club staff disable and remove members, except themselves and the club admin', () => {
+    expect(canRemoveMember(lee, jordan)).toBe(true);
+    expect(canRemoveMember(lee, admin)).toBe(false);
+    expect(canRemoveMember(lee, lee)).toBe(false);
+    expect(canRemoveMember(lee, invited)).toBe(false);
+    expect(canRemoveMember(dana, jordan)).toBe(false);
+  });
+
+  it('leaves disabled members out of every thread', () => {
+    const withDisabled = users.map((u) => (u.id === 'jordan' ? { ...u, disabled: true } : u));
+    const clubWide = thread({ isDefault: true, scope: 'club' });
+    expect(effectiveMembers(clubWide, withDisabled).has('jordan')).toBe(false);
+    expect(effectiveMembers(thread({ creatorId: 'jordan', members: ['jordan'] }), withDisabled).size).toBe(0);
+    expect(effectiveMembers(thread({ teams: ['U12G'] }), withDisabled)).toEqual(new Set(['dana']));
   });
 });

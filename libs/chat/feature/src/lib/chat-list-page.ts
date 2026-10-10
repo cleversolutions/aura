@@ -14,7 +14,7 @@ import {
 import { ClubStore } from '@aura/club/data-access';
 import { Thread, ThreadScope } from '@aura/shared/models';
 import { AppHeader, Choice, Icon } from '@aura/shared/ui';
-import { CLOCK, Submission, Toaster, Viewport, firstName, formatMessageTime } from '@aura/shared/util';
+import { CLOCK, FORMER_MEMBER, Submission, Toaster, Viewport, firstName, formatMessageTime } from '@aura/shared/util';
 
 const badge = (t: Thread) => (t.scope === 'club' ? 'CLUB' : t.scope);
 
@@ -170,7 +170,8 @@ export class ChatListPage {
   private row(t: Thread): ThreadListItemVm {
     const me = this.club.meId();
     const last = t.messages.at(-1);
-    const sender = last && (last.from === me ? 'You' : firstName(this.club.user(last.from)?.name ?? '?'));
+    const from = last && this.club.user(last.from);
+    const sender = last && (last.from === me ? 'You' : from ? firstName(from.name) : FORMER_MEMBER);
     const text = last?.deleted ? 'Message deleted' : last?.text;
     return {
       id: t.id,

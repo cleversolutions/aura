@@ -14,6 +14,7 @@ import { PreviewData } from './preview';
 import { SupabaseClients } from './supabase-clients';
 
 const WRONG_CLUB_LOGIN = 'That username and password don’t match an account at this club.';
+const DISABLED_LOGIN = 'This account is disabled. Ask your club’s staff.';
 
 function toClubSession(session: Session): ClubSession {
   return {
@@ -63,6 +64,7 @@ export class SupabaseAuthRepository extends AuthRepository {
     const email = await authEmailFor(club.id, username, this.clients.config.loginDomain);
     const { data, error } = await client.auth.signInWithPassword({ email, password });
     if (error || !data.session) {
+      if (error?.code === 'user_banned') throw new Error(DISABLED_LOGIN);
       if (error && error.code !== 'invalid_credentials') console.error(error);
       throw new Error(
         error?.code === 'invalid_credentials' || !error ? WRONG_CLUB_LOGIN : 'Could not sign in. Try again.',

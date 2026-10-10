@@ -98,12 +98,41 @@ Deno.test('invite-member', async (t) => {
       assertEquals(res.status, 409);
     });
 
-    await t.step('rejects club staff invites and unknown teams', async () => {
+    await t.step('club staff invite club staff, with a title and no team', async () => {
+      const res = await invoke(clubAdmin, 'invite-member', {
+        kind: 'club',
+        title: 'Registrar',
+        name: 'Reg Istrar',
+        email: 'reg@test.example',
+      });
+      assertEquals(res.status, 200, JSON.stringify(res.data));
+      const user = res.data['user'] as Record<string, unknown>;
       assertEquals(
-        (await invoke(clubAdmin, 'invite-member', { team: 'U12G', kind: 'club', name: 'X', email: 'y@test.example' }))
-          .status,
-        400,
+        { ...user, id: '' },
+        {
+          id: '',
+          name: 'Reg Istrar',
+          kind: 'club',
+          teams: [],
+          title: 'Registrar',
+          email: 'reg@test.example',
+          invited: true,
+        },
       );
+      const { data } = await service
+        .from('members')
+        .select('kind, title')
+        .eq('id', user['id'] as string)
+        .single();
+      assertEquals(data, { kind: 'club', title: 'Registrar' });
+    });
+
+    await t.step('team staff cannot invite club staff', async () => {
+      const res = await invoke(coach, 'invite-member', { kind: 'club', name: 'X', email: 'y@test.example' });
+      assertEquals(res.status, 403);
+    });
+
+    await t.step('rejects unknown teams', async () => {
       assertEquals(
         (await invoke(clubAdmin, 'invite-member', { team: 'U99X', kind: 'parent', name: 'X', email: 'y@test.example' }))
           .status,

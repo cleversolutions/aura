@@ -1,7 +1,7 @@
 // Shared plumbing for Aura's edge functions: the service-role client, caller checks, responses,
 // asset uploads and temporary passwords. Only edge functions hold the service-role key.
 import { createClient, SupabaseClient, User as AuthUser } from 'npm:@supabase/supabase-js@2';
-import { DEFAULT_LOGIN_DOMAIN } from './auth-identity.ts';
+import { DEFAULT_LOGIN_DOMAIN, authEmailFor } from './auth-identity.ts';
 
 export const LOGIN_DOMAIN = Deno.env.get('AURA_LOGIN_DOMAIN') || DEFAULT_LOGIN_DOMAIN;
 /** The API URL browsers use; inside the local functions container SUPABASE_URL is internal. */
@@ -186,10 +186,11 @@ export interface MemberRow {
   title: string | null;
   email: string | null;
   invited: boolean;
+  disabled: boolean;
   team_members: { team_id: string }[];
 }
 
-const MEMBER_COLUMNS = 'id, user_id, username, name, kind, title, email, invited, team_members(team_id)';
+const MEMBER_COLUMNS = 'id, user_id, username, name, kind, title, email, invited, disabled, team_members(team_id)';
 
 /** A member of `clubId` matching `match`, with their teams. */
 export async function loadMember(
@@ -209,6 +210,7 @@ export async function callerMember(admin: SupabaseClient, user: AuthUser): Promi
   const clubId = user.app_metadata?.['club_id'] as string | undefined;
   const me = clubId ? await loadMember(admin, clubId, { user_id: user.id }) : null;
   if (!clubId || !me) throw new HttpError(403, 'Sign in to your club first.');
+  if (me.disabled) throw new HttpError(403, 'Your account is disabled. Ask your club’s staff.');
   return { clubId, me };
 }
 
@@ -218,6 +220,69 @@ export function managesInvite(me: MemberRow, target: MemberRow): boolean {
   if (me.kind === 'club') return true;
   const mine = new Set(me.team_members.map((t) => t.team_id));
   return me.kind === 'staff' && target.team_members.some((t) => mine.has(t.team_id));
+}
+
+/**
+ * Who may reset a member's password: club staff for anyone; team staff for parents and players on
+ * their teams. Never yourself, and only once they have joined (invites are resent instead).
+ * Mirrors canResetPassword() in permissions.ts.
+ */
+export function managesMember(me: MemberRow, target: MemberRow): boolean {
+  if (target.invited || target.id === me.id) return false;
+  if (me.kind === 'club') return true;
+  const mine = new Set(me.team_members.map((t) => t.team_id));
+  return (
+    me.kind === 'staff' &&
+    (target.kind === 'parent' || target.kind === 'player') &&
+    target.team_members.some((t) => mine.has(t.team_id))
+  );
+}
+
+/**
+ * Who may disable or remove a member: club staff, for anyone who has joined except themselves and
+ * the club admin (the platform admin changes who that is first). Mirrors canRemoveMember().
+ */
+export function removesMember(me: MemberRow, target: MemberRow, adminId: string | null): boolean {
+  return me.kind === 'club' && !target.invited && target.id !== me.id && target.id !== adminId;
+}
+
+/** The User shape from @aura/shared/models. */
+export function toUser(m: MemberRow, adminId: string | null = null) {
+  return {
+    id: m.id,
+    name: m.name,
+    kind: m.kind,
+    teams: m.team_members.map((t) => t.team_id).sort(),
+    ...(m.title ? { title: m.title } : {}),
+    ...(m.email ? { email: m.email } : {}),
+    ...(m.invited ? { invited: true } : {}),
+    ...(m.disabled ? { disabled: true } : {}),
+    ...(m.id === adminId ? { clubAdmin: true } : {}),
+  };
+}
+
+/**
+ * Gives `target` a new temporary password they must replace at their next sign-in, creating their
+ * sign-in if they have none. Their previous password stops working. Returns the MemberInvite shape.
+ */
+export async function setTemporaryPassword(admin: SupabaseClient, clubId: string, target: MemberRow) {
+  const password = temporaryPassword();
+  const userMetadata = { must_change_password: true };
+  if (target.user_id) {
+    const reset = await admin.auth.admin.updateUserById(target.user_id, { password, user_metadata: userMetadata });
+    if (reset.error) throw new Error(`Reset password: ${reset.error.message}`);
+  } else {
+    const created = await admin.auth.admin.createUser({
+      email: await authEmailFor(clubId, target.username ?? '', LOGIN_DOMAIN),
+      password,
+      email_confirm: true,
+      app_metadata: { club_id: clubId, member_id: target.id },
+      user_metadata: userMetadata,
+    });
+    if (created.error || !created.data.user) throw new Error(`Create sign-in: ${created.error?.message}`);
+    check(await admin.from('members').update({ user_id: created.data.user.id }).eq('id', target.id), 'Link sign-in');
+  }
+  return { user: toUser(target), username: target.username ?? '', temporaryPassword: password };
 }
 
 /** The caller and an invited member whose invite they may manage. */

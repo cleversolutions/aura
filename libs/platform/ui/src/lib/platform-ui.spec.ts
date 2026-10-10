@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { ClubAccount } from '@aura/shared/models';
+import { ClubAdminPanel, ClubAdminPanelVm } from './club-admin-panel';
 import { ClubForm, ClubFormValue } from './club-form';
 
 const SPARTANS: ClubAccount = {
@@ -92,5 +93,61 @@ describe('ClubForm', () => {
         temporaryPassword: '',
       }),
     ]);
+  });
+});
+
+describe('ClubAdminPanel', () => {
+  const vm = (o: Partial<ClubAdminPanelVm> = {}): ClubAdminPanelVm => ({
+    adminName: 'Sam Okoro',
+    adminEmail: 'sam@spartans.example',
+    staff: [
+      { id: 'lee', name: 'Lee Fontaine', sub: 'Registrar', eligible: true },
+      { id: 'new', name: 'Tia Bank', sub: 'invited, hasn’t joined yet', eligible: false },
+    ],
+    reset: null,
+    ...o,
+  });
+  const click = (el: HTMLElement, text: string) =>
+    Array.from(el.querySelectorAll<HTMLButtonElement>('button'))
+      .find((b) => b.textContent?.trim() === text)
+      ?.click();
+
+  it('confirms resetting the admin’s password, then shows the new one once', async () => {
+    const fixture = TestBed.createComponent(ClubAdminPanel);
+    fixture.componentRef.setInput('vm', vm());
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const reset = vi.fn();
+    fixture.componentInstance.resetPassword.subscribe(reset);
+
+    click(el, 'RESET PASSWORD');
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Give Sam Okoro a new temporary password?');
+    click(el, 'RESET');
+    expect(reset).toHaveBeenCalled();
+
+    fixture.componentRef.setInput(
+      'vm',
+      vm({ reset: { username: 'sam@spartans.example', temporaryPassword: 'KMRT-a7bq-49' } }),
+    );
+    await fixture.whenStable();
+    expect(el.textContent).toContain('KMRT-a7bq-49');
+    expect(el.textContent).toContain('RESET PASSWORD');
+  });
+
+  it('makes another of the club’s staff the admin, if they have joined', async () => {
+    const fixture = TestBed.createComponent(ClubAdminPanel);
+    fixture.componentRef.setInput('vm', vm());
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const changed: string[] = [];
+    fixture.componentInstance.adminChanged.subscribe((id) => changed.push(id));
+
+    expect(el.querySelectorAll('[aria-label^="Make "]')).toHaveLength(1);
+    el.querySelector<HTMLButtonElement>('[aria-label="Make Lee Fontaine the club admin"]')?.click();
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Make Lee Fontaine the club admin? Sam Okoro stays on the club staff.');
+    click(el, 'MAKE ADMIN');
+    expect(changed).toEqual(['lee']);
   });
 });

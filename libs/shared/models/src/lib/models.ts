@@ -39,6 +39,19 @@ export interface ClubAccount extends Club {
   createdAt: string;
 }
 
+/** One of a club's staff, as the platform admin sees them when choosing the club admin. */
+export interface ClubStaffMember {
+  id: UserId;
+  name: string;
+  /** Their sign-in username. */
+  email: string;
+  title?: string;
+  invited?: boolean;
+  disabled?: boolean;
+  /** The current club admin. */
+  admin: boolean;
+}
+
 /** Signs in at `/admin`; creates and edits clubs. The only account that spans clubs. */
 export interface PlatformAdmin {
   id: string;
@@ -66,6 +79,10 @@ export interface User {
   email?: string;
   /** Invited but has not accepted yet. */
   invited?: boolean;
+  /** Disabled by club staff: on record, but cannot sign in or take part until re-enabled. */
+  disabled?: boolean;
+  /** The club's admin (club staff), whom only the platform admin replaces. */
+  clubAdmin?: boolean;
 }
 
 /**
@@ -129,7 +146,8 @@ export type IncludeGroups = Record<MemberGroup, boolean>;
 
 export interface ChatMessage {
   id: string;
-  from: UserId;
+  /** Null once the sender has been removed from the club ("Former member"). */
+  from: UserId | null;
   /** Empty once deleted. */
   text: string;
   /** ISO timestamp. */

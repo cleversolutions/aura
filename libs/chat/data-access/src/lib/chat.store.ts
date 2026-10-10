@@ -10,6 +10,7 @@ import {
   canPostInThread,
   canReadThread,
   effectiveMembers,
+  FORMER_MEMBER,
   isClubWide,
 } from '@aura/shared/util';
 
@@ -171,7 +172,7 @@ export const ChatStore = signalStore(
             notice: {
               id: message.id,
               threadName: thread.name,
-              senderName: club.user(message.from)?.name ?? 'Someone',
+              senderName: club.user(message.from)?.name ?? FORMER_MEMBER,
             },
           });
         }

@@ -3,9 +3,24 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, si
 import { Router } from '@angular/router';
 import { ClubStore } from '@aura/club/data-access';
 import { PlatformStore } from '@aura/platform/data-access';
-import { ClubCard, ClubCardVm, ClubCreated, ClubCreatedVm, ClubForm, ClubFormValue } from '@aura/platform/ui';
-import { ClubAccount } from '@aura/shared/models';
+import {
+  ClubAdminPanel,
+  ClubAdminPanelVm,
+  ClubCard,
+  ClubCardVm,
+  ClubCreated,
+  ClubCreatedVm,
+  ClubForm,
+  ClubFormValue,
+} from '@aura/platform/ui';
+import { ClubAccount, ClubStaffMember } from '@aura/shared/models';
 import { Submission, Toaster, errorMessage } from '@aura/shared/util';
+
+/** A club staff member's title and sign-in, and why they can't be the admin yet. */
+function staffNote(m: ClubStaffMember): string {
+  const state = m.invited ? 'invited, hasn’t joined yet' : m.disabled ? 'disabled' : '';
+  return [m.title, m.email, state].filter(Boolean).join(' · ');
+}
 
 const dateFormat = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -89,7 +104,7 @@ export class ClubListPage extends ClubAdminPage {
 /** `/admin/clubs/new` and `/admin/clubs/:clubId`. */
 @Component({
   selector: 'aura-club-edit-page',
-  imports: [ClubForm, ClubCreated],
+  imports: [ClubForm, ClubCreated, ClubAdminPanel],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (created(); as done) {
@@ -111,6 +126,18 @@ export class ClubListPage extends ClubAdminPage {
         (notice)="toaster.show($event)"
         (back)="router.navigate(['/admin'])"
       />
+      @if (adminPanel(); as panel) {
+        <div class="mx-auto max-w-[1100px] px-3.5 pb-6 wide:px-6">
+          <aura-club-admin-panel
+            [vm]="panel"
+            [saving]="adminWork.saving()"
+            [error]="adminWork.error()"
+            (resetPassword)="resetAdminPassword()"
+            (adminChanged)="setAdmin($event)"
+            (copied)="copyPassword($event)"
+          />
+        </div>
+      }
     } @else if (platform.clubsLoaded()) {
       <p class="p-6 text-[15px] font-medium">Club not found.</p>
     }
@@ -126,6 +153,23 @@ export class ClubEditPage extends ClubAdminPage implements OnInit {
     return (id && this.platform.club(id)) || null;
   });
   protected readonly created = signal<{ club: ClubAccount; vm: ClubCreatedVm } | null>(null);
+  protected readonly adminWork = new Submission();
+  /** The admin's new temporary password, shown once. */
+  private readonly adminReset = signal<{ clubId: string; username: string; temporaryPassword: string } | null>(null);
+  protected readonly adminPanel = computed<ClubAdminPanelVm | null>(() => {
+    const club = this.club();
+    if (!club) return null;
+    const reset = this.adminReset();
+    return {
+      adminName: club.adminName,
+      adminEmail: club.adminEmail,
+      staff: this.platform
+        .clubStaff(club.id)
+        .filter((m) => !m.admin)
+        .map((m) => ({ id: m.id, name: m.name, sub: staffNote(m), eligible: !m.invited && !m.disabled })),
+      reset: reset?.clubId === club.id ? reset : null,
+    };
+  });
 
   constructor() {
     super();
@@ -139,6 +183,34 @@ export class ClubEditPage extends ClubAdminPage implements OnInit {
     const id = this.clubId();
     const done = id ? this.platform.takeCreated(id) : null;
     if (done) this.showCreated(done.club, done.temporaryPassword);
+    if (id) this.platform.loadClubStaff(id).catch(() => this.toaster.show('Could not load the club’s staff.'));
+  }
+
+  protected async resetAdminPassword(): Promise<void> {
+    const club = this.club();
+    if (!club) return;
+    const ok = await this.adminWork.run(async () => {
+      const { username, temporaryPassword } = await this.platform.resetAdminPassword(club.id);
+      this.adminReset.set({ clubId: club.id, username, temporaryPassword });
+    }, errorMessage('Could not reset the password. Try again.'));
+    if (ok) this.toaster.show('New temporary password created. The previous password no longer works.');
+  }
+
+  protected async setAdmin(memberId: string): Promise<void> {
+    const club = this.club();
+    if (!club) return;
+    const ok = await this.adminWork.run(
+      () => this.platform.setClubAdmin(club.id, memberId),
+      errorMessage('Could not change the club admin. Try again.'),
+    );
+    if (!ok) return;
+    this.adminReset.set(null);
+    this.toaster.show(`${this.club()?.adminName} is now the club admin.`);
+  }
+
+  protected copyPassword(password: string): void {
+    navigator.clipboard?.writeText(password).catch(() => undefined);
+    this.toaster.show('Password copied.');
   }
 
   protected previewCurrent(): void {

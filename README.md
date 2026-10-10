@@ -71,7 +71,8 @@ supabase/
   config.toml                Local Supabase settings (sign-ups off: accounts come from edge functions)
   migrations/                Schema, row-level security and helper functions
   tests/                     pgTAP tests for row-level security (npm run db:test)
-  functions/                 Edge functions: create-club, update-club, invite-member, update-member, manage-invite
+  functions/                 Edge functions: create-club, update-club, invite-member, update-member, manage-invite,
+                             manage-member
 functions/                   Cloudflare Pages Functions: /<slug>/manifest.webmanifest
 tools/                       Seed script and test runners
 ```
@@ -136,10 +137,19 @@ Feature code only sees the ports in `@aura/backend/api`; `app.config.ts` binds t
 - **Club settings** (`club_settings`, one row per club, edited by club staff under More → Club settings) hold
   club-wide choices; a club without a row has the defaults (`DEFAULT_CLUB_SETTINGS`). Today: who posts in
   announcement channels.
-- **Edge functions** do the work that needs the service-role key: `create-club` and `update-club` (platform admin)
-  `invite-member` (club staff, or team staff for their teams) and `update-member` (yourself, or anyone at the club for
-  club staff; a new email moves the person's sign-in) and `manage-invite` (resend with a new temporary password, or
-  cancel, while someone has not joined; whoever could invite them). Logos and icons go to the `club-assets` bucket.
+- **Edge functions** do the work that needs the service-role key: `create-club` and `update-club` (platform admin;
+  `update-club` also makes another of the club's staff its admin), `invite-member` (club staff, or team staff for
+  their teams; club staff also invite club staff, who join no team), `update-member` (yourself, or anyone at the club
+  for club staff; a new email moves the person's sign-in), `manage-invite` (resend with a new temporary password, or
+  cancel, while someone has not joined; whoever could invite them) and `manage-member` (for people who have joined:
+  reset a forgotten password, which club staff do for anyone and team staff for their teams' families, and the
+  platform admin for the club admin; disable, enable or remove, club staff only). Logos and icons go to the
+  `club-assets` bucket.
+- **Leaving the club.** A disabled member (`members.disabled`) stays on record but cannot sign in (their auth user is
+  banned) and has no access: `auth_club_id()` is null for them, so every policy denies them, and they are in no
+  thread. Removing a member deletes their sign-in and member row; foreign keys unlink them from teams, threads and
+  players, and their messages stay with `from_member_id` null, shown as "Former member". Nobody disables or removes
+  themselves or the club admin.
 - **Invites have no email yet.** `invite-member` creates the member's sign-in with a temporary password and returns
   it once; staff see the club link, username and password with copy buttons and send them by hand. The member must
   choose their own password at first sign-in, which also takes them off the invited list.
