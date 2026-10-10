@@ -12,6 +12,9 @@ adds what the README does not say or what is easy to get wrong.
   commands. They talk to the Docker socket, so run them with the sandbox disabled.
 - Local Supabase (`npm run db:start`): API 54321, database 54322, Studio 54323, Mailpit 54324. `npm start` needs it
   running and seeded (`npm run db:reset`); `npm run start:mock` does not.
+- `npm run db:reset` wipes the local database, including clubs made by hand for testing: don't run it unless asked.
+  Apply new migrations with `npx supabase migration up --local`. `npm run db:seed` refuses to replace demo clubs
+  that changed since seeding unless passed `-- --force`; don't force it unless asked.
 - The GitHub CLI is at `/usr/local/bin/gh`. Git and `gh` credentials live in the macOS keychain, which the sandbox
   cannot reach: run `git push`, `git fetch` and `gh` with the sandbox disabled.
 
@@ -25,8 +28,9 @@ npx nx format:check --base=origin/main       # Prettier; fix with npx nx format:
 npx tsc -p libs/<scope>/<lib>/tsconfig.lib.json --noEmit   # Vitest does not typecheck; also tsconfig.spec.json
 ```
 
-After touching `supabase/` or `libs/backend/supabase`, also run what the CI `supabase` job runs: `npm run db:reset`,
-`npm run db:test`, `npm run functions:test` and `npm run test:supabase`. After a migration, `npm run db:types`.
+After touching `supabase/` or `libs/backend/supabase`, also run what the CI `supabase` job runs:
+`npx supabase migration up --local`, `npm run db:test`, `npm run functions:test` and `npm run test:supabase` (all of
+which leave existing data alone). After a migration, `npm run db:types`.
 
 New libraries are scaffolded by copying an existing one's `project.json`, `tsconfig*.json`, `vite.config.mts` and
 `src/test-setup.ts`, then adding the path alias to `tsconfig.base.json`. Tag them `scope:*` and `type:*`.

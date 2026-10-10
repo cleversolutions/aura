@@ -1,6 +1,8 @@
 /**
- * Repository tests against a local, seeded Supabase. Skipped unless SUPABASE_URL is set, so unit
- * runs need no Docker. Run with `npm run test:supabase` (after `npm run db:reset`).
+ * Repository tests against a local Supabase. Skipped unless SUPABASE_URL is set, so unit runs need
+ * no Docker. Run with `npm run test:supabase` (after `npm run db:start`). They seed their own
+ * copies of the demo clubs under random slugs, plus their own platform admin, and delete them
+ * afterwards: the seeded demo clubs, and anything made by hand, are left alone.
  */
 import { webcrypto } from 'node:crypto';
 import { TestBed } from '@angular/core/testing';
@@ -13,10 +15,11 @@ import {
   PlatformRepository,
   ScheduleRepository,
 } from '@aura/backend/api';
-import { PANTHERS_SLUG, SPARTANS_SLUG } from '@aura/backend/mock';
+import { DEMO_PASSWORD, createMockClubs } from '@aura/backend/mock';
 import { Thread, User } from '@aura/shared/models';
 import { DEFAULT_LOGIN_DOMAIN, authEmailFor, effectiveMembers } from '@aura/shared/util';
 import { Database } from './database.types';
+import { createPlatformAdmin, deleteClubs, deletePlatformAdmin, seedDemoClub, throwawaySlug } from './demo-clubs';
 import { provideSupabaseBackend } from './provide-supabase-backend';
 import { SUPABASE_CLIENT_FACTORY } from './supabase-clients';
 
@@ -27,6 +30,11 @@ const url = process.env['SUPABASE_URL'];
 const anonKey = process.env['SUPABASE_ANON_KEY'] ?? '';
 const serviceKey = process.env['SUPABASE_SERVICE_ROLE_KEY'] ?? '';
 const noSession = { auth: { persistSession: false, autoRefreshToken: false } };
+
+// Throwaway copies of the demo clubs and platform admin, made in beforeAll.
+const SPARTANS_SLUG = throwawaySlug();
+const PANTHERS_SLUG = throwawaySlug();
+const ADMIN_EMAIL = `${throwawaySlug('admin')}@aura.example`;
 
 /** In-memory session storage shared by the clients of one test, like one browser's localStorage. */
 function memoryStorage() {
@@ -72,6 +80,23 @@ async function until(check: () => boolean, ms = 5000): Promise<void> {
 describe.skipIf(!url)('Supabase backend (local)', () => {
   const service: SupabaseClient<Database> = createClient<Database>(url ?? 'http://x', serviceKey || 'x', noSession);
   const cleanups: (() => PromiseLike<unknown>)[] = [];
+  const clubIds: string[] = [];
+
+  beforeAll(async () => {
+    const [spartans, panthers] = createMockClubs(new Date());
+    for (const [club, slug] of [
+      [spartans, SPARTANS_SLUG],
+      [panthers, PANTHERS_SLUG],
+    ] as const) {
+      clubIds.push((await seedDemoClub(service, club, { loginDomain: DEFAULT_LOGIN_DOMAIN, slug })).id);
+    }
+    await createPlatformAdmin(service, { email: ADMIN_EMAIL, password: DEMO_PASSWORD, name: 'Alex Rivera' });
+  }, 120_000);
+
+  afterAll(async () => {
+    await deleteClubs(service, clubIds);
+    await deletePlatformAdmin(service, ADMIN_EMAIL);
+  }, 60_000);
 
   afterEach(async () => {
     TestBed.resetTestingModule();
@@ -291,9 +316,10 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       const dana = await memberId(SPARTANS_SLUG, 'dana@spartans.example');
       const club = await service.from('clubs').select('id').eq('slug', SPARTANS_SLUG).single();
       cleanups.push(async () => {
-        const { data } = await service.from('members').select('user_id').eq('username', 'quinn@x.example');
+        const quinn = service.from('members').select('user_id').eq('club_id', club.data!.id);
+        const { data } = await quinn.eq('username', 'quinn@x.example');
         for (const m of data ?? []) if (m.user_id) await service.auth.admin.deleteUser(m.user_id);
-        await service.from('members').delete().eq('username', 'quinn@x.example');
+        await service.from('members').delete().eq('club_id', club.data!.id).eq('username', 'quinn@x.example');
         await service.from('teams').delete().eq('club_id', club.data!.id).eq('id', 'U9B');
       });
 
@@ -407,7 +433,11 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       });
       cleanups.push(async () => {
         await service.from('player_profiles').delete().in('id', [managed.profile.id, own.profile.id]);
-        const { data } = await service.from('members').select('id, user_id').eq('username', 'ola@x.example');
+        const { data } = await service
+          .from('members')
+          .select('id, user_id')
+          .eq('club_id', clubIds[0])
+          .eq('username', 'ola@x.example');
         for (const m of data ?? []) {
           if (m.user_id) await service.auth.admin.deleteUser(m.user_id);
           await service.from('members').delete().eq('id', m.id);
@@ -464,12 +494,12 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
   describe('platform', () => {
     it('lists clubs for the platform admin, and previews with sample data', async () => {
       const { auth, platform, directory, schedule } = setup();
-      await expect(auth.signInPlatform('admin@aura.example', 'nope')).rejects.toThrow('Wrong email or password.');
+      await expect(auth.signInPlatform(ADMIN_EMAIL, 'nope')).rejects.toThrow('Wrong email or password.');
       await expect(auth.signInPlatform('jordan.smith@email.com', 'password')).rejects.toThrow(
         'Wrong email or password.',
       );
-      const admin = await auth.signInPlatform('admin@aura.example', 'password');
-      expect(admin).toMatchObject({ email: 'admin@aura.example', name: 'Alex Rivera' });
+      const admin = await auth.signInPlatform(ADMIN_EMAIL, 'password');
+      expect(admin).toMatchObject({ email: ADMIN_EMAIL, name: 'Alex Rivera' });
       expect(await auth.platformSession()).toEqual(admin);
 
       const clubs = await platform.listClubs();

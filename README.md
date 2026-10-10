@@ -14,7 +14,7 @@ from there too. With Volta installed, `node` and `npm` switch to the pinned vers
 ```sh
 npm ci
 npm run db:start   # local Supabase in Docker (first run pulls the images)
-npm run db:reset   # apply migrations and seed the demo clubs
+npm run db:reset   # apply migrations and seed the demo clubs (wipes the local database)
 npm start          # http://localhost:4200, against the local Supabase
 npm run start:mock # or: the in-memory mock backend, no Docker needed
 npm test           # all unit tests (no Docker needed)
@@ -34,7 +34,7 @@ navy on gold). Every seeded account uses the password `password`; usernames are 
 `jordan.smith@email.com` (parent), `eli.smith@email.com` (player), `dana@spartans.example` (team staff) and
 `sam@spartans.example` (club staff).
 
-- With Supabase, open a club's link and sign in. Data persists until `npm run db:reset`.
+- With Supabase, open a club's link and sign in. Data persists until `npm run db:reset`, which wipes everything.
 - With the mock (`npm run start:mock`), data lives in memory and resets on reload. `/` lists the demo clubs, the
   Spartans start signed in as Jordan Smith, and **More → Demo account** switches between the parent, player, team
   staff and club staff views.
@@ -149,15 +149,19 @@ Commands (local Supabase ports: API 54321, database 54322, Studio 54323, Mailpit
 
 ```sh
 npm run db:start         # start local Supabase (Docker)
-npm run db:reset         # re-apply migrations and reseed
-npm run db:seed          # reseed only: replaces the demo clubs and the platform admin
+npm run db:reset         # DESTRUCTIVE: wipes the local database (every club, sign-in and upload), then seeds
+npm run db:seed          # replaces the demo clubs and the platform admin; refuses if a demo club was changed
+                         # since it was seeded (pass -- --force to replace it anyway)
 npm run db:test          # pgTAP row-level security tests
 npm run db:types         # regenerate libs/backend/supabase/src/lib/database.types.ts after a migration
 npm run functions:test   # edge function tests (Deno, run in Docker)
-npm run test:supabase    # Supabase repository tests (reseeds first)
+npm run test:supabase    # Supabase repository tests (seed and delete their own throwaway clubs)
 ```
 
 CI runs all of these in a separate `supabase` job.
+
+To apply new migrations to a local database without losing its data, use `npx supabase migration up --local`
+instead of `db:reset`. Everything else above leaves existing clubs alone.
 
 ## Hosting
 

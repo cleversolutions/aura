@@ -1,5 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { ClubStore } from '@aura/club/data-access';
 import { PlatformStore } from '@aura/platform/data-access';
@@ -116,7 +116,7 @@ export class ClubListPage extends ClubAdminPage {
     }
   `,
 })
-export class ClubEditPage extends ClubAdminPage {
+export class ClubEditPage extends ClubAdminPage implements OnInit {
   /** Route parameter; absent for a new club. */
   readonly clubId = input<string>();
 
@@ -132,6 +132,13 @@ export class ClubEditPage extends ClubAdminPage {
     if (!this.platform.clubsLoaded()) {
       this.platform.loadClubs().catch(() => this.toaster.show('Could not load clubs. Try again.'));
     }
+  }
+
+  ngOnInit(): void {
+    // Arriving from "create club": show the created panel once; a refresh shows the club's form.
+    const id = this.clubId();
+    const done = id ? this.platform.takeCreated(id) : null;
+    if (done) this.showCreated(done.club, done.temporaryPassword);
   }
 
   protected previewCurrent(): void {
@@ -156,6 +163,12 @@ export class ClubEditPage extends ClubAdminPage {
       club = await this.platform.createClub({ ...fields, slug, temporaryPassword });
     }, errorMessage('Could not create the club. Try again.'));
     if (!ok || !club) return;
+    // The club's own page shows the created panel (PlatformStore.takeCreated), so a refresh
+    // there shows the club rather than an empty new-club form.
+    void this.router.navigate(['/admin/clubs', club.id], { replaceUrl: true });
+  }
+
+  private showCreated(club: ClubAccount, temporaryPassword: string): void {
     this.created.set({
       club,
       vm: {

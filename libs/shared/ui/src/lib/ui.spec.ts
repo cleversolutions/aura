@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { Choice, Segmented } from './controls';
+import { Check, Choice, Segmented } from './controls';
 import { Sheet } from './sheet';
 import { Toast } from './toast';
 
@@ -41,6 +41,18 @@ describe('Segmented', () => {
     expect(b.getAttribute('aria-checked')).toBe('true');
     expect(b.classList).toContain('bg-ink');
     expect(a.classList).not.toContain('bg-ink');
+  });
+});
+
+describe('Check', () => {
+  it('is hidden from screen readers and adds no text to its row', async () => {
+    const fixture = TestBed.createComponent(Check);
+    fixture.componentRef.setInput('checked', true);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.getAttribute('aria-hidden')).toBe('true');
+    expect(el.textContent?.trim()).toBe('');
+    expect(el.querySelector('svg')).not.toBeNull();
   });
 });
 
