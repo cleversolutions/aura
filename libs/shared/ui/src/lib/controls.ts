@@ -11,13 +11,16 @@ import { initials } from '@aura/shared/util';
   host: { 'aria-hidden': 'true', class: 'inline-flex shrink-0' },
   template: `
     <span
-      class="flex items-center justify-center rounded-[5px] border-2 border-ink font-bold"
+      class="flex items-center justify-center rounded-[5px] border-2 border-ink"
       [class]="checked() ? 'bg-ink text-paper' : implied() ? 'border-dashed bg-paper text-ink' : 'bg-paper text-paper'"
       [style.width.px]="size()"
       [style.height.px]="size()"
-      [style.font-size.px]="size() * 0.6"
-      >✓</span
     >
+      <!-- Drawn, not a ✓ character, so it stays out of the row's text; aria-pressed carries the state. -->
+      <svg viewBox="0 0 24 24" [attr.width]="size() * 0.6" [attr.height]="size() * 0.6" fill="none">
+        <polyline points="4 12.5 9.5 18 20 6" stroke="currentColor" stroke-width="3.5" />
+      </svg>
+    </span>
   `,
 })
 export class Check {

@@ -41,6 +41,9 @@ describe('PlatformStore', () => {
 
     const created = await store.createClub({ ...NEW_CLUB, temporaryPassword: 'TEMP-pass-22' });
     expect(store.club(created.id)).toMatchObject({ name: 'Northside Aura', slug: 'nrth42' });
+    expect(store.takeCreated('other')).toBeNull();
+    expect(store.takeCreated(created.id)).toEqual({ club: created, temporaryPassword: 'TEMP-pass-22' });
+    expect(store.takeCreated(created.id)).toBeNull();
     await expect(store.createClub({ ...NEW_CLUB, temporaryPassword: 'x' })).rejects.toThrow('already taken');
 
     const { slug: _slug, ...rest } = NEW_CLUB;
