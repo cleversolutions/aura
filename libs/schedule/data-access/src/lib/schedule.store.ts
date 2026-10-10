@@ -58,14 +58,16 @@ export const ScheduleStore = signalStore(
       const me = club.me();
       return !!me && canEditEvent(e, me);
     },
-    /** Who the user RSVPs for: their players on that team (parents), otherwise themself. */
+    /**
+     * Who the user RSVPs for: parents, their players on that team; everyone else, themself, plus
+     * any of their children on the team (a coach who is also a parent).
+     */
     attendeesFor(e: ClubEvent): Attendee[] {
       const me = club.me();
       if (!me) return [];
-      if (club.persona() === 'parent') {
-        return club.myPlayers().filter((p) => e.team === 'ALL' || p.team === e.team);
-      }
-      return [{ id: me.id, name: me.name, jersey: '' }];
+      const children = club.myPlayers().filter((p) => p.userId !== me.id && (e.team === 'ALL' || p.team === e.team));
+      if (club.persona() === 'parent') return children;
+      return [{ id: me.id, name: me.name, jersey: '' }, ...children];
     },
     statusOf(eventId: string, attendeeId: string): RsvpStatus | undefined {
       return store.rsvps()[eventId]?.[attendeeId];

@@ -444,3 +444,142 @@ export class MemberForm {
     this.submitted.emit({ name, email, ...(this.showTitle() ? { title: this.title().trim() } : {}) });
   }
 }
+
+export interface ParentOptionVm {
+  id: UserId;
+  name: string;
+  /** e.g. `Parent`, `Team Staff`. */
+  sub: string;
+}
+
+export interface AddPlayerValue {
+  name: string;
+  jersey: string;
+  parentIds: UserId[];
+  /** Set when the player signs in themselves. */
+  email?: string;
+}
+
+/**
+ * Add a player to a team: managed by their parents (any members, including staff), and/or
+ * signing in themselves with their own email.
+ */
+@Component({
+  selector: 'aura-add-player-form',
+  imports: [Sheet, Check],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <aura-sheet title="ADD PLAYER" (closed)="closed.emit()">
+      <p class="text-[13px] leading-snug">Adding to {{ teamName() }}.</p>
+      <div class="grid grid-cols-[1fr_96px] gap-2">
+        <label class="field">
+          NAME
+          <input
+            class="field-input"
+            [value]="name()"
+            (input)="name.set(value($event))"
+            placeholder="First and last name"
+          />
+        </label>
+        <label class="field">
+          JERSEY
+          <input class="field-input" inputmode="numeric" [value]="jersey()" (input)="jersey.set(value($event))" />
+        </label>
+      </div>
+
+      <div class="label-caps mt-1">PARENTS</div>
+      <p class="-mt-1.5 text-[13px] leading-snug">
+        They manage the player: RSVPs, profile and team chat. Invite a parent first if they are not listed.
+      </p>
+      <div class="card">
+        @for (o of parentOptions(); track o.id) {
+          @let selected = parents().includes(o.id);
+          <button type="button" class="card-row py-[9px]" [attr.aria-pressed]="selected" (click)="toggleParent(o.id)">
+            <aura-check [checked]="selected" />
+            <span class="min-w-0 flex-1">
+              <span class="block text-[15px] font-semibold">{{ o.name }}</span>
+              <span class="block text-xs">{{ o.sub }}</span>
+            </span>
+          </button>
+        } @empty {
+          <div class="card-row text-sm">No parents or staff on this team yet.</div>
+        }
+      </div>
+
+      <button
+        type="button"
+        class="card-row mt-1 rounded-md border-2 border-ink py-[9px]"
+        [attr.aria-pressed]="ownLogin()"
+        (click)="ownLogin.set(!ownLogin())"
+      >
+        <aura-check [checked]="ownLogin()" />
+        <span class="min-w-0 flex-1">
+          <span class="block text-[15px] font-semibold">Signs in themselves</span>
+          <span class="block text-xs"
+            >For older players with their own email. They get a sign-in to share with them.</span
+          >
+        </span>
+      </button>
+      @if (ownLogin()) {
+        <label class="field">
+          PLAYER’S EMAIL
+          <input
+            class="field-input"
+            type="email"
+            [value]="email()"
+            (input)="email.set(value($event))"
+            placeholder="name@email.com"
+          />
+        </label>
+      }
+
+      @if (shownError()) {
+        <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
+      }
+      <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">ADD PLAYER</button>
+    </aura-sheet>
+  `,
+})
+export class AddPlayerForm {
+  readonly teamName = input.required<string>();
+  readonly parentOptions = input.required<ParentOptionVm[]>();
+  readonly saving = input(false);
+  readonly error = input('');
+
+  readonly submitted = output<AddPlayerValue>();
+  readonly closed = output<void>();
+
+  protected readonly name = signal('');
+  protected readonly jersey = signal('');
+  protected readonly parents = signal<UserId[]>([]);
+  protected readonly ownLogin = signal(false);
+  protected readonly email = signal('');
+  private readonly validationError = signal('');
+  protected readonly shownError = computed(() => this.validationError() || this.error());
+
+  protected value(e: Event): string {
+    return (e.target as HTMLInputElement).value;
+  }
+
+  protected toggleParent(id: UserId): void {
+    this.parents.update((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+    this.validationError.set('');
+  }
+
+  protected submit(): void {
+    const name = this.name().trim();
+    const email = this.email().trim();
+    if (!name) return this.validationError.set('Enter the player’s name.');
+    if (this.ownLogin() && !/^\S+@\S+\.\S+$/.test(email)) return this.validationError.set('Enter the player’s email.');
+    if (!this.ownLogin() && !this.parents().length) {
+      return this.validationError.set('Choose a parent, or let the player sign in themselves.');
+    }
+    this.validationError.set('');
+    this.submitted.emit({
+      name,
+      jersey: this.jersey().trim(),
+      parentIds: this.parents(),
+      ...(this.ownLogin() ? { email } : {}),
+    });
+  }
+}

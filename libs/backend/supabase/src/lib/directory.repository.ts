@@ -8,10 +8,13 @@ import {
   SaveTeamInput,
   SaveTeamResult,
   UpdateMemberInput,
+  AddPlayerInput,
+  AddPlayerResult,
   UpdateProfileInput,
 } from '@aura/backend/api';
 import { Club, PlayerProfile, User } from '@aura/shared/models';
 import {
+  PROFILE_SELECT,
   dbError,
   functionError,
   teamIdFor,
@@ -46,7 +49,7 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
       client.from('clubs').select().eq('id', club.id).single(),
       client.from('teams').select('id, name').eq('club_id', club.id).order('id'),
       client.from('members').select('*, team_members(team_id)').eq('club_id', club.id).order('name'),
-      client.from('player_profiles').select().eq('club_id', club.id).order('name'),
+      client.from('player_profiles').select(PROFILE_SELECT).eq('club_id', club.id).order('name'),
     ]);
     for (const r of [clubRow, teams, members, profiles])
       if (r.error) throw dbError(r.error, 'Could not load the club.');
@@ -131,7 +134,7 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
       .client.from('player_profiles')
       .update({ name: input.name, jersey: input.jersey, login: input.login })
       .eq('id', input.id)
-      .select()
+      .select(PROFILE_SELECT)
       .single();
     if (error) throw dbError(error, 'Could not save the player.');
     return toProfile(data);
@@ -139,20 +142,51 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
 
   async requestPlayerLink(input: LinkPlayerInput): Promise<PlayerProfile> {
     if (this.clients.previewing) return this.preview.directory.requestPlayerLink(input);
-    const { club, client } = this.clients.active();
-    const { data, error } = await client
-      .from('player_profiles')
-      .insert({
-        club_id: club.id,
-        name: input.name,
-        team_id: input.team,
-        jersey: input.jersey || '–',
-        parent_member_id: input.parentId,
-        pending: true,
-      })
-      .select()
-      .single();
+    const { data, error } = await this.clients
+      .active()
+      .client.rpc('request_player_link', { p_team: input.team, p_name: input.name, p_jersey: input.jersey });
     if (error) throw dbError(error, 'Could not send the request.');
+    return this.profile(data);
+  }
+
+  /** Invites the player first when they sign in themselves, then adds them with their parents. */
+  async addPlayer(input: AddPlayerInput): Promise<AddPlayerResult> {
+    if (this.clients.previewing) return this.preview.directory.addPlayer(input);
+    const invite = input.email
+      ? await this.inviteMember({ team: input.team, kind: 'player', name: input.name, email: input.email })
+      : null;
+    const { data, error } = await this.clients.active().client.rpc('add_player', {
+      p_team: input.team,
+      p_name: input.name,
+      p_jersey: input.jersey,
+      p_parents: input.parentIds,
+      // The generated types say string; the function takes null for a player without a sign-in.
+      p_user_member: (invite?.user.id ?? null) as string,
+    });
+    if (error) {
+      if (invite) await this.cancelInvite(invite.user.id).catch(() => undefined);
+      throw dbError(error, 'Could not add the player.');
+    }
+    return { profile: await this.profile(data), invite };
+  }
+
+  async setPlayerParents(profileId: string, parentIds: string[]): Promise<PlayerProfile> {
+    if (this.clients.previewing) return this.preview.directory.setPlayerParents(profileId, parentIds);
+    const { error } = await this.clients
+      .active()
+      .client.rpc('set_player_parents', { p_profile: profileId, p_parents: parentIds });
+    if (error) throw dbError(error, 'Could not save the player’s parents.');
+    return this.profile(profileId);
+  }
+
+  private async profile(id: string): Promise<PlayerProfile> {
+    const { data, error } = await this.clients
+      .active()
+      .client.from('player_profiles')
+      .select(PROFILE_SELECT)
+      .eq('id', id)
+      .single();
+    if (error) throw dbError(error);
     return toProfile(data);
   }
 }

@@ -144,7 +144,7 @@ export function createSeed(now: Date): MockData {
         name,
         jersey: String(jersey),
         team: team.id,
-        parentId,
+        parentIds: parentId ? [parentId] : [],
         userId,
         login: userId ? `${userId}@email.com` : '',
       });

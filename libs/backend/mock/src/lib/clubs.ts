@@ -113,7 +113,7 @@ function createPanthersSeed(now: Date): MockData {
     name: name as string,
     jersey: jersey as string,
     team: team as string,
-    parentId,
+    parentIds: parentId ? [parentId as string] : [],
     userId: null,
     login: '',
   }));

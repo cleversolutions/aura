@@ -68,13 +68,16 @@ export interface User {
   invited?: boolean;
 }
 
-/** A player on a roster. May be managed by a parent and/or have their own login. */
+/**
+ * A player on a roster: managed by their parents (any members, including staff), and/or signing
+ * in themselves (`userId`).
+ */
 export interface PlayerProfile {
   id: string;
   name: string;
   jersey: string;
   team: TeamId;
-  parentId: UserId | null;
+  parentIds: UserId[];
   userId: UserId | null;
   login: string;
   /** Link requested by a parent, waiting for team staff approval. */

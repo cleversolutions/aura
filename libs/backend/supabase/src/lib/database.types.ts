@@ -250,6 +250,54 @@ export type Database = {
           },
         ];
       };
+      player_parents: {
+        Row: {
+          club_id: string;
+          member_id: string;
+          profile_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          club_id: string;
+          member_id: string;
+          profile_id: string;
+        };
+        Update: {
+          club_id?: string;
+          member_id?: string;
+          profile_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'player_parents_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: false;
+            referencedRelation: 'club_public';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'player_parents_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: false;
+            referencedRelation: 'clubs';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'player_parents_club_id_member_id_fkey';
+            columns: ['club_id', 'member_id'];
+            isOneToOne: false;
+            referencedRelation: 'members';
+            referencedColumns: ['club_id', 'id'];
+          },
+          {
+            foreignKeyName: 'player_parents_club_id_profile_id_fkey';
+            columns: ['club_id', 'profile_id'];
+            isOneToOne: false;
+            referencedRelation: 'player_profiles';
+            referencedColumns: ['club_id', 'id'];
+          },
+        ];
+      };
       player_profiles: {
         Row: {
           club_id: string;
@@ -257,7 +305,6 @@ export type Database = {
           jersey: string;
           login: string;
           name: string;
-          parent_member_id: string | null;
           pending: boolean;
           team_id: string;
           user_member_id: string | null;
@@ -269,7 +316,6 @@ export type Database = {
           jersey?: string;
           login?: string;
           name: string;
-          parent_member_id?: string | null;
           pending?: boolean;
           team_id: string;
           user_member_id?: string | null;
@@ -280,7 +326,6 @@ export type Database = {
           jersey?: string;
           login?: string;
           name?: string;
-          parent_member_id?: string | null;
           pending?: boolean;
           team_id?: string;
           user_member_id?: string | null;
@@ -299,13 +344,6 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: 'clubs';
             referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'player_profiles_club_id_parent_member_id_fkey';
-            columns: ['club_id', 'parent_member_id'];
-            isOneToOne: false;
-            referencedRelation: 'members';
-            referencedColumns: ['club_id', 'id'];
           },
           {
             foreignKeyName: 'player_profiles_club_id_team_id_fkey';
@@ -700,6 +738,11 @@ export type Database = {
     };
     Functions: {
       accept_invite: { Args: Record<PropertyKey, never>; Returns: undefined };
+      acts_for_player: { Args: { p_profile: string }; Returns: boolean };
+      add_player: {
+        Args: { p_jersey: string; p_name: string; p_parents: string[]; p_team: string; p_user_member: string };
+        Returns: string;
+      };
       auth_club_id: { Args: Record<PropertyKey, never>; Returns: string };
       auth_member: {
         Args: Record<PropertyKey, never>;
@@ -723,6 +766,7 @@ export type Database = {
       };
       auth_member_id: { Args: Record<PropertyKey, never>; Returns: string };
       can_edit_event: { Args: { p_team: string }; Returns: boolean };
+      can_manage_team: { Args: { p_team: string }; Returns: boolean };
       can_manage_thread: { Args: { p_thread: string }; Returns: boolean };
       can_rsvp_for: { Args: { p_attendee: string }; Returns: boolean };
       is_club_staff: { Args: Record<PropertyKey, never>; Returns: boolean };
@@ -769,6 +813,8 @@ export type Database = {
           slug: string;
         }[];
       };
+      request_player_link: { Args: { p_jersey: string; p_name: string; p_team: string }; Returns: string };
+      set_player_parents: { Args: { p_parents: string[]; p_profile: string }; Returns: undefined };
       thread_member_ids: { Args: { p_thread: string }; Returns: string[] };
     };
     Enums: {

@@ -166,7 +166,6 @@ async function seedClub({ account, data, credentials, adminUserId }: MockClub): 
           name: p.name,
           jersey: p.jersey,
           team_id: p.team,
-          parent_member_id: member(p.parentId),
           user_member_id: member(p.userId),
           login: p.login,
           pending: !!p.pending,
@@ -174,6 +173,10 @@ async function seedClub({ account, data, credentials, adminUserId }: MockClub): 
       ),
       'Profiles',
     );
+    const parents = data.profiles.flatMap((p) =>
+      p.parentIds.map((m) => ({ club_id: clubId, profile_id: profileIds.get(p.id), member_id: member(m) })),
+    );
+    if (parents.length) must(await db.from('player_parents').insert(parents), 'Player parents');
   }
 
   const eventIds = new Map(data.events.map((e) => [e.id, crypto.randomUUID()]));
@@ -252,13 +255,15 @@ async function seedClub({ account, data, credentials, adminUserId }: MockClub): 
     t.members.map((m) => ({ club_id: clubId, thread_id: threadIds.get(t.id), member_id: member(m) })),
   );
   if (threadMembers.length) must(await db.from('thread_members').insert(threadMembers), 'Thread members');
+  const seededAt = new Date().toISOString();
   const messages = data.threads.flatMap((t) =>
     t.messages.map((m) => ({
       club_id: clubId,
       thread_id: threadIds.get(t.id),
       from_member_id: member(m.from),
       text: m.text,
-      sent_at: m.sentAt,
+      // The mock dates today's messages at fixed times; none may be in the future.
+      sent_at: m.sentAt < seededAt ? m.sentAt : seededAt,
     })),
   );
   if (messages.length) must(await db.from('messages').insert(messages), 'Messages');
@@ -266,7 +271,9 @@ async function seedClub({ account, data, credentials, adminUserId }: MockClub): 
   // The mock keeps one unread count per thread: everyone in it has read all but the last `unread`.
   const reads = data.threads.flatMap((t) => {
     if (!t.messages.length) return [];
-    const readUpTo = t.messages[t.messages.length - 1 - t.unread]?.sentAt ?? '1970-01-01T00:00:00Z';
+    const read = t.messages[t.messages.length - 1 - t.unread]?.sentAt ?? '1970-01-01T00:00:00Z';
+    // Capped like the messages, and just before them, so unread counts match the mock.
+    const readUpTo = read < seededAt ? read : new Date(Date.parse(seededAt) - 1).toISOString();
     return [...effectiveMembers(t, data.users)].map((m) => ({
       club_id: clubId,
       thread_id: threadIds.get(t.id),

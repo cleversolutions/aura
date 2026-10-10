@@ -145,6 +145,22 @@ export interface LinkPlayerInput {
   parentId: UserId;
 }
 
+export interface AddPlayerInput {
+  team: TeamId;
+  name: string;
+  jersey: string;
+  /** Members who manage the player; any kind, e.g. a coach who is also a parent. */
+  parentIds: UserId[];
+  /** Set when the player signs in themselves: they are invited with this email. */
+  email?: string;
+}
+
+export interface AddPlayerResult {
+  profile: PlayerProfile;
+  /** The player's own sign-in, when they were given an email. */
+  invite: MemberInvite | null;
+}
+
 export abstract class DirectoryRepository {
   /** Public club branding by link slug, readable before signing in. Null if no such club. */
   abstract findClub(slug: string): Promise<Club | null>;
@@ -169,6 +185,10 @@ export abstract class DirectoryRepository {
   abstract resendInvite(userId: UserId): Promise<MemberInvite>;
   abstract updateProfile(input: UpdateProfileInput): Promise<PlayerProfile>;
   abstract requestPlayerLink(input: LinkPlayerInput): Promise<PlayerProfile>;
+  /** Club staff, or the team's staff, add a player to the roster. */
+  abstract addPlayer(input: AddPlayerInput): Promise<AddPlayerResult>;
+  /** Club staff, or the team's staff, change who a player's parents are. */
+  abstract setPlayerParents(profileId: string, parentIds: UserId[]): Promise<PlayerProfile>;
 }
 
 export abstract class ScheduleRepository {

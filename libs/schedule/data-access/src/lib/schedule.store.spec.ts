@@ -80,4 +80,15 @@ describe('ScheduleStore', () => {
     await store.saveScore(created.id, { us: 3, them: 1 });
     expect(store.events().find((e) => e.id === created.id)?.score).toEqual({ us: 3, them: 1 });
   });
+
+  it('coaches who are parents RSVP for themselves and their players on that team', async () => {
+    const store = await setup('dana');
+    const club = TestBed.inject(ClubStore);
+    await club.addPlayer({ team: 'U12G', name: 'Davis Reyes', jersey: '7', parentIds: ['dana', 'priya-patel'] });
+    const practice = store.events().find((e) => e.id === 'e1');
+    if (!practice) throw new Error('missing seed event');
+    expect(store.attendeesFor(practice).map((a) => a.name)).toEqual(['Dana Reyes', 'Davis Reyes']);
+    const u14 = store.events().find((e) => e.id === 'e10');
+    expect(store.attendeesFor(u14!).map((a) => a.name)).toEqual(['Dana Reyes']);
+  });
 });

@@ -25,7 +25,9 @@ type Functions = Database['public']['Functions'];
 export type ClubPublicRow = Database['public']['Views']['club_public']['Row'];
 export type ClubRow = Row<'clubs'>;
 export type MemberRow = Row<'members'> & { team_members?: { team_id: string }[] };
-export type ProfileRow = Row<'player_profiles'>;
+export type ProfileRow = Row<'player_profiles'> & { player_parents?: { member_id: string }[] };
+/** Profile columns with their parents. */
+export const PROFILE_SELECT = '*, player_parents(member_id)';
 export type EventRow = Row<'events'>;
 export type EventInsert = Tables['events']['Insert'];
 export type ThreadListRow = Functions['list_my_threads']['Returns'][number];
@@ -80,7 +82,7 @@ export function toProfile(row: ProfileRow): PlayerProfile {
     name: row.name,
     jersey: row.jersey,
     team: row.team_id,
-    parentId: row.parent_member_id,
+    parentIds: (row.player_parents ?? []).map((p) => p.member_id).sort(),
     userId: row.user_member_id,
     login: row.login,
     ...(row.pending ? { pending: true } : {}),

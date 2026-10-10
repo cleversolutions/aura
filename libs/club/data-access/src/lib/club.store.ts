@@ -7,13 +7,14 @@ import {
   DemoClub,
   DirectoryRepository,
   InviteMemberInput,
+  AddPlayerInput,
   LinkPlayerInput,
   MemberInvite,
   SaveTeamInput,
   UpdateMemberInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
-import { Club, PlayerProfile, Team, User, UserId } from '@aura/shared/models';
+import { Club, PlayerProfile, Team, TeamId, User, UserId } from '@aura/shared/models';
 import { canManageInvite, personaOf, teamLabel } from '@aura/shared/util';
 
 interface ClubState {
@@ -74,13 +75,14 @@ export const ClubStore = signalStore(
         if (!m) return [];
         return m.kind === 'club' ? teams().map((t) => t.id) : m.teams;
       }),
-      /** Player profiles the user can act for: their children (parents) or themself (players). */
+      /**
+       * Player profiles the user can act for: their children, whatever their own role (a coach can
+       * be a parent too), or themself as a player.
+       */
       myPlayers: computed(() => {
         const m = me();
         if (!m) return [];
-        if (persona() === 'parent') return profiles().filter((p) => p.parentId === m.id);
-        if (persona() === 'player') return profiles().filter((p) => p.userId === m.id);
-        return [];
+        return profiles().filter((p) => p.parentIds.includes(m.id) || p.userId === m.id);
       }),
     };
   }),
@@ -226,10 +228,30 @@ export const ClubStore = signalStore(
         const me = store.me();
         return !!me && canManageInvite(me, user);
       },
-      /** The player's parent, the player themself, and club staff edit a player profile. */
+      /** Club staff, or staff of `team`: who adds players and sets their parents. */
+      canManageTeam(team: TeamId): boolean {
+        const me = store.me();
+        return !!me && (me.kind === 'club' || (me.kind === 'staff' && me.teams.includes(team)));
+      },
+      /** The player's parents, the player themself, club staff and the team's staff. */
       canEditProfile(profile: PlayerProfile): boolean {
         const me = store.me();
-        return !!me && (me.kind === 'club' || profile.parentId === me.id || profile.userId === me.id);
+        if (!me) return false;
+        if (profile.parentIds.includes(me.id) || profile.userId === me.id || me.kind === 'club') return true;
+        return me.kind === 'staff' && me.teams.includes(profile.team);
+      },
+      /** Resolves with the player's sign-in to hand them, when they were given an email. */
+      async addPlayer(input: AddPlayerInput): Promise<MemberInvite | null> {
+        const { profile, invite } = await directory.addPlayer(input);
+        patchState(store, (s) => ({
+          profiles: [...s.profiles, profile],
+          users: invite ? [...s.users, invite.user] : s.users,
+        }));
+        return invite;
+      },
+      async setPlayerParents(profileId: string, parentIds: UserId[]): Promise<void> {
+        const updated = await directory.setPlayerParents(profileId, parentIds);
+        patchState(store, (s) => ({ profiles: s.profiles.map((p) => (p.id === updated.id ? updated : p)) }));
       },
       async updateProfile(input: UpdateProfileInput): Promise<void> {
         const updated = await directory.updateProfile(input);

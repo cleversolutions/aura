@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
-import { Avatar, Sheet } from '@aura/shared/ui';
+import { Avatar, Check, Sheet } from '@aura/shared/ui';
 
 export interface DetailFieldVm {
   key: string;
@@ -13,7 +13,14 @@ export interface DetailFieldVm {
   hint?: string;
   /** Only shown in edit mode (e.g. the name, which is already the heading). */
   editOnly?: boolean;
+  /** A checklist instead of a text input, e.g. a player's parents. `value` is the display text. */
+  options?: { id: string; label: string; sub: string }[];
+  /** The ticked option ids. */
+  selected?: string[];
 }
+
+/** Saved values by field key: text, or the ticked ids of a checklist. */
+export type PersonDetailsValue = Record<string, string | string[]>;
 
 export interface PersonDetailsVm {
   name: string;
@@ -34,7 +41,7 @@ export interface PersonDetailsVm {
  */
 @Component({
   selector: 'aura-person-details',
-  imports: [Sheet, Avatar],
+  imports: [Sheet, Avatar, Check],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let v = vm();
@@ -56,15 +63,36 @@ export interface PersonDetailsVm {
 
       @if (editing()) {
         @for (f of editableFields(); track f.key) {
-          <label class="field">
-            {{ f.label }}
-            <input
-              class="field-input"
-              [type]="f.type ?? 'text'"
-              [value]="draft()[f.key] ?? ''"
-              (input)="setDraft(f.key, $event)"
-            />
-          </label>
+          @if (f.options) {
+            <div class="label-caps">{{ f.label }}</div>
+            <div class="card">
+              @for (o of f.options; track o.id) {
+                @let ticked = (picked()[f.key] ?? []).includes(o.id);
+                <button
+                  type="button"
+                  class="card-row py-[9px]"
+                  [attr.aria-pressed]="ticked"
+                  (click)="toggle(f.key, o.id)"
+                >
+                  <aura-check [checked]="ticked" />
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-[15px] font-semibold">{{ o.label }}</span>
+                    <span class="block text-xs">{{ o.sub }}</span>
+                  </span>
+                </button>
+              }
+            </div>
+          } @else {
+            <label class="field">
+              {{ f.label }}
+              <input
+                class="field-input"
+                [type]="f.type ?? 'text'"
+                [value]="draft()[f.key] ?? ''"
+                (input)="setDraft(f.key, $event)"
+              />
+            </label>
+          }
           @if (f.hint) {
             <p class="-mt-1.5 text-[13px] leading-snug">{{ f.hint }}</p>
           }
@@ -121,7 +149,7 @@ export class PersonDetails {
   readonly error = input('');
 
   /** The edited fields, by key. */
-  readonly saved = output<Record<string, string>>();
+  readonly saved = output<PersonDetailsValue>();
   readonly resend = output<void>();
   readonly cancelInvite = output<void>();
   readonly closed = output<void>();
@@ -131,6 +159,13 @@ export class PersonDetails {
   protected readonly confirmingCancel = signal(false);
   protected readonly draft = linkedSignal<Record<string, string>>(() =>
     Object.fromEntries(this.vm().fields.map((f) => [f.key, f.value])),
+  );
+  protected readonly picked = linkedSignal<Record<string, string[]>>(() =>
+    Object.fromEntries(
+      this.vm()
+        .fields.filter((f) => f.options)
+        .map((f) => [f.key, f.selected ?? []]),
+    ),
   );
   private readonly validationError = signal('');
   protected readonly shownError = computed(() => this.validationError() || this.error());
@@ -143,9 +178,20 @@ export class PersonDetails {
     this.draft.update((d) => ({ ...d, [key]: value }));
   }
 
+  protected toggle(key: string, id: string): void {
+    this.picked.update((p) => {
+      const now = p[key] ?? [];
+      return { ...p, [key]: now.includes(id) ? now.filter((x) => x !== id) : [...now, id] };
+    });
+  }
+
   protected save(): void {
-    const values: Record<string, string> = {};
+    const values: PersonDetailsValue = {};
     for (const f of this.editableFields()) {
+      if (f.options) {
+        values[f.key] = this.picked()[f.key] ?? [];
+        continue;
+      }
       const value = (this.draft()[f.key] ?? '').trim();
       if (f.required && !value) return this.validationError.set(`Enter ${f.label.toLowerCase()}.`);
       if (f.type === 'email' && value && !/^\S+@\S+\.\S+$/.test(value)) {
