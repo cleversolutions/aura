@@ -176,3 +176,61 @@ export function checkOne<T>(result: { data: unknown; error: { message: string } 
   if (data == null) throw new Error(`${what}: no row`);
   return data as T;
 }
+
+export interface MemberRow {
+  id: string;
+  user_id: string | null;
+  username: string | null;
+  name: string;
+  kind: string;
+  title: string | null;
+  email: string | null;
+  invited: boolean;
+  team_members: { team_id: string }[];
+}
+
+const MEMBER_COLUMNS = 'id, user_id, username, name, kind, title, email, invited, team_members(team_id)';
+
+/** A member of `clubId` matching `match`, with their teams. */
+export async function loadMember(
+  admin: SupabaseClient,
+  clubId: string,
+  match: Record<string, string>,
+): Promise<MemberRow | null> {
+  if (match['id'] && !/^[0-9a-f-]{36}$/i.test(match['id'])) return null;
+  return check(
+    await admin.from('members').select(MEMBER_COLUMNS).eq('club_id', clubId).match(match).maybeSingle(),
+    'Load member',
+  ) as MemberRow | null;
+}
+
+/** The caller's club and member record. */
+export async function callerMember(admin: SupabaseClient, user: AuthUser): Promise<{ clubId: string; me: MemberRow }> {
+  const clubId = user.app_metadata?.['club_id'] as string | undefined;
+  const me = clubId ? await loadMember(admin, clubId, { user_id: user.id }) : null;
+  if (!clubId || !me) throw new HttpError(403, 'Sign in to your club first.');
+  return { clubId, me };
+}
+
+/** Who can invite someone can manage their invite: club staff, or staff on one of their teams. */
+export function managesInvite(me: MemberRow, target: MemberRow): boolean {
+  if (!target.invited) return false;
+  if (me.kind === 'club') return true;
+  const mine = new Set(me.team_members.map((t) => t.team_id));
+  return me.kind === 'staff' && target.team_members.some((t) => mine.has(t.team_id));
+}
+
+/** The caller and an invited member whose invite they may manage. */
+export async function inviteManager(
+  admin: SupabaseClient,
+  user: AuthUser,
+  id: string,
+): Promise<{ clubId: string; me: MemberRow; target: MemberRow }> {
+  const { clubId, me } = await callerMember(admin, user);
+  const target = await loadMember(admin, clubId, { id });
+  if (!target) throw new HttpError(404, 'Member not found.');
+  if (target.invited && !managesInvite(me, target)) {
+    throw new HttpError(403, 'Only club staff and the team’s staff can manage this invite.');
+  }
+  return { clubId, me, target };
+}

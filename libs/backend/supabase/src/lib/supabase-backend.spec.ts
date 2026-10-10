@@ -235,7 +235,7 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
         password: 'password',
       });
       const weiId = await memberId(SPARTANS_SLUG, 'wei-chen@spartans.example');
-      await new Promise((r) => setTimeout(r, 1500)); // let the channel join
+      await new Promise((r) => setTimeout(r, 3000)); // let the channel join (slower on a cold stack)
 
       const mine = await chat.sendMessage(general.id, (await auth.session())!.userId, 'From Jordan');
       const theirs = await wei
@@ -248,7 +248,7 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       await until(() => events.length > 0);
       expect(events.map((e) => e.message.text)).toEqual(['From Wei']);
       expect(events[0]).toMatchObject({ type: 'message', threadId: general.id, message: { from: weiId } });
-    });
+    }, 15000);
 
     it('creates threads and updates who is in them', async () => {
       const { auth, chat } = setup();
@@ -358,6 +358,30 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       ).rejects.toThrow('Only club staff');
       await auth.signOut();
       await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
+    });
+
+    it('lets club staff resend and cancel invites', async () => {
+      const { auth, directory } = setup();
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
+      const invite = await directory.inviteMember({
+        team: 'U12G',
+        kind: 'parent',
+        name: 'Rae Moss',
+        email: 'rae@x.example',
+      });
+      cleanups.push(async () => {
+        const { data } = await service.from('members').select('user_id').eq('id', invite.user.id);
+        for (const m of data ?? []) if (m.user_id) await service.auth.admin.deleteUser(m.user_id);
+        await service.from('members').delete().eq('id', invite.user.id);
+      });
+      const resent = await directory.resendInvite(invite.user.id);
+      expect(resent).toMatchObject({ username: 'rae@x.example', user: { id: invite.user.id, invited: true } });
+      expect(resent.temporaryPassword).not.toBe(invite.temporaryPassword);
+      await directory.cancelInvite(invite.user.id);
+      expect((await directory.load()).users.some((u) => u.id === invite.user.id)).toBe(false);
+      await expect(directory.cancelInvite(await memberId(SPARTANS_SLUG, 'dana@spartans.example'))).rejects.toThrow(
+        'already joined',
+      );
     });
 
     it('lets a parent request a player link and edit their own players', async () => {

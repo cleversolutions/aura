@@ -158,8 +158,15 @@ export abstract class DirectoryRepository {
   abstract inviteMember(input: InviteMemberInput): Promise<MemberInvite>;
   /** Creates or updates a team and its staff assignments. Returns the refreshed directory. */
   abstract saveTeam(input: SaveTeamInput): Promise<SaveTeamResult>;
-  /** Members edit themselves; club staff edit anyone in the club. Rejects an email already in use. */
+  /**
+   * Members edit themselves; club staff edit anyone in the club; team staff edit invites to their
+   * teams. Rejects an email already in use.
+   */
   abstract updateMember(input: UpdateMemberInput): Promise<User>;
+  /** Removes someone invited who has not joined yet. Club staff, or staff of one of their teams. */
+  abstract cancelInvite(userId: UserId): Promise<void>;
+  /** A new temporary password for someone invited; the previous one stops working. */
+  abstract resendInvite(userId: UserId): Promise<MemberInvite>;
   abstract updateProfile(input: UpdateProfileInput): Promise<PlayerProfile>;
   abstract requestPlayerLink(input: LinkPlayerInput): Promise<PlayerProfile>;
 }

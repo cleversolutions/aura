@@ -107,6 +107,23 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
     return toUserResult(data);
   }
 
+  async cancelInvite(userId: string): Promise<void> {
+    if (this.clients.previewing) return this.preview.directory.cancelInvite(userId);
+    const { error } = await this.clients
+      .active()
+      .client.functions.invoke('manage-invite', { body: { id: userId, action: 'cancel' } });
+    if (error) throw await functionError(error);
+  }
+
+  async resendInvite(userId: string): Promise<MemberInvite> {
+    if (this.clients.previewing) return this.preview.directory.resendInvite(userId);
+    const { data, error } = await this.clients
+      .active()
+      .client.functions.invoke('manage-invite', { body: { id: userId, action: 'resend' } });
+    if (error) throw await functionError(error);
+    return toMemberInvite(data);
+  }
+
   async updateProfile(input: UpdateProfileInput): Promise<PlayerProfile> {
     if (this.clients.previewing) return this.preview.directory.updateProfile(input);
     const { data, error } = await this.clients

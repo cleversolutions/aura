@@ -50,7 +50,9 @@ New libraries are scaffolded by copying an existing one's `project.json`, `tscon
 - **Club sign-ins are derived** (`authEmailFor` in shared/util, copied verbatim into `supabase/functions/_shared`):
   change both copies together, and never let a club's id change. Only edge functions create auth users or set
   `app_metadata`; row-level security trusts `app_metadata.club_id`.
-- Permission rules exist twice, in `permissions.ts` and as SQL helpers in the migrations; change them together.
+- Permission rules exist twice: in `permissions.ts`, and as SQL helpers in the migrations or checks in the edge
+  functions (`managesInvite` in `supabase/functions/_shared/admin.ts`); change them together.
+- A new edge function directory is only picked up when local Supabase restarts (`npm run db:stop && npm run db:start`).
 - Keep the mock backend (`libs/backend/mock`) honest: it models what the real backend must do (per-club sessions,
   per-club credentials, permission checks), not just the happy path.
 

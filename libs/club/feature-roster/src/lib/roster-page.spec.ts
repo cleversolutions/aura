@@ -74,23 +74,97 @@ describe('RosterPage', () => {
     expect(el.textContent).toContain('Parent · invited as rae@x.example');
   });
 
-  it('lets club staff edit team staff, and only club staff', async () => {
-    const { fixture, el } = await render('sam');
-    const club = TestBed.inject(ClubStore);
-    el.querySelector<HTMLButtonElement>('[aria-label="Edit Chris Bell"]')?.click();
-    await fixture.whenStable();
-    const email = el.querySelector<HTMLInputElement>('aura-member-form input[type=email]')!;
-    email.value = 'chris@new.example';
-    email.dispatchEvent(new Event('input'));
-    Array.from(el.querySelectorAll('aura-member-form button'))
-      .find((b) => b.textContent?.trim() === 'SAVE')
-      ?.dispatchEvent(new Event('click'));
-    await fixture.whenStable();
-    expect(club.user('chris-bell')?.email).toBe('chris@new.example');
-    expect(el.querySelector('aura-member-form')).toBeNull();
+  describe('details', () => {
+    const helpers = (fixture: { whenStable(): Promise<unknown> }, el: HTMLElement) => ({
+      openRow: async (name: string) => {
+        Array.from(el.querySelectorAll<HTMLButtonElement>('[role=listitem] button'))
+          .find((b) => b.textContent?.includes(name))
+          ?.click();
+        await fixture.whenStable();
+      },
+      sheet: () => el.querySelector('aura-person-details'),
+      click: async (text: string) => {
+        Array.from(el.querySelectorAll<HTMLButtonElement>('aura-person-details button'))
+          .find((b) => b.textContent?.trim() === text)
+          ?.click();
+        await fixture.whenStable();
+        await fixture.whenStable();
+      },
+      type: (label: string, value: string) => {
+        const field = Array.from(el.querySelectorAll('aura-person-details label')).find((l) =>
+          l.textContent?.includes(label),
+        );
+        const input = field?.querySelector('input');
+        if (!input) throw new Error(`no ${label} field`);
+        input.value = value;
+        input.dispatchEvent(new Event('input'));
+      },
+    });
 
-    TestBed.resetTestingModule();
-    const dana = await render('dana');
-    expect(dana.el.querySelector('[aria-label^="Edit "]')).toBeNull();
+    it('shows anyone’s details; club staff edit them in place', async () => {
+      const { fixture, el } = await render('sam');
+      const club = TestBed.inject(ClubStore);
+      const h = helpers(fixture, el);
+
+      await h.openRow('Chris Bell');
+      expect(h.sheet()?.textContent).toContain('chris-bell@spartans.example');
+      expect(h.sheet()?.textContent).toContain('U10 Boys');
+      await h.click('EDIT');
+      h.type('EMAIL', 'chris@new.example');
+      await h.click('SAVE');
+      expect(club.user('chris-bell')?.email).toBe('chris@new.example');
+      expect(h.sheet()?.textContent).toContain('chris@new.example');
+      expect(h.sheet()?.querySelector('input')).toBeNull();
+    });
+
+    it('offers edit only where allowed', async () => {
+      const { fixture, el } = await render('jordan');
+      const h = helpers(fixture, el);
+      await h.openRow('Maya Smith');
+      expect(h.sheet()?.textContent).toContain('Jordan Smith');
+      await h.click('EDIT');
+      h.type('JERSEY', '18');
+      await h.click('SAVE');
+      expect(
+        TestBed.inject(ClubStore)
+          .profiles()
+          .find((p) => p.id === 'maya')?.jersey,
+      ).toBe('18');
+
+      h.sheet()?.querySelector<HTMLButtonElement>('[aria-label=Close]')?.click();
+      await fixture.whenStable();
+      await h.openRow('Ava Chen');
+      expect(h.sheet()?.textContent).not.toContain('EDIT');
+      h.sheet()?.querySelector<HTMLButtonElement>('[aria-label=Close]')?.click();
+      await fixture.whenStable();
+      await h.openRow('Kim Alvarez');
+      expect(h.sheet()?.textContent).toContain('Team Staff');
+      expect(h.sheet()?.textContent).not.toContain('EDIT');
+    });
+
+    it('lets team staff resend and cancel invites to their team', async () => {
+      const { fixture, el } = await render('dana');
+      const club = TestBed.inject(ClubStore);
+      const first = await club.inviteMember({ team: 'U12G', kind: 'parent', name: 'Rae Moss', email: 'rae@x.example' });
+      await fixture.whenStable();
+      const h = helpers(fixture, el);
+
+      await h.openRow('Rae Moss');
+      expect(h.sheet()?.textContent).toContain('invited, not signed in yet');
+      await h.click('RESEND INVITE');
+      const ready = el.querySelector('aura-member-invited');
+      expect(ready?.textContent).toContain('rae@x.example');
+      expect(ready?.textContent).not.toContain(first.temporaryPassword);
+      await expect(club.signIn('rae@x.example', first.temporaryPassword)).rejects.toThrow();
+
+      ready?.querySelector<HTMLButtonElement>('[aria-label=Close]')?.click();
+      await fixture.whenStable();
+      await h.openRow('Rae Moss');
+      await h.click('CANCEL INVITE');
+      expect(h.sheet()?.textContent).toContain('Their temporary password stops working.');
+      await h.click('CANCEL INVITE');
+      expect(club.users().some((u) => u.name === 'Rae Moss')).toBe(false);
+      expect(el.textContent).not.toContain('Rae Moss');
+    });
   });
 });

@@ -37,7 +37,7 @@ import {
   User,
   UserId,
 } from '@aura/shared/models';
-import { ALL_GROUPS, effectiveMembers, temporaryPassword } from '@aura/shared/util';
+import { ALL_GROUPS, canManageInvite, effectiveMembers, temporaryPassword } from '@aura/shared/util';
 import { DEMO_PLATFORM_ADMIN, createEmptyClubData } from './clubs';
 import { MockDb } from './mock-db';
 
@@ -221,14 +221,50 @@ export class MockDirectoryRepository extends DirectoryRepository {
     return this.db.respond({ directory: this.snapshot(), invite });
   }
 
+  private me(): User | undefined {
+    const meId = this.db.preview?.session.userId ?? this.db.sessions.get(this.db.activeSlug)?.userId;
+    return this.db.data.users.find((u) => u.id === meId);
+  }
+
+  /** The invited member `id`, if the signed-in user may manage their invite. */
+  private invited(id: UserId): User | Error {
+    const user = this.db.data.users.find((u) => u.id === id);
+    if (!user) return new Error('Member not found.');
+    if (!user.invited) return new Error(`${user.name} has already joined.`);
+    const me = this.me();
+    if (!me || !canManageInvite(me, user))
+      return new Error('Only club staff and the team’s staff can manage this invite.');
+    return user;
+  }
+
+  cancelInvite(id: UserId): Promise<void> {
+    const user = this.invited(id);
+    if (user instanceof Error) return this.db.fail(user.message);
+    const club = this.db.club;
+    club.data.users = club.data.users.filter((u) => u.id !== id);
+    club.credentials = club.credentials.filter((c) => c.userId !== id);
+    return this.db.respond(undefined);
+  }
+
+  resendInvite(id: UserId): Promise<MemberInvite> {
+    const user = this.invited(id);
+    if (user instanceof Error) return this.db.fail(user.message);
+    const password = temporaryPassword();
+    const username = user.email ?? '';
+    const cred = this.db.club.credentials.find((c) => c.userId === id);
+    if (cred) Object.assign(cred, { password, mustChangePassword: true });
+    else this.db.club.credentials.push({ userId: id, username, password, mustChangePassword: true });
+    return this.db.respond({ user, username: cred?.username ?? username, temporaryPassword: password });
+  }
+
   updateMember({ id, name, email, title }: UpdateMemberInput): Promise<User> {
     const club = this.db.club;
-    const meId = this.db.preview?.session.userId ?? this.db.sessions.get(this.db.activeSlug)?.userId;
-    const me = club.data.users.find((u) => u.id === meId);
-    if (!me || (me.id !== id && me.kind !== 'club'))
-      return this.db.fail('Only club staff can edit other people’s details.');
+    const me = this.me();
     const user = club.data.users.find((u) => u.id === id);
     if (!user) return this.db.fail('Member not found.');
+    if (!me || (me.id !== id && me.kind !== 'club' && !canManageInvite(me, user))) {
+      return this.db.fail('Only club staff can edit other people’s details.');
+    }
     const username = email.trim();
     const taken = club.credentials.some((c) => c.userId !== id && c.username.toLowerCase() === username.toLowerCase());
     if (taken) return this.db.fail(`${username} already has an account at this club.`);

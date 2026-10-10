@@ -183,4 +183,26 @@ describe('ClubStore', () => {
     await store.signIn('dana@new.example', 'password');
     expect(store.meId()).toBe('dana');
   });
+
+  it('lets whoever could invite someone resend or cancel their invite until they join', async () => {
+    const store = await setup('dana');
+    const rae = await store.inviteMember({ team: 'U12G', kind: 'parent', name: 'Rae', email: 'rae@x.example' });
+    const ty = await store.inviteMember({ team: 'U14B', kind: 'parent', name: 'Ty', email: 'ty@x.example' });
+    expect(store.canManageInvite(rae.user)).toBe(true);
+    await store.updateMember({ id: rae.user.id, name: 'Rae Moss', email: 'rae@x.example' });
+
+    const resent = await store.resendInvite(rae.user.id);
+    expect(resent.temporaryPassword).not.toBe(rae.temporaryPassword);
+    await expect(store.cancelInvite('jordan')).rejects.toThrow('already joined');
+    await store.cancelInvite(ty.user.id);
+    expect(store.user(ty.user.id)).toBeUndefined();
+
+    await store.signOut();
+    await expect(store.signIn('rae@x.example', rae.temporaryPassword)).rejects.toThrow();
+    await store.signIn('rae@x.example', resent.temporaryPassword);
+    await store.changePassword('rae-own-password');
+    expect(store.me()?.name).toBe('Rae Moss');
+    await expect(store.resendInvite(store.meId()!)).rejects.toThrow();
+    await expect(store.signIn('ty@x.example', ty.temporaryPassword)).rejects.toThrow();
+  });
 });
