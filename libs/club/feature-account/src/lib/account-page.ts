@@ -133,7 +133,7 @@ import { KIND_GROUP, Submission, Toaster, ageOf, errorMessage } from '@aura/shar
       <aura-team-form
         [existingName]="target === 'new' ? null : club.teamName(target)"
         [staffOptions]="staffOptions()"
-        [initialStaff]="target === 'new' ? [] : staffOf(target)"
+        [initialStaff]="teamStaff()"
         [saving]="save.saving()"
         [error]="save.error()"
         (closed)="teamTarget.set(null)"
@@ -224,12 +224,18 @@ export class AccountPage {
     })),
   );
 
-  protected staffOf(teamId: TeamId): string[] {
+  /**
+   * Staff of the team being edited. A computed, so the form gets the same array on every change
+   * detection; a new one would reset the form's selection on each click.
+   */
+  protected readonly teamStaff = computed<string[]>(() => {
+    const target = this.teamTarget();
+    if (!target || target === 'new') return [];
     return this.club
       .users()
-      .filter((u) => u.kind === 'staff' && u.teams.includes(teamId))
+      .filter((u) => u.kind === 'staff' && u.teams.includes(target))
       .map((u) => u.id);
-  }
+  });
 
   protected startEditingPlayer(id: string): void {
     this.save.reset();
