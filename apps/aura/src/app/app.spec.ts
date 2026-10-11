@@ -3,6 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter, withComponentInputBinding } from '@angular/router';
 import { MockBackendOptions, PANTHERS_SLUG, SPARTANS_SLUG, provideTestBackend } from '@aura/backend/mock';
 import { ClubStore } from '@aura/club/data-access';
+import { PlatformStore } from '@aura/platform/data-access';
 import { Viewport } from '@aura/shared/util';
 import { App } from './app';
 import { appRoutes } from './app.routes';
@@ -139,6 +140,29 @@ describe('App', () => {
     await settle(fixture);
     expect(TestBed.inject(Router).url).toBe('/admin/clubs/panthers');
     expect(document.documentElement.style.getPropertyValue('--color-ink')).toBe('#000000');
+  });
+
+  it('shows an archived club read-only: everything to read, nothing to change', async () => {
+    const fixture = setup({ platformSignedIn: true, initialUserId: 'jordan' });
+    let { el } = await open(fixture, '/admin');
+    expect(el.querySelector('aura-club-card')?.textContent).toMatch(/\d+ members · 5 teams/);
+    await TestBed.inject(PlatformStore).setArchived('spartans', true);
+    await settle(fixture);
+    expect(el.textContent).toContain('2 clubs · 1 archived');
+    expect(el.textContent).toContain('ARCHIVED · 1');
+
+    ({ el } = await open(fixture, `/${SPARTANS_SLUG}/schedule`));
+    expect(el.querySelector('[role=status]')?.textContent).toContain('This club is archived.');
+    expect(el.querySelectorAll('aura-event-card').length).toBeGreaterThan(0);
+    expect(el.textContent).not.toContain('✓ GOING');
+
+    ({ el } = await open(fixture, `/${SPARTANS_SLUG}/chat/U12G-gen`));
+    expect(el.textContent).toContain('This club is archived. Nothing can be posted.');
+    expect(el.querySelector('input[aria-label=Message]')).toBeNull();
+
+    ({ el } = await open(fixture, `/${SPARTANS_SLUG}/more`));
+    expect(el.textContent).toContain('PLAYER ACCESS');
+    expect(el.textContent).not.toContain('LINK NEW PLAYER');
   });
 
   describe('on wide screens', () => {

@@ -57,7 +57,7 @@ import { KIND_GROUP, Submission, Toaster, errorMessage, formatSeasonSpan, teamBa
     <main class="min-h-0 flex-1 overflow-y-auto">
       @if (profile(); as me) {
         <div class="max-w-[1100px]">
-          <aura-profile-header [vm]="me" [editable]="true" (edited)="startEditingMe()" />
+          <aura-profile-header [vm]="me" [editable]="!club.archived()" (edited)="startEditingMe()" />
 
           @if (club.persona() === 'parent' || club.persona() === 'player' || club.myPlayers().length) {
             <section class="flex flex-col gap-2.5 px-3.5 py-[18px] wide:px-6">
@@ -67,7 +67,7 @@ import { KIND_GROUP, Submission, Toaster, errorMessage, formatSeasonSpan, teamBa
                   <aura-player-access-tile [vm]="p" (opened)="startEditingPlayer(p.id)" />
                 }
               </div>
-              @if (club.persona() === 'parent') {
+              @if (club.persona() === 'parent' && !club.archived()) {
                 <button
                   type="button"
                   class="btn-outline mt-2 h-[52px] text-lg active:bg-ink active:text-paper wide:max-w-[300px]"
@@ -83,7 +83,7 @@ import { KIND_GROUP, Submission, Toaster, errorMessage, formatSeasonSpan, teamBa
             <section class="flex flex-col gap-2.5 px-3.5 py-[18px] wide:px-6">
               <div class="flex items-center justify-between">
                 <h2 class="heading-section">{{ club.isClubStaff() ? 'CLUB TEAMS' : 'MY TEAMS' }}</h2>
-                @if (club.isClubStaff()) {
+                @if (club.isClubStaff() && !club.archived()) {
                   <button type="button" class="btn-small" (click)="startTeam('new')">+ CREATE TEAM</button>
                 }
               </div>
@@ -99,7 +99,7 @@ import { KIND_GROUP, Submission, Toaster, errorMessage, formatSeasonSpan, teamBa
             <section class="flex flex-col gap-2.5 px-3.5 py-[18px] wide:px-6">
               <div class="flex items-center justify-between">
                 <h2 class="heading-section">SEASON</h2>
-                @if (club.isClubStaff()) {
+                @if (club.isClubStaff() && !club.archived()) {
                   <button type="button" class="btn-small" (click)="startSeasonForm()">START NEW SEASON</button>
                 }
               </div>
@@ -125,7 +125,7 @@ import { KIND_GROUP, Submission, Toaster, errorMessage, formatSeasonSpan, teamBa
             </section>
           }
 
-          @if (club.isClubStaff()) {
+          @if (club.isClubStaff() && !club.archived()) {
             <section class="flex flex-col gap-2.5 px-3.5 py-[18px] wide:px-6">
               <h2 class="heading-section">CLUB SETTINGS</h2>
               <button
@@ -343,7 +343,8 @@ export class AccountPage {
 
   constructor() {
     effect(() => {
-      if (this.create() === 'team' && this.club.isClubStaff()) untracked(() => this.startTeam('new'));
+      if (this.create() === 'team' && this.club.isClubStaff() && !this.club.archived())
+        untracked(() => this.startTeam('new'));
     });
   }
 
@@ -376,12 +377,15 @@ export class AccountPage {
       .map((u) => u.id);
   });
 
+  /** Archived clubs are read-only, so nothing opens for editing. */
   protected startEditingPlayer(id: string): void {
+    if (this.club.archived()) return;
     this.save.reset();
     this.editingPlayerId.set(id);
   }
 
   protected startEditingMe(): void {
+    if (this.club.archived()) return;
     this.save.reset();
     this.editingMe.set(true);
   }
@@ -454,7 +458,7 @@ export class AccountPage {
 
   /** Club staff manage a team's staff; team staff jump to its roster. */
   protected openTeam(id: TeamId): void {
-    if (this.club.isClubStaff()) this.startTeam(id);
+    if (this.club.isClubStaff() && !this.club.archived()) this.startTeam(id);
     else void this.router.navigate(['/', this.club.slug(), 'roster'], { queryParams: { team: id } });
   }
 

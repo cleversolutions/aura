@@ -26,6 +26,8 @@ export interface Club {
   paper: string;
   /** Square PNG app icons (maskable), when generated. */
   icons?: { size192: string; size512: string };
+  /** ISO timestamp, when the platform admin archived it. An archived club is read-only. */
+  archivedAt?: string;
 }
 
 /** A club as the platform admin manages it. */
@@ -38,6 +40,14 @@ export interface ClubAccount extends Club {
   adminEmail: string;
   /** ISO timestamp. */
   createdAt: string;
+  /** Listed clubs only: people who have joined (and are not disabled), open invites, this season's teams. */
+  counts?: ClubCounts;
+}
+
+export interface ClubCounts {
+  members: number;
+  invited: number;
+  teams: number;
 }
 
 /** One of a club's staff, as the platform admin sees them when choosing the club admin. */

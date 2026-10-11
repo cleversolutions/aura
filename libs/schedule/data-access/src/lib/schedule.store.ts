@@ -87,12 +87,14 @@ export const ScheduleStore = signalStore(
           up ? eventSortKey(a).localeCompare(eventSortKey(b)) : eventSortKey(b).localeCompare(eventSortKey(a)),
         );
       }),
-      canCreate: computed(() => !viewingPast() && (club.isClubStaff() || club.isTeamStaff())),
+      canCreate: computed(() => !viewingPast() && !club.archived() && (club.isClubStaff() || club.isTeamStaff())),
     };
   }),
   withMethods((store, repo = inject(ScheduleRepository), club = inject(ClubStore)) => {
     /** Events of an ended season are read-only. */
     const isPastSeason = (e: ClubEvent) => !!e.season && e.season !== club.season()?.id;
+    /** So are an archived club's. */
+    const readOnly = (e: ClubEvent) => isPastSeason(e) || club.archived();
     return {
       setSegment(segment: ScheduleSegment) {
         patchState(store, { segment });
@@ -110,17 +112,17 @@ export const ScheduleStore = signalStore(
       },
       canEdit(e: ClubEvent): boolean {
         const me = club.me();
-        return !!me && canEditEvent(e, me) && !isPastSeason(e);
+        return !!me && canEditEvent(e, me) && !readOnly(e);
       },
       /**
        * Who the user RSVPs for (G21): themself, unless they are a player or a parent, then their
        * players at the event: their own profile (a player) and their children (a parent, or a coach
        * who is also one). A player's RSVP is always their profile's. Nobody, once the event is
-       * cancelled or its season has ended.
+       * cancelled, its season has ended or the club is archived.
        */
       attendeesFor(e: ClubEvent): Attendee[] {
         const me = club.me();
-        if (!me || isPastSeason(e) || e.cancelled) return [];
+        if (!me || readOnly(e) || e.cancelled) return [];
         const players = rsvpPlayers(e, me, club.profiles(), club.allTeams())
           .sort((a, b) => Number(b.userId === me.id) - Number(a.userId === me.id))
           .map(({ id, name, jersey }) => ({ id, name, jersey }));

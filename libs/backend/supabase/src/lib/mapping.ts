@@ -48,7 +48,11 @@ export type EventRow = Row<'events'>;
 export type EventInsert = Omit<Tables['events']['Insert'], 'season_id'>;
 export type ThreadListRow = Functions['list_my_threads']['Returns'][number];
 export type MessageRow = Row<'messages'>;
-export type PlatformClubRow = Functions['platform_clubs']['Returns'][number];
+/** The generated types call every column of a function's result non-null; these can be null. */
+export type PlatformClubRow = Omit<
+  Functions['platform_clubs']['Returns'][number],
+  'icon_192_url' | 'icon_512_url' | 'archived_at'
+> & { icon_192_url: string | null; icon_512_url: string | null; archived_at: string | null };
 export type PlatformClubStaffRow = Functions['platform_club_staff']['Returns'][number];
 export type ClubSettingsRow = Row<'club_settings'>;
 export type SeasonRow = Pick<Row<'seasons'>, 'id' | 'name' | 'started_at' | 'ended_at'>;
@@ -80,6 +84,7 @@ export function toClub(row: ClubPublicRow | ClubRow): Club {
     ...(row.icon_192_url && row.icon_512_url
       ? { icons: { size192: row.icon_192_url, size512: row.icon_512_url } }
       : {}),
+    ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
   };
 }
 
@@ -91,6 +96,7 @@ export function toClubAccount(row: PlatformClubRow): ClubAccount {
     adminName: row.admin_name ?? '',
     adminEmail: row.admin_email ?? '',
     createdAt: row.created_at,
+    counts: { members: row.member_count, invited: row.invited_count, teams: row.team_count },
   };
 }
 

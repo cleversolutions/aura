@@ -382,4 +382,9 @@ export abstract class PlatformRepository {
   abstract setClubAdmin(clubId: string, memberId: UserId): Promise<ClubAccount>;
   /** A new temporary password for the club admin, which they must replace at their next sign-in. */
   abstract resetAdminPassword(clubId: string): Promise<MemberInvite>;
+  /**
+   * Archives the club, or restores it. An archived club is read-only: its members still sign in
+   * and read everything, but cannot change anything.
+   */
+  abstract setArchived(clubId: string, archived: boolean): Promise<ClubAccount>;
 }

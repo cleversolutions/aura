@@ -354,7 +354,7 @@ export class RosterPage {
 
   /** First-run guidance for club staff, until the club has a team, a coach and players. */
   protected readonly setupSteps = computed<SetupStepVm[] | null>(() => {
-    if (!this.club.isClubStaff() || this.pastSeason()) return null;
+    if (!this.club.isClubStaff() || this.pastSeason() || this.club.archived()) return null;
     const hasTeam = this.club.teams().length > 0;
     const steps: SetupStepVm[] = [
       {
@@ -415,7 +415,9 @@ export class RosterPage {
     this.club.myTeams().map((id) => ({ value: id, label: this.club.teamName(id) })),
   );
   protected readonly canInvite = computed(
-    () => this.club.isClubStaff() || (this.club.isTeamStaff() && this.club.myTeams().includes(this.selected() ?? '')),
+    () =>
+      !this.club.archived() &&
+      (this.club.isClubStaff() || (this.club.isTeamStaff() && this.club.myTeams().includes(this.selected() ?? ''))),
   );
   /** Club-wide channels, which club staff join automatically. */
   protected readonly clubWideThreadCount = computed(() => this.chat.threads().filter(isClubWide).length);
@@ -746,7 +748,7 @@ export class RosterPage {
         },
         ...this.careFields(p),
       ],
-      canEdit: this.club.canEditProfile(p),
+      canEdit: this.club.canEditProfile(p) && !this.club.archived(),
       canManageInvite: false,
       pending: !!p.pending,
       canManagePlayer: manages,

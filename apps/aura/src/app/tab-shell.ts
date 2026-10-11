@@ -24,7 +24,8 @@ interface Tab {
  * Page area plus main navigation: a four-tab bar along the bottom on compact screens,
  * a side nav on wide screens (icons only, with labels, club name and the signed-in user
  * from 1200px). Routes with `data.fullscreen` (e.g. a chat conversation) hide the tab bar.
- * While the platform admin previews a club, a pill offers the way back.
+ * While the platform admin previews a club, a pill offers the way back. An archived club says it is
+ * read-only above every page.
  */
 @Component({
   selector: 'aura-tab-shell',
@@ -80,8 +81,18 @@ interface Tab {
       </nav>
     }
 
-    <div class="min-h-0 min-w-0 flex-1">
-      <router-outlet />
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+      @if (club.archived()) {
+        <p
+          class="shrink-0 border-b-2 border-ink bg-ink px-3.5 py-2 text-center text-[13px] font-semibold text-paper"
+          role="status"
+        >
+          This club is archived. You can look back at everything, but nothing can be changed.
+        </p>
+      }
+      <div class="min-h-0 flex-1">
+        <router-outlet />
+      </div>
     </div>
 
     @if (!viewport.wide() && !fullscreen()) {
