@@ -1,6 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { ClubAccount } from '@aura/shared/models';
 import { ClubAdminPanel, ClubAdminPanelVm } from './club-admin-panel';
+import { ClubArchivePanel } from './club-archive-panel';
+import { ClubCard, ClubCardVm } from './club-card';
 import { ClubForm, ClubFormValue } from './club-form';
 
 const SPARTANS: ClubAccount = {
@@ -149,5 +151,62 @@ describe('ClubAdminPanel', () => {
     expect(el.textContent).toContain('Make Lee Fontaine the club admin? Sam Okoro stays on the club staff.');
     click(el, 'MAKE ADMIN');
     expect(changed).toEqual(['lee']);
+  });
+});
+
+describe('ClubArchivePanel', () => {
+  const click = (el: HTMLElement, text: string) =>
+    Array.from(el.querySelectorAll<HTMLButtonElement>('button'))
+      .find((b) => b.textContent?.trim() === text)
+      ?.click();
+
+  it('asks before archiving, and restores without asking', async () => {
+    const fixture = TestBed.createComponent(ClubArchivePanel);
+    fixture.componentRef.setInput('vm', { name: 'Spartans', archivedOn: null });
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const changes: boolean[] = [];
+    fixture.componentInstance.archivedChange.subscribe((v) => changes.push(v));
+
+    click(el, 'ARCHIVE CLUB');
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Archive Spartans?');
+    click(el, 'ARCHIVE');
+    expect(changes).toEqual([true]);
+
+    fixture.componentRef.setInput('vm', { name: 'Spartans', archivedOn: 'Oct 11, 2026' });
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Archived Oct 11, 2026.');
+    click(el, 'RESTORE CLUB');
+    expect(changes).toEqual([true, false]);
+  });
+});
+
+describe('ClubCard', () => {
+  const vm: ClubCardVm = {
+    id: 'spartans',
+    name: 'Spartans',
+    url: 'https://aura.test/k3v9qp',
+    logoUrl: 'club-logo.svg',
+    ink: '#000000',
+    paper: '#ffffff',
+    admin: 'Sam Okoro · sam@spartans.example',
+    counts: '12 members · 3 invited · 2 teams',
+    created: 'Archived Oct 11, 2026',
+    archived: true,
+  };
+
+  it('shows the club’s size and whether it is archived', async () => {
+    const fixture = TestBed.createComponent(ClubCard);
+    fixture.componentRef.setInput('vm', vm);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('12 members · 3 invited · 2 teams');
+    expect(el.textContent).toContain('ARCHIVED');
+
+    fixture.componentRef.setInput('vm', { ...vm, counts: '', archived: false, created: 'Created Aug 12, 2026' });
+    await fixture.whenStable();
+    expect(el.textContent).not.toContain('ARCHIVED');
+    expect(el.textContent).not.toContain('members');
   });
 });

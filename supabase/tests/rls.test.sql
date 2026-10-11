@@ -1,11 +1,11 @@
 -- Row-level security: club isolation, thread membership, RSVPs, event editing, anonymous access,
 -- disabled and removed members, contact details, roster corrections, event series and care details,
--- teams and seasons.
+-- teams and seasons, archived clubs.
 -- Run with `npm run db:test` (supabase test db). Everything happens in one rolled-back transaction.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(186);
+select plan(197);
 
 -- ---------------------------------------------------------------------------------------------
 -- Fixture: two clubs, each with a Jordan Smith who shares a username but is a different person.
@@ -973,6 +973,71 @@ select ok(
   (select ended_at is null from public.seasons where club_id = 'c0000000-0000-0000-0000-000000000002'),
   'other clubs'' seasons are untouched'
 );
+
+-- ---------------------------------------------------------------------------------------------
+-- Archived clubs (G24): members read everything and change nothing; the platform admin sees it.
+-- The Panthers are archived as the service would (no signed-in member).
+-- ---------------------------------------------------------------------------------------------
+
+select set_config('role', 'postgres', true);
+select set_config('request.jwt.claims', '', true);
+update public.members set invited = true where id = 'a0000000-0000-0000-0000-000000000013';
+update public.clubs set archived_at = now() where id = 'c0000000-0000-0000-0000-000000000002';
+
+select pg_temp.logout();
+select ok(
+  (select archived_at is not null from public.club_public where slug = 'tst-panthers'),
+  'an archived club says so before signing in'
+);
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000011');
+select is(
+  (select count(*)::int from public.members where club_id = 'c0000000-0000-0000-0000-000000000002'), 3,
+  'members of an archived club still read it'
+);
+select throws_ok(
+  $$update public.teams set name = 'Renamed' where id = 'U13B'$$,
+  'P0001', 'This club is archived. It is read-only.', 'an archived club''s teams cannot change'
+);
+select throws_ok(
+  $$insert into public.events (club_id, type, team, location) values ('c0000000-0000-0000-0000-000000000002', 'practice', 'U13B', 'Gym')$$,
+  'P0001', null, '... nor its schedule'
+);
+select throws_ok(
+  $$insert into public.messages (club_id, thread_id, from_member_id, text)
+    select club_id, id, 'a0000000-0000-0000-0000-000000000011', 'Hello?' from public.threads
+    where club_id = 'c0000000-0000-0000-0000-000000000002' limit 1$$,
+  'P0001', null, '... nor its chats'
+);
+select throws_ok(
+  $$update public.members set name = 'Morgan L.' where id = 'a0000000-0000-0000-0000-000000000011'$$,
+  'P0001', null, '... nor its members'
+);
+select lives_ok(
+  $$select public.mark_thread_read(id) from public.threads where club_id = 'c0000000-0000-0000-0000-000000000002' limit 1$$,
+  'members still mark threads read'
+);
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000013');
+select lives_ok($$select public.accept_invite()$$, 'an invited member still joins an archived club');
+select is(
+  (select invited from public.members where id = 'a0000000-0000-0000-0000-000000000013'), false,
+  '... and is no longer invited'
+);
+
+select pg_temp.login_platform();
+select is(
+  (select row(archived_at is not null, member_count, invited_count, team_count)::text
+   from public.platform_clubs() where id = 'c0000000-0000-0000-0000-000000000002'),
+  row(true, 3, 0, 1)::text,
+  'the platform admin sees the club archived, with its members, invites and teams counted'
+);
+
+select set_config('role', 'postgres', true);
+select set_config('request.jwt.claims', '', true);
+update public.clubs set archived_at = null where id = 'c0000000-0000-0000-0000-000000000002';
+select pg_temp.login('a0000000-0000-0000-0000-000000000011');
+select lives_ok($$update public.teams set name = 'U13 Boys Red' where id = 'U13B'$$, 'a restored club can change again');
 
 select * from finish();
 rollback;

@@ -84,12 +84,15 @@ export const ChatStore = signalStore(
     const updateThread = (id: string, fn: (t: Thread) => Thread) =>
       patchState(store, (s) => ({ threads: s.threads.map((t) => (t.id === id ? fn(t) : t)) }));
 
+    const writer = () => (club.archived() ? null : club.me());
+
     return {
       isMuted(threadId: string): boolean {
         return store.muted().includes(threadId);
       },
+      /** Changes (managing, posting, editing, deleting) are for nobody while the club is archived. */
       canManage(thread: Thread): boolean {
-        const me = club.me();
+        const me = writer();
         return !!me && canManageThread(thread, me);
       },
       canRead({ thread, members }: ThreadWithMembers): boolean {
@@ -97,15 +100,15 @@ export const ChatStore = signalStore(
         return !!me && canReadThread(thread, me, members.has(me.id));
       },
       canPost({ thread, members }: ThreadWithMembers): boolean {
-        const me = club.me();
+        const me = writer();
         return !!me && canPostInThread(thread, me, members.has(me.id), club.settings());
       },
       canEdit(message: ChatMessage): boolean {
-        const me = club.me();
+        const me = writer();
         return !!me && canEditMessage(message, me);
       },
       canDelete(message: ChatMessage, thread: Thread): boolean {
-        const me = club.me();
+        const me = writer();
         return !!me && canDeleteMessage(message, thread, me);
       },
       /**

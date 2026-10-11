@@ -80,6 +80,11 @@ export class MockDb {
     return this.data.users.find((u) => u.id === meId && !u.disabled);
   }
 
+  /** The active club is archived: read-only for its members. Previews are never archived. */
+  get archived(): boolean {
+    return !this.preview && !!this.club.account.archivedAt;
+  }
+
   startPreview(account: MockClub['account']): void {
     const data = createSeed(this.now());
     this.preview = {

@@ -33,6 +33,10 @@ export class SupabasePlatformRepository extends PlatformRepository {
     return this.invoke('update-club', { id: clubId, adminMemberId: memberId });
   }
 
+  setArchived(clubId: string, archived: boolean): Promise<ClubAccount> {
+    return this.invoke('update-club', { id: clubId, archived });
+  }
+
   async resetAdminPassword(clubId: string): Promise<MemberInvite> {
     const { data, error } = await this.clients
       .platform()

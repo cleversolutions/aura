@@ -76,6 +76,8 @@ import { MockDb } from './mock-db';
 import { MockData } from './seed';
 
 const PAST_SEASON = 'That season has ended. Its teams, rosters and events are read-only.';
+/** As guard_archived_club() and the edge functions refuse every member's change to an archived club. */
+const ARCHIVED = 'This club is archived. It is read-only.';
 
 /** As the events check constraints do: an end after the start, and arriving no later than it. */
 function eventTimesProblem(d: ClubEventDraft): string | null {
@@ -191,8 +193,8 @@ export class MockAuthRepository extends AuthRepository {
 }
 
 /** The public part of a club record. */
-function toClub({ id, slug, name, logoUrl, ink, paper, icons }: ClubAccount): Club {
-  return { id, slug, name, logoUrl, ink, paper, ...(icons ? { icons } : {}) };
+function toClub({ id, slug, name, logoUrl, ink, paper, icons, archivedAt }: ClubAccount): Club {
+  return { id, slug, name, logoUrl, ink, paper, ...(icons ? { icons } : {}), ...(archivedAt ? { archivedAt } : {}) };
 }
 
 @Injectable()
@@ -250,6 +252,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   inviteMember(input: InviteMemberInput): Promise<MemberInvite> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const invite = this.invite(input);
     return invite instanceof Error ? this.db.fail(invite.message) : this.db.respond(invite);
   }
@@ -283,6 +286,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   saveTeam(input: SaveTeamInput): Promise<SaveTeamResult> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const data = this.db.data;
     if (this.me()?.kind !== 'club') return this.db.fail('Only club staff can create and edit teams.');
     const name = input.name.trim();
@@ -351,6 +355,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
 
   /** As delete_team() does: only a team with no players and no events. */
   deleteTeam(teamId: TeamId): Promise<Directory> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const data = this.db.data;
     if (this.me()?.kind !== 'club') return this.db.fail('Only club staff can delete teams.');
     if (!data.teams.some((t) => t.id === teamId)) return this.db.fail('Team not found.');
@@ -371,6 +376,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
 
   /** As start_season() does. */
   startSeason({ name, teams }: StartSeasonInput): Promise<Directory> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const data = this.db.data;
     if (this.me()?.kind !== 'club') return this.db.fail('Only club staff can start a season.');
     const seasonName = name.trim();
@@ -455,6 +461,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   cancelInvite(id: UserId): Promise<void> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const user = this.invited(id);
     if (user instanceof Error) return this.db.fail(user.message);
     const club = this.db.club;
@@ -464,6 +471,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   resendInvite(id: UserId): Promise<MemberInvite> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const user = this.invited(id);
     if (user instanceof Error) return this.db.fail(user.message);
     const password = temporaryPassword();
@@ -484,6 +492,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   resetPassword(id: UserId): Promise<MemberInvite> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const user = this.member(
       id,
       canResetPassword,
@@ -498,6 +507,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   setMemberDisabled(id: UserId, disabled: boolean): Promise<User> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const user = this.member(id, canRemoveMember, 'Only club staff can disable or remove members.');
     if (user instanceof Error) return this.db.fail(user.message);
     if (disabled) user.disabled = true;
@@ -507,6 +517,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
 
   /** As the database's foreign keys do: unlinks them everywhere and keeps their messages. */
   removeMember(id: UserId): Promise<void> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const user = this.member(id, canRemoveMember, 'Only club staff can disable or remove members.');
     if (user instanceof Error) return this.db.fail(user.message);
     const club = this.db.club;
@@ -528,6 +539,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   updateMember({ id, name, email, title, phone }: UpdateMemberInput): Promise<User> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const club = this.db.club;
     const me = this.me();
     const user = club.data.users.find((u) => u.id === id);
@@ -550,6 +562,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   updateProfile(input: UpdateProfileInput): Promise<PlayerProfile> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const profile = this.db.data.profiles.find((p) => p.id === input.id);
     if (!profile) return this.db.fail('Player not found.');
     const me = this.me();
@@ -571,6 +584,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   setMemberTeams(id: UserId, teams: TeamId[]): Promise<User> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const user = this.db.data.users.find((u) => u.id === id);
     if (!user) return this.db.fail('Member not found.');
     const me = this.me();
@@ -596,6 +610,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   approvePlayer(id: string): Promise<PlayerProfile> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const profile = this.managedProfile(id, 'approve');
     if (profile instanceof Error) return this.db.fail(profile.message);
     delete profile.pending;
@@ -603,6 +618,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   removePlayer(id: string): Promise<void> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const profile = this.managedProfile(id, 'remove');
     if (profile instanceof Error) return this.db.fail(profile.message);
     const data = this.db.data;
@@ -613,6 +629,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
 
   /** As move_player() does: parents and the player's own sign-in follow them to the new team. */
   movePlayer(id: string, team: TeamId): Promise<Directory> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const profile = this.managedProfile(id, 'move');
     if (profile instanceof Error) return this.db.fail(profile.message);
     const data = this.db.data;
@@ -633,6 +650,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   givePlayerSignIn(id: string, email: string): Promise<MemberInvite> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const profile = this.managedProfile(id, 'invite');
     if (profile instanceof Error) return this.db.fail(profile.message);
     if (profile.userId) return this.db.fail(`${profile.name} already has their own sign-in.`);
@@ -643,6 +661,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   requestPlayerLink(input: LinkPlayerInput): Promise<PlayerProfile> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     if (!currentTeamIds(this.db.data).has(input.team)) return this.db.fail('Team not found.');
     const profile: PlayerProfile = {
       id: this.db.nextId('p'),
@@ -669,6 +688,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   addPlayer({ team, name, jersey, parentIds, email }: AddPlayerInput): Promise<AddPlayerResult> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     if (!this.managesTeam(team)) return this.db.fail('Only club staff and this team’s staff can add players.');
     if (!name.trim()) return this.db.fail('Enter the player’s name.');
     let invite: MemberInvite | null = null;
@@ -690,6 +710,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   setPlayerParents(profileId: string, parentIds: UserId[]): Promise<PlayerProfile> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const profile = this.db.data.profiles.find((p) => p.id === profileId);
     if (!profile) return this.db.fail('Player not found.');
     if (!this.managesTeam(profile.team)) {
@@ -700,6 +721,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   saveSettings(settings: ClubSettings): Promise<ClubSettings> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     if (this.me()?.kind !== 'club') return this.db.fail('Only club staff can change club settings.');
     this.db.data.settings = { ...settings };
     return this.db.respond(this.db.data.settings);
@@ -753,6 +775,7 @@ export class MockScheduleRepository extends ScheduleRepository {
   }
 
   saveEvent(draft: ClubEventDraft): Promise<ClubEvent> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const events = this.db.data.events;
     const me = this.db.me();
     const existing = draft.id ? events.find((e) => e.id === draft.id) : undefined;
@@ -774,6 +797,7 @@ export class MockScheduleRepository extends ScheduleRepository {
   }
 
   saveScore(eventId: string, score: Score): Promise<ClubEvent> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const event = this.editable(eventId);
     if (typeof event === 'string') return this.db.fail(event);
     event.score = score;
@@ -781,6 +805,7 @@ export class MockScheduleRepository extends ScheduleRepository {
   }
 
   setCancelled(eventId: string, cancelled: boolean): Promise<ClubEvent> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const event = this.editable(eventId);
     if (typeof event === 'string') return this.db.fail(event);
     if (cancelled) event.cancelled = true;
@@ -789,6 +814,7 @@ export class MockScheduleRepository extends ScheduleRepository {
   }
 
   deleteEvent(eventId: string): Promise<void> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const event = this.editable(eventId);
     if (typeof event === 'string') return this.db.fail(event);
     const data = this.db.data;
@@ -798,6 +824,7 @@ export class MockScheduleRepository extends ScheduleRepository {
   }
 
   createWeekly(draft: ClubEventDraft, until: string): Promise<ClubEvent[]> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const me = this.db.me();
     if (!me || !canEditEvent(draft, me))
       return this.db.fail('Only club staff and the team’s staff can change this event.');
@@ -822,6 +849,7 @@ export class MockScheduleRepository extends ScheduleRepository {
 
   /** As save_event_series does, row by row under the events policies and the past-season guard. */
   saveSeries(draft: ClubEventDraft & { id: string }): Promise<ClubEvent[]> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const event = this.editable(draft.id);
     if (typeof event === 'string') return this.db.fail(event);
     if (!event.seriesId || !event.date) return this.db.fail('This event does not repeat.');
@@ -863,6 +891,7 @@ export class MockScheduleRepository extends ScheduleRepository {
   }
 
   deleteSeries(eventId: string): Promise<string[]> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const event = this.editable(eventId);
     if (typeof event === 'string') return this.db.fail(event);
     if (!event.seriesId) return this.db.fail('This event does not repeat.');
@@ -884,6 +913,7 @@ export class MockScheduleRepository extends ScheduleRepository {
   }
 
   setRsvp(eventId: string, attendeeIds: string[], status: RsvpStatus | null, note?: string): Promise<void> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const data = this.db.data;
     const event = data.events.find((e) => e.id === eventId);
     const me = this.db.me();
@@ -934,6 +964,7 @@ export class MockChatRepository extends ChatRepository {
   }
 
   createThread(input: NewThreadInput): Promise<Thread> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const thread: Thread = {
       ...input,
       id: this.db.nextId('t'),
@@ -947,6 +978,7 @@ export class MockChatRepository extends ChatRepository {
   }
 
   updateMembership(threadId: string, membership: Omit<ThreadMembership, 'creatorId'>): Promise<Thread> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const t = this.thread(threadId);
     if (isPastTeam(this.db.data, t.scope)) return this.db.fail('That season has ended. Its team chats are read-only.');
     Object.assign(t, membership);
@@ -954,6 +986,7 @@ export class MockChatRepository extends ChatRepository {
   }
 
   sendMessage(threadId: string, from: UserId, text: string): Promise<ChatMessage> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const t = this.thread(threadId);
     const me = this.db.me();
     if (!me || me.id !== from || !this.canPost(t, me)) {
@@ -966,6 +999,7 @@ export class MockChatRepository extends ChatRepository {
   }
 
   editMessage(threadId: string, messageId: string, text: string): Promise<ChatMessage> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const t = this.thread(threadId);
     const m = this.message(t, messageId);
     const me = this.db.me();
@@ -977,6 +1011,7 @@ export class MockChatRepository extends ChatRepository {
   }
 
   deleteMessage(threadId: string, messageId: string): Promise<ChatMessage> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
     const t = this.thread(threadId);
     const m = this.message(t, messageId);
     const me = this.db.me();
@@ -1050,7 +1085,19 @@ export class MockPlatformRepository extends PlatformRepository {
   }
 
   listClubs(): Promise<ClubAccount[]> {
-    return this.denied() ?? this.db.respond(this.db.clubs.map((c) => c.account));
+    return (
+      this.denied() ??
+      this.db.respond(
+        this.db.clubs.map(({ account, data }) => ({
+          ...account,
+          counts: {
+            members: data.users.filter((u) => !u.invited && !u.disabled).length,
+            invited: data.users.filter((u) => u.invited).length,
+            teams: currentTeamIds(data).size,
+          },
+        })),
+      )
+    );
   }
 
   createClub(input: NewClubInput): Promise<ClubAccount> {
@@ -1126,6 +1173,15 @@ export class MockPlatformRepository extends PlatformRepository {
     club.adminUserId = user.id;
     const username = club.credentials.find((c) => c.userId === user.id)?.username ?? user.email ?? '';
     Object.assign(club.account, { adminName: user.name, adminEmail: username });
+    return this.db.respond(club.account);
+  }
+
+  setArchived(clubId: string, archived: boolean): Promise<ClubAccount> {
+    const club = this.club(clubId);
+    if (club instanceof Error) return this.db.fail(club.message);
+    if (!archived) delete club.account.archivedAt;
+    // Archiving again keeps the original date.
+    else club.account.archivedAt ??= this.db.now().toISOString();
     return this.db.respond(club.account);
   }
 

@@ -10,6 +10,8 @@ export interface EventCardVm {
   when: string;
   location: string;
   upcoming: boolean;
+  /** Has someone to answer for. Not in an archived club, which is read-only. */
+  canRsvp: boolean;
   allGoing: boolean;
   allOut: boolean;
   /** Per-player status line, shown when RSVPing for more than one player. */
@@ -66,26 +68,28 @@ export interface EventCardVm {
       @if (e.cancelled) {
         <!-- Called off: nothing to answer, no result. -->
       } @else if (e.upcoming) {
-        <div class="grid grid-cols-2 gap-2 px-3 pb-3">
-          <button
-            type="button"
-            class="h-12 rounded-md border-2 border-ink font-display text-lg font-bold tracking-[0.04em] transition-transform active:scale-[0.97]"
-            [class]="e.allGoing ? 'bg-ink text-paper' : 'bg-paper text-ink'"
-            [attr.aria-pressed]="e.allGoing"
-            (click)="rsvp.emit('going')"
-          >
-            ✓ GOING
-          </button>
-          <button
-            type="button"
-            class="h-12 rounded-md border-2 border-ink font-display text-lg font-bold tracking-[0.04em] transition-transform active:scale-[0.97]"
-            [class]="e.allOut ? 'bg-ink text-paper' : 'bg-paper text-ink'"
-            [attr.aria-pressed]="e.allOut"
-            (click)="rsvp.emit('out')"
-          >
-            ✕ OUT
-          </button>
-        </div>
+        @if (e.canRsvp) {
+          <div class="grid grid-cols-2 gap-2 px-3 pb-3">
+            <button
+              type="button"
+              class="h-12 rounded-md border-2 border-ink font-display text-lg font-bold tracking-[0.04em] transition-transform active:scale-[0.97]"
+              [class]="e.allGoing ? 'bg-ink text-paper' : 'bg-paper text-ink'"
+              [attr.aria-pressed]="e.allGoing"
+              (click)="rsvp.emit('going')"
+            >
+              ✓ GOING
+            </button>
+            <button
+              type="button"
+              class="h-12 rounded-md border-2 border-ink font-display text-lg font-bold tracking-[0.04em] transition-transform active:scale-[0.97]"
+              [class]="e.allOut ? 'bg-ink text-paper' : 'bg-paper text-ink'"
+              [attr.aria-pressed]="e.allOut"
+              (click)="rsvp.emit('out')"
+            >
+              ✕ OUT
+            </button>
+          </div>
+        }
       } @else {
         <div class="flex items-center justify-between gap-2 border-t-2 border-ink bg-ink px-3 py-2.5 text-paper">
           <span class="font-display text-base font-bold tracking-[0.04em]">{{ e.pastLeft }}</span>

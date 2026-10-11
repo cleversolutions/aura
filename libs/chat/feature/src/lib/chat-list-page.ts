@@ -47,14 +47,16 @@ const badge = (t: Thread) => (t.scope === 'club' ? 'CLUB' : t.scope);
         >
           NOTIFICATIONS
         </button>
-        <button
-          pageActions
-          type="button"
-          class="h-10 rounded-md bg-ink px-4 font-display text-[15px] font-bold tracking-[0.05em] text-paper"
-          (click)="startCreating()"
-        >
-          + NEW THREAD
-        </button>
+        @if (!club.archived()) {
+          <button
+            pageActions
+            type="button"
+            class="h-10 rounded-md bg-ink px-4 font-display text-[15px] font-bold tracking-[0.05em] text-paper"
+            (click)="startCreating()"
+          >
+            + NEW THREAD
+          </button>
+        }
       </aura-app-header>
     }
 
@@ -65,9 +67,11 @@ const badge = (t: Thread) => (t.scope === 'club' ? 'CLUB' : t.scope);
           class="relative flex min-h-0 w-full flex-col wide:w-[320px] wide:shrink-0 wide:border-r-2 wide:border-ink full:w-[380px]"
         >
           <main class="min-h-0 flex-1 overflow-y-auto pb-[90px] wide:pb-0">
-            <div class="flex justify-end px-3.5 pt-3 pb-1 wide:hidden">
-              <button type="button" class="btn-small" (click)="startCreating()">NEW THREAD</button>
-            </div>
+            @if (!club.archived()) {
+              <div class="flex justify-end px-3.5 pt-3 pb-1 wide:hidden">
+                <button type="button" class="btn-small" (click)="startCreating()">NEW THREAD</button>
+              </div>
+            }
             <div role="list">
               @for (row of rows(); track row.id) {
                 <aura-thread-list-item [vm]="row" />
@@ -97,7 +101,7 @@ const badge = (t: Thread) => (t.scope === 'club' ? 'CLUB' : t.scope);
             }
           </main>
 
-          @if (!viewport.wide()) {
+          @if (!viewport.wide() && !club.archived()) {
             <button
               type="button"
               aria-label="New thread"

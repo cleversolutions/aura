@@ -172,6 +172,7 @@ export class SchedulePage {
         location: e.location,
         selected: this.viewport.wide() && e.id === this.openId(),
         upcoming,
+        canRsvp: attendees.length > 0,
         cancelled: !!e.cancelled,
         allGoing: attendees.length > 0 && statuses.every((s) => s === 'going'),
         allOut: attendees.length > 0 && statuses.every((s) => s === 'out'),
