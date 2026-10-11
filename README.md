@@ -132,16 +132,23 @@ Feature code only sees the ports in `@aura/backend/api`; `app.config.ts` binds t
 
 - **Schema and permissions** live in `supabase/migrations`. The SQL helpers `thread_member_ids`, `is_thread_member`,
   `can_read_thread`, `can_post_in_thread`, `can_moderate_thread`, `can_manage_thread`, `can_edit_event`,
-  `can_manage_team`, `can_change_member_team` and `can_see_contact` mirror `permissions.ts`; change both together.
-  `npm run test:supabase` checks SQL and TypeScript agree on every seeded thread's members and on whose emails each
-  kind of member sees.
+  `can_manage_team`, `can_change_member_team`, `can_see_contact` and `can_see_player_care` mirror `permissions.ts`;
+  change both together. `npm run test:supabase` checks SQL and TypeScript agree on every seeded thread's members, on
+  whose emails each kind of member sees, and on whose care details.
 - **Club settings** (`club_settings`, one row per club, edited by club staff under More → Club settings) hold
   club-wide choices; a club without a row has the defaults (`DEFAULT_CLUB_SETTINGS`). Today: who posts in
   announcement channels, and who sees contact details.
-- **Contact details.** Members read each other's names, roles and teams, but not `members.email` or `username`
-  (column grants): emails come from `member_contacts()`, which applies `can_see_contact`. By default club staff see
-  everyone's, team staff their teams' people, and parents and players their teams' staff, the club staff and their
-  own players'; the `contacts` setting lets everyone see everyone's. Only staff see the INVITED list unless it does.
+- **Contact details.** Members read each other's names, roles and teams, but not `members.email`, `username` or
+  `phone` (column grants): emails and phones come from `member_contacts()`, which applies `can_see_contact`. By
+  default club staff see everyone's, team staff their teams' people, and parents and players their teams' staff, the
+  club staff and their own players'; the `contacts` setting lets everyone see everyone's. Only staff see the INVITED
+  list unless it does. A player's emergency contact and medical notes (`player_care`) are another matter: only
+  their parents, the player, club staff and the team's staff read or write them (`can_see_player_care`), whatever
+  the setting, and they carry over with the player into a new season.
+- **Weekly events** are one event per week sharing a `series_id`, so each week keeps its own RSVPs, cancellation and
+  score. `save_event_series` applies an edit to one week and every later week (dates move by the same number of
+  days), under the events policies; deleting later weeks is a filtered delete. Events also have optional end and
+  arrive-by times; the map link is built from the location.
 - **Teams and seasons.** Every club has one current season (`seasons.ended_at` null); a new club gets its first,
   named for the school year (`2026–27`). Teams belong to a season and have generated ids (never derived from the
   name, so they can be renamed; older teams keep ids like `U11B`), a free-text name unique within the season, and an

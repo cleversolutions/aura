@@ -70,6 +70,22 @@ Deno.test('update-member', async (t) => {
       assertEquals(other.status, 403);
     });
 
+    await t.step('members set, keep and clear their phone number', async () => {
+      const phone = (body: Record<string, unknown>) =>
+        invoke(parentClient, 'update-member', {
+          id: parent.user.id,
+          name: 'Pat Parent',
+          email: 'parent@test.example',
+          ...body,
+        });
+      const set = await phone({ phone: ' (555) 010-2030 ' });
+      assertEquals(set.status, 200, JSON.stringify(set.data));
+      assertEquals(set.data['phone'], '(555) 010-2030');
+      assertEquals((await phone({})).data['phone'], '(555) 010-2030');
+      assertEquals((await phone({ phone: 'call me' })).status, 400);
+      assertEquals((await phone({ phone: '' })).data['phone'], undefined);
+    });
+
     await t.step('rejects an email someone at the club already uses', async () => {
       const res = await invoke(clubAdmin, 'update-member', {
         id: parent.user.id,

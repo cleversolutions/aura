@@ -22,6 +22,7 @@ import {
   DEFAULT_CLUB_SETTINGS,
   canChangeMemberTeam,
   canManageInvite,
+  canSeePlayerCare,
   canManageTeam,
   canRemoveMember,
   canResetPassword,
@@ -369,12 +370,13 @@ export const ClubStore = signalStore(
         }));
         return invite;
       },
-      /** The player's parents, the player themself, club staff and the team's staff. */
+      /**
+       * The player's parents, the player themself, club staff and the team's staff: the people who
+       * also read and edit the player's care details (`canSeePlayerCare`).
+       */
       canEditProfile(profile: PlayerProfile): boolean {
         const me = store.me();
-        if (!me) return false;
-        if (profile.parentIds.includes(me.id) || profile.userId === me.id || me.kind === 'club') return true;
-        return me.kind === 'staff' && me.teams.includes(profile.team);
+        return !!me && canSeePlayerCare(me, profile);
       },
       /** Resolves with the player's sign-in to hand them, when they were given an email. */
       async addPlayer(input: AddPlayerInput): Promise<MemberInvite | null> {

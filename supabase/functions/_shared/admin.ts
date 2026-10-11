@@ -185,12 +185,14 @@ export interface MemberRow {
   kind: string;
   title: string | null;
   email: string | null;
+  phone: string;
   invited: boolean;
   disabled: boolean;
   team_members: { team_id: string }[];
 }
 
-const MEMBER_COLUMNS = 'id, user_id, username, name, kind, title, email, invited, disabled, team_members(team_id)';
+const MEMBER_COLUMNS =
+  'id, user_id, username, name, kind, title, email, phone, invited, disabled, team_members(team_id)';
 
 /** A member of `clubId` matching `match`, with their teams. */
 export async function loadMember(
@@ -255,6 +257,7 @@ export function toUser(m: MemberRow, adminId: string | null = null) {
     teams: m.team_members.map((t) => t.team_id).sort(),
     ...(m.title ? { title: m.title } : {}),
     ...(m.email ? { email: m.email } : {}),
+    ...(m.phone ? { phone: m.phone } : {}),
     ...(m.invited ? { invited: true } : {}),
     ...(m.disabled ? { disabled: true } : {}),
     ...(m.id === adminId ? { clubAdmin: true } : {}),

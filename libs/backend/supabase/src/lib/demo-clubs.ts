@@ -136,6 +136,7 @@ export async function seedDemoClub(
         kind: u.kind,
         title: u.title ?? null,
         email: u.email ?? null,
+        phone: u.phone ?? '',
         invited: !!u.invited,
       })),
     ),
@@ -193,9 +194,23 @@ export async function seedDemoClub(
       p.parentIds.map((m) => ({ club_id: clubId, profile_id: profileIds.get(p.id), member_id: member(m) })),
     );
     if (parents.length) must(await db.from('player_parents').insert(parents), 'Player parents');
+    const care = data.profiles.flatMap((p) =>
+      p.care
+        ? [
+            {
+              club_id: clubId,
+              profile_id: profileIds.get(p.id) as string,
+              emergency_contact: p.care.emergencyContact,
+              medical_notes: p.care.medicalNotes,
+            },
+          ]
+        : [],
+    );
+    if (care.length) must(await db.from('player_care').insert(care), 'Player care');
   }
 
   const eventIds = new Map(data.events.map((e) => [e.id, crypto.randomUUID()]));
+  const seriesIds = new Map(data.events.flatMap((e) => (e.seriesId ? [[e.seriesId, crypto.randomUUID()]] : [])));
   if (data.events.length) {
     must(
       await db.from('events').insert(
@@ -209,6 +224,9 @@ export async function seedDemoClub(
           home: e.home ?? null,
           date: e.date ?? null,
           time: e.time ?? null,
+          end_time: e.endTime ?? null,
+          arrive_by: e.arriveBy ?? null,
+          series_id: e.seriesId ? (seriesIds.get(e.seriesId) ?? null) : null,
           tbd: !!e.tbd,
           location: e.location,
           notes: e.notes,

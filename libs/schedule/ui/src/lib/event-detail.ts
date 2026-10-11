@@ -38,7 +38,13 @@ export interface EventDetailVm {
   when: string;
   /** `Home game` / `Away game`, games only. */
   homeAway: string | null;
+  /** e.g. `Arrive by 5:45 PM`. */
+  arriveBy: string | null;
+  /** e.g. `Repeats weekly`, for one week of a series. */
+  repeats: string | null;
   location: string;
+  /** Opens the location in a map (`mapLink`); null without a location. */
+  mapUrl: string | null;
   notes: string;
   /** Read-only final score. */
   finalScore: Score | null;
@@ -103,14 +109,32 @@ export interface RsvpConfirmation {
             {{ e.title }}
           </div>
           <div class="mt-1 text-[15px] font-semibold">{{ e.when }}</div>
+          @if (e.arriveBy) {
+            <div class="text-sm font-semibold">{{ e.arriveBy }}</div>
+          }
           @if (e.homeAway) {
             <div class="text-sm font-medium">{{ e.homeAway }}</div>
+          }
+          @if (e.repeats) {
+            <div class="text-sm font-medium">{{ e.repeats }}</div>
           }
         </div>
       </div>
 
       <div class="rounded-md border-2 border-ink px-3 py-2.5">
-        <div class="label-caps">LOCATION</div>
+        <div class="flex items-baseline justify-between gap-2">
+          <div class="label-caps">LOCATION</div>
+          @if (e.mapUrl) {
+            <a
+              class="font-display text-sm font-bold tracking-[0.05em] underline underline-offset-2"
+              target="_blank"
+              rel="noopener"
+              [href]="e.mapUrl"
+              [attr.aria-label]="'Map of ' + e.location"
+              >OPEN MAP ↗</a
+            >
+          }
+        </div>
         <div class="mt-0.5 text-base font-medium">{{ e.location }}</div>
       </div>
       <div class="min-h-[72px] rounded-md border-2 border-ink px-3 py-2.5">

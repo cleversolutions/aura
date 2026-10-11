@@ -40,7 +40,8 @@ describe('ScheduleStore', () => {
 
   it('shows every team to club staff', async () => {
     const store = await setup('sam');
-    expect(store.listed()).toHaveLength(8);
+    // Includes two more weeks of the U14B weekly practice.
+    expect(store.listed()).toHaveLength(10);
     expect(store.canCreate()).toBe(true);
   });
 
@@ -151,5 +152,51 @@ describe('ScheduleStore', () => {
     expect(store.attendeesFor(practice).map((a) => a.name)).toEqual(['Dana Reyes', 'Davis Reyes']);
     const u14 = store.events().find((e) => e.id === 'e10');
     expect(store.attendeesFor(u14!).map((a) => a.name)).toEqual(['Dana Reyes']);
+  });
+
+  it('creates weekly events, changes them from one week on, and deletes later weeks', async () => {
+    const store = await setup('dana');
+    const draft = {
+      type: 'practice' as const,
+      team: 'U14B',
+      date: '2026-10-06',
+      time: '18:00',
+      location: 'Court 4',
+      notes: '',
+    };
+    const weeks = await store.createWeekly({ ...draft, endTime: '19:30' }, '2026-10-27');
+    expect(weeks.map((e) => e.date)).toEqual(['2026-10-06', '2026-10-13', '2026-10-20', '2026-10-27']);
+    expect(new Set(weeks.map((e) => e.seriesId)).size).toBe(1);
+    await store.setCancelled(weeks[2].id, true);
+
+    // Week 2 moves to Wednesday at 18:30, and later weeks with it; week 1 stays.
+    const changed = await store.saveSeries({ ...weeks[1], date: '2026-10-14', time: '18:30', location: 'Court 2' });
+    expect(changed).toHaveLength(3);
+    const series = () => store.events().filter((e) => e.seriesId === weeks[0].seriesId);
+    expect(series().map((e) => `${e.date} ${e.time} ${e.location}${e.cancelled ? ' cancelled' : ''}`)).toEqual([
+      '2026-10-06 18:00 Court 4',
+      '2026-10-14 18:30 Court 2',
+      '2026-10-21 18:30 Court 2 cancelled',
+      '2026-10-28 18:30 Court 2',
+    ]);
+
+    expect(await store.deleteSeries(weeks[2].id)).toBe(2);
+    expect(series().map((e) => e.date)).toEqual(['2026-10-06', '2026-10-14']);
+  });
+
+  it('only lets the team’s staff repeat an event', async () => {
+    const store = await setup('mike');
+    const draft = {
+      type: 'practice' as const,
+      team: 'U14B',
+      date: '2026-10-06',
+      time: '18:00',
+      location: 'Gym',
+      notes: '',
+    };
+    await expect(store.createWeekly(draft, '2026-10-27')).rejects.toThrow('team’s staff');
+    const week = store.events().find((e) => e.id === 'e10')!;
+    await expect(store.saveSeries({ ...week, location: 'Elsewhere' })).rejects.toThrow('team’s staff');
+    await expect(store.deleteSeries('e10')).rejects.toThrow('team’s staff');
   });
 });

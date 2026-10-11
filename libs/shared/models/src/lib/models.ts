@@ -98,6 +98,8 @@ export interface User {
   title?: string;
   /** Also their sign-in username. Left out when the viewer may not see it (`ClubSettings.contacts`). */
   email?: string;
+  /** Optional; shown by the same rule as the email. */
+  phone?: string;
   /** Invited but has not accepted yet. */
   invited?: boolean;
   /** Disabled by club staff: on record, but cannot sign in or take part until re-enabled. */
@@ -120,6 +122,19 @@ export interface PlayerProfile {
   userId: UserId | null;
   /** Link requested by a parent, waiting for team staff approval. */
   pending?: boolean;
+  /**
+   * Left out when none is recorded, or when the viewer may not see it (`canSeePlayerCare`: the
+   * player's family and staff only).
+   */
+  care?: PlayerCare;
+}
+
+/** What staff need in an emergency. Either may be empty. */
+export interface PlayerCare {
+  /** e.g. `Grandma Lee · 555-0142`. */
+  emergencyContact: string;
+  /** Allergies, conditions, medication. */
+  medicalNotes: string;
 }
 
 export type EventType = 'practice' | 'game' | 'special';
@@ -144,12 +159,18 @@ export interface ClubEvent {
   date?: string;
   /** 24h time `HH:mm`. */
   time?: string;
+  /** 24h time `HH:mm`, after `time`. */
+  endTime?: string;
+  /** 24h time `HH:mm`, no later than `time`: when players should be there. */
+  arriveBy?: string;
   tbd?: boolean;
   location: string;
   notes: string;
   score?: Score;
   /** Called off (weather, a clash): kept on the schedule, shown CANCELLED, closed to RSVPs. */
   cancelled?: boolean;
+  /** Weekly events created together share a series, to be changed or deleted from one week on. */
+  seriesId?: string;
 }
 
 export type ClubEventDraft = Omit<ClubEvent, 'id'> & { id?: string };

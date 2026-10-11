@@ -175,6 +175,29 @@ export const ScheduleStore = signalStore(
         }));
         return saved;
       },
+      /** Creates the draft every week until `until`; resolves with the new events. */
+      async createWeekly(draft: ClubEventDraft, until: string): Promise<ClubEvent[]> {
+        const created = await repo.createWeekly(draft, until);
+        patchState(store, (s) => ({ events: [...s.events, ...created] }));
+        return created;
+      },
+      /** Applies the edit to the event and every later week of its series; resolves with the changed events. */
+      async saveSeries(draft: ClubEventDraft & { id: string }): Promise<ClubEvent[]> {
+        const saved = await repo.saveSeries(draft);
+        const byId = new Map(saved.map((e) => [e.id, e]));
+        patchState(store, (s) => ({ events: s.events.map((e) => byId.get(e.id) ?? e) }));
+        return saved;
+      },
+      /** Deletes the event and every later week of its series; resolves with how many went. */
+      async deleteSeries(eventId: string): Promise<number> {
+        const ids = await repo.deleteSeries(eventId);
+        patchState(store, (s) => {
+          const rsvps = { ...s.rsvps };
+          for (const id of ids) delete rsvps[id];
+          return { events: s.events.filter((e) => !ids.includes(e.id)), rsvps };
+        });
+        return ids.length;
+      },
       async saveScore(eventId: string, score: Score): Promise<void> {
         const saved = await repo.saveScore(eventId, score);
         patchState(store, (s) => ({ events: s.events.map((e) => (e.id === saved.id ? saved : e)) }));

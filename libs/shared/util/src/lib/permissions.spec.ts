@@ -13,6 +13,7 @@ import {
   canResetPassword,
   canRsvp,
   canSeeContact,
+  canSeePlayerCare,
   canSeeRsvpNote,
   effectiveMembers,
   includedViaTeam,
@@ -268,5 +269,16 @@ describe('canChangeMemberTeam', () => {
     expect(canChangeMemberTeam(dana, jordan, 'U18B')).toBe(false);
     expect(canChangeMemberTeam(dana, dana, 'U12G')).toBe(false);
     expect(canChangeMemberTeam(jordan, eli, 'U18B')).toBe(false);
+  });
+
+  it('shows players’ care details to their family and staff only', () => {
+    const maya = { team: 'U12G', parentIds: ['jordan'], userId: null };
+    const eliProfile = { team: 'U18B', parentIds: ['jordan'], userId: 'eli' };
+    expect(canSeePlayerCare(jordan, maya)).toBe(true);
+    expect(canSeePlayerCare(eli, eliProfile)).toBe(true);
+    expect(canSeePlayerCare(eli, maya)).toBe(false);
+    expect(canSeePlayerCare(dana, maya)).toBe(true);
+    expect(canSeePlayerCare(dana, eliProfile)).toBe(false);
+    expect(canSeePlayerCare(sam, eliProfile)).toBe(true);
   });
 });

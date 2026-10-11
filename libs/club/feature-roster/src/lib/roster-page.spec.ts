@@ -220,6 +220,45 @@ describe('RosterPage', () => {
       expect(h.sheet()?.textContent).not.toContain('EDIT');
     });
 
+    it('shows a player’s care details to their family and staff, who edit them', async () => {
+      const { fixture, el } = await render('dana');
+      const h = helpers(fixture, el);
+      await h.openRow('Maya Smith');
+      expect(h.sheet()?.textContent).toContain('Mild asthma: inhaler in her bag.');
+      await h.click('EDIT');
+      h.type('EMERGENCY CONTACT', 'Aunt Bea · 555-0111');
+      const notes = h.sheet()!.querySelector('textarea')!;
+      notes.value = 'Peanut allergy';
+      notes.dispatchEvent(new Event('input'));
+      await h.click('SAVE');
+      expect(
+        TestBed.inject(ClubStore)
+          .profiles()
+          .find((p) => p.id === 'maya')?.care,
+      ).toEqual({ emergencyContact: 'Aunt Bea · 555-0111', medicalNotes: 'Peanut allergy' });
+
+      TestBed.resetTestingModule();
+      const other = await render('priya-patel');
+      const o = helpers(other.fixture, other.el);
+      await o.openRow('Maya Smith');
+      expect(o.sheet()?.textContent).not.toContain('MEDICAL NOTES');
+      expect(o.sheet()?.textContent).not.toContain('asthma');
+    });
+
+    it('shows phone numbers as links, and staff edit them', async () => {
+      const { fixture, el } = await render('sam', 'U12G');
+      const h = helpers(fixture, el);
+      await h.openPerson('Dana Reyes');
+      expect(h.sheet()?.querySelector<HTMLAnchorElement>('a[href="tel:5550134"]')?.textContent).toContain('555-0134');
+      await h.click('EDIT');
+      h.type('PHONE', 'call me');
+      await h.click('SAVE');
+      expect(h.sheet()?.querySelector('[role=alert]')?.textContent).toContain('Enter a valid phone number.');
+      h.type('PHONE', '+1 555 010 9999');
+      await h.click('SAVE');
+      expect(TestBed.inject(ClubStore).user('dana')?.phone).toBe('+1 555 010 9999');
+    });
+
     it('lets team staff resend and cancel invites to their team', async () => {
       const { fixture, el } = await render('dana');
       const club = TestBed.inject(ClubStore);

@@ -645,6 +645,15 @@ export class RosterPage {
         type: 'email',
         hint: 'This is also their username for signing in to the club.',
       },
+      {
+        key: 'phone',
+        label: 'PHONE',
+        value: user.phone ?? '',
+        editable: true,
+        type: 'tel',
+        href: user.phone ? `tel:${user.phone.replace(/[^\d+]/g, '')}` : undefined,
+        hint: 'Optional. Seen by whoever can see their email.',
+      },
       ...(user.kind === 'club'
         ? [{ key: 'title', label: 'TITLE', value: user.title ?? '', editable: true }]
         : [this.teamsField(user)]),
@@ -735,6 +744,7 @@ export class RosterPage {
           value: player ? (player.email ?? 'Yes') + (player.invited ? ' (invited)' : '') : '',
           editable: false,
         },
+        ...this.careFields(p),
       ],
       canEdit: this.club.canEditProfile(p),
       canManageInvite: false,
@@ -742,6 +752,27 @@ export class RosterPage {
       canManagePlayer: manages,
       canGiveSignIn: manages && !p.userId && !p.pending,
     };
+  }
+
+  /** Emergency contact and medical notes, for the player's family and staff only. */
+  private careFields(p: PlayerProfile): DetailFieldVm[] {
+    if (!this.club.canEditProfile(p)) return [];
+    return [
+      {
+        key: 'emergencyContact',
+        label: 'EMERGENCY CONTACT',
+        value: p.care?.emergencyContact ?? '',
+        editable: true,
+      },
+      {
+        key: 'medicalNotes',
+        label: 'MEDICAL NOTES',
+        value: p.care?.medicalNotes ?? '',
+        editable: true,
+        multiline: true,
+        hint: 'Allergies, conditions, medication. Only the player’s family, the team’s staff and club staff see these.',
+      },
+    ];
   }
 
   protected open(kind: 'user' | 'profile', id: string): void {
@@ -761,12 +792,14 @@ export class RosterPage {
       if (target.kind === 'user') {
         const user = this.club.user(target.id);
         const title = text('title');
+        const phone = text('phone');
         if (text('name') !== undefined) {
           await this.club.updateMember({
             id: target.id,
             name: text('name') ?? '',
             email: text('email') ?? '',
             ...(title !== undefined ? { title } : {}),
+            ...(phone !== undefined ? { phone } : {}),
           });
         }
         const picked = values['teams'];
@@ -782,7 +815,15 @@ export class RosterPage {
       if (profile && Array.isArray(parents) && parents.join() !== profile.parentIds.join()) {
         await this.club.setPlayerParents(target.id, parents);
       }
-      await this.club.updateProfile({ id: target.id, name: text('name') ?? '', jersey: text('jersey') ?? '' });
+      const medicalNotes = text('medicalNotes');
+      await this.club.updateProfile({
+        id: target.id,
+        name: text('name') ?? '',
+        jersey: text('jersey') ?? '',
+        ...(medicalNotes !== undefined
+          ? { care: { emergencyContact: text('emergencyContact') ?? '', medicalNotes } }
+          : {}),
+      });
       const team = text('team');
       if (profile && team && team !== profile.team) {
         await this.club.movePlayer(target.id, team);
