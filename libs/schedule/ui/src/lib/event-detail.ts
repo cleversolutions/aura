@@ -8,8 +8,26 @@ import { EVENT_ICON } from './event-icon';
 export interface RsvpAttendeeVm {
   id: string;
   name: string;
-  jersey: string;
+  /** e.g. `#8`, or `You`. */
+  detail: string;
   status: RsvpStatus | undefined;
+  note?: string;
+}
+
+/** One player in the attendance list. */
+export interface AttendancePersonVm {
+  id: string;
+  name: string;
+  /** e.g. `#8`. */
+  detail: string;
+  note?: string;
+}
+
+/** Who is coming, for the event's staff. */
+export interface AttendanceVm {
+  /** e.g. `8 going · 1 out · 3 undecided`. */
+  summary: string;
+  groups: { label: string; people: AttendancePersonVm[] }[];
 }
 
 export interface EventDetailVm {
@@ -26,14 +44,21 @@ export interface EventDetailVm {
   finalScore: Score | null;
   /** Score entry for staff on a finished game. */
   scoreEntry: { clubName: string; opponent: string; score: Score | null } | null;
-  /** RSVP controls, upcoming events only. `pickPlayers` lets parents choose which players. */
-  rsvp: { heading: string; pickPlayers: boolean; attendees: RsvpAttendeeVm[] } | null;
+  /**
+   * RSVP controls, upcoming events only. `pickPlayers` shows a checklist of who the answer is for
+   * (parents, and anyone answering for more than one person). `note` prefills the note field.
+   */
+  rsvp: { heading: string; pickPlayers: boolean; attendees: RsvpAttendeeVm[]; note: string } | null;
+  /** Called off: shown CANCELLED, with no RSVP controls. */
+  cancelled: boolean;
+  attendance: AttendanceVm | null;
   canEdit: boolean;
 }
 
 export interface RsvpConfirmation {
   attendeeIds: string[];
   status: RsvpStatus | null;
+  note: string;
 }
 
 /**
@@ -62,10 +87,21 @@ export interface RsvpConfirmation {
     }
 
     <ng-template #body>
+      @if (e.cancelled) {
+        <div class="rounded-md bg-ink px-3 py-2.5 text-paper" role="status">
+          <div class="font-display text-lg font-bold tracking-[0.05em]">CANCELLED</div>
+          <div class="text-[13px]">This event is not happening. It stays on the schedule for the record.</div>
+        </div>
+      }
       <div class="flex items-start gap-3">
         <span class="w-10 shrink-0"><aura-icon [name]="icon()" [size]="40" [strokeWidth]="1.8" /></span>
         <div class="min-w-0 flex-1">
-          <div class="font-display text-[26px] leading-[1.05] font-bold text-pretty uppercase">{{ e.title }}</div>
+          <div
+            class="font-display text-[26px] leading-[1.05] font-bold text-pretty uppercase"
+            [class.line-through]="e.cancelled"
+          >
+            {{ e.title }}
+          </div>
           <div class="mt-1 text-[15px] font-semibold">{{ e.when }}</div>
           @if (e.homeAway) {
             <div class="text-sm font-medium">{{ e.homeAway }}</div>
@@ -138,7 +174,7 @@ export interface RsvpConfirmation {
                 <aura-check [checked]="selected().includes(a.id)" [size]="26" />
                 <span class="min-w-0 flex-1">
                   <span class="block text-base font-semibold">{{ a.name }}</span>
-                  <span class="block text-[13px]">#{{ a.jersey }}</span>
+                  <span class="block text-[13px]">{{ a.detail }}{{ a.note ? ' · ' + a.note : '' }}</span>
                 </span>
                 <span
                   class="rounded border-[1.5px] border-ink px-1.5 py-0.5 font-display text-[13px] font-bold tracking-[0.05em]"
@@ -153,10 +189,51 @@ export interface RsvpConfirmation {
               Current: <strong>{{ mine ? label[mine] : 'UNDECIDED' }}</strong>
             </div>
           }
+          <label class="field">
+            NOTE (OPTIONAL)
+            <input
+              class="field-input text-[15px]"
+              maxlength="200"
+              placeholder="e.g. Late, 15 min"
+              [value]="note()"
+              (input)="note.set(value($event))"
+            />
+          </label>
           <button type="button" class="btn-primary mt-1 text-xl" (click)="confirm('going')">CONFIRM GOING</button>
           <button type="button" class="btn-outline text-xl" (click)="confirm('out')">CONFIRM OUT</button>
           <button type="button" class="btn-link h-10" (click)="confirm(null)">Mark undecided</button>
         </div>
+      }
+
+      @if (e.attendance; as att) {
+        <section class="flex flex-col gap-2 rounded-md border-2 border-ink p-3" aria-label="Attendance">
+          <div class="flex items-baseline justify-between gap-2">
+            <div class="label-caps">ATTENDANCE</div>
+            <div class="text-[13px] font-semibold">{{ att.summary }}</div>
+          </div>
+          @for (g of att.groups; track g.label) {
+            <div>
+              <div class="border-b border-ink pb-0.5 font-display text-sm font-bold tracking-[0.05em]">
+                {{ g.label }} · {{ g.people.length }}
+              </div>
+              <ul class="mt-1 flex flex-col gap-0.5">
+                @for (p of g.people; track p.id) {
+                  <li class="flex items-baseline gap-2 text-sm">
+                    <span class="w-8 shrink-0 text-[13px]">{{ p.detail }}</span>
+                    <span class="min-w-0 flex-1">
+                      <span class="font-semibold">{{ p.name }}</span>
+                      @if (p.note) {
+                        <span class="block text-[13px] italic">{{ p.note }}</span>
+                      }
+                    </span>
+                  </li>
+                }
+              </ul>
+            </div>
+          } @empty {
+            <div class="text-sm">No players on this team yet.</div>
+          }
+        </section>
       }
 
       @if (e.canEdit) {
@@ -187,6 +264,8 @@ export class EventDetail {
     equal: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]),
   });
   protected readonly selected = linkedSignal(() => this.attendeeIds());
+  private readonly prefilledNote = computed(() => this.vm().rsvp?.note ?? '');
+  protected readonly note = linkedSignal(() => this.prefilledNote());
   protected readonly scoreUs = linkedSignal(() => this.vm().scoreEntry?.score?.us.toString() ?? '');
   protected readonly scoreThem = linkedSignal(() => this.vm().scoreEntry?.score?.them.toString() ?? '');
 
@@ -202,6 +281,6 @@ export class EventDetail {
     const rsvp = this.vm().rsvp;
     if (!rsvp) return;
     const attendeeIds = rsvp.pickPlayers ? this.selected() : rsvp.attendees.map((a) => a.id);
-    this.confirmed.emit({ attendeeIds, status });
+    this.confirmed.emit({ attendeeIds, status, note: this.note().trim() });
   }
 }

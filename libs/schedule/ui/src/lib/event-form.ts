@@ -98,9 +98,49 @@ export function validateEventDraft(d: ClubEventDraft): string | null {
       @if (shownError()) {
         <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
       }
-      <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">
-        {{ event() ? 'SAVE CHANGES' : 'CREATE EVENT' }}
-      </button>
+      @if (confirming(); as action) {
+        <div class="flex flex-col gap-2 rounded-md border-2 border-dashed border-ink p-3" role="group">
+          <p class="text-[15px] font-medium">
+            @if (action === 'cancel') {
+              Cancel this event? It stays on the schedule marked CANCELLED, and RSVPs close. You can restore it later.
+            } @else {
+              Delete this event and its RSVPs? Use this for an event entered by mistake; it cannot be undone.
+            }
+          </p>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" class="btn-outline h-11" (click)="confirming.set(null)">BACK</button>
+            <button
+              type="button"
+              class="btn-primary h-11"
+              [disabled]="saving()"
+              (click)="action === 'cancel' ? cancelledChange.emit(true) : deleted.emit()"
+            >
+              {{ action === 'cancel' ? 'CANCEL EVENT' : 'DELETE' }}
+            </button>
+          </div>
+        </div>
+      } @else {
+        <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">
+          {{ submitLabel() }}
+        </button>
+        @if (event(); as e) {
+          <div class="grid grid-cols-2 gap-2">
+            @if (e.cancelled) {
+              <button
+                type="button"
+                class="btn-outline h-11"
+                [disabled]="saving()"
+                (click)="cancelledChange.emit(false)"
+              >
+                RESTORE EVENT
+              </button>
+            } @else {
+              <button type="button" class="btn-outline h-11" (click)="confirming.set('cancel')">CANCEL EVENT</button>
+            }
+            <button type="button" class="btn-outline h-11" (click)="confirming.set('delete')">DELETE EVENT</button>
+          </div>
+        }
+      }
     </aura-sheet>
   `,
 })
@@ -116,6 +156,10 @@ export class EventForm {
 
   readonly submitted = output<ClubEventDraft>();
   readonly closed = output<void>();
+  /** Editing only: call the event off (true) or restore it (false). */
+  readonly cancelledChange = output<boolean>();
+  /** Editing only, after confirming. */
+  readonly deleted = output<void>();
 
   protected readonly typeOptions: Choice<EventType>[] = [
     { value: 'practice', label: 'PRACTICE' },
@@ -138,6 +182,14 @@ export class EventForm {
   protected readonly location = linkedSignal(() => this.event()?.location ?? '');
   protected readonly notes = linkedSignal(() => this.event()?.notes ?? '');
 
+  protected readonly confirming = signal<'cancel' | 'delete' | null>(null);
+  /** Names the team on a new event, so it is not created for the wrong one by accident. */
+  protected readonly submitLabel = computed(() => {
+    if (this.event()) return 'SAVE CHANGES';
+    const team = this.teamOptions().find((o) => o.value === this.team());
+    return team ? `CREATE · ${team.label.toUpperCase()}` : 'CREATE EVENT';
+  });
+
   private readonly validationError = signal('');
   protected readonly shownError = computed(() => this.validationError() || this.error());
 
@@ -146,6 +198,10 @@ export class EventForm {
   }
 
   protected submit(): void {
+    if (!this.team()) {
+      this.validationError.set('Pick a team.');
+      return;
+    }
     const type = this.type();
     const tbd = this.tbd();
     const draft: ClubEventDraft = {

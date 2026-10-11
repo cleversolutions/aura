@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(153);
+select plan(168);
 
 -- ---------------------------------------------------------------------------------------------
 -- Fixture: two clubs, each with a Jordan Smith who shares a username but is a different person.
@@ -239,11 +239,93 @@ select is(
   1, 'cannot clear another club''s RSVP'
 );
 
+-- A player's RSVP is always their profile's (G21), whoever records it.
 select pg_temp.login('a0000000-0000-0000-0000-000000000006');
 select lives_ok(
+  $$select public.set_rsvps('e0000000-0000-0000-0000-000000000002', array['f0000000-0000-0000-0000-000000000003']::uuid[], 'going')$$,
+  'player RSVPs for themself, through their profile'
+);
+select throws_ok(
   $$insert into public.rsvps (club_id, event_id, attendee_id, status)
     values ('c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000006', 'going')$$,
-  'player RSVPs for themself'
+  '42501', null, '... never as a member, so a parent''s answer and theirs cannot disagree'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000004');
+select lives_ok(
+  $$select public.set_rsvps('e0000000-0000-0000-0000-000000000002', array['f0000000-0000-0000-0000-000000000003']::uuid[], 'out', 'Sick')$$,
+  'the player''s parent answers for the same profile'
+);
+select is(
+  (select status || ':' || note from public.list_rsvps()
+   where event_id = 'e0000000-0000-0000-0000-000000000002' and attendee_id = 'f0000000-0000-0000-0000-000000000003'),
+  'out:Sick', '... one answer, with its note'
+);
+select throws_ok(
+  $$select public.set_rsvps('e0000000-0000-0000-0000-000000000002', array['f0000000-0000-0000-0000-000000000001']::uuid[], 'going')$$,
+  '42501', null, 'parents RSVP for their players on the event''s team only'
+);
+select lives_ok(
+  $$select public.set_rsvps('e0000000-0000-0000-0000-000000000003', array['f0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000003']::uuid[], 'going')$$,
+  '... or club-wide events'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000006');
+select lives_ok(
+  $$select public.set_rsvps('e0000000-0000-0000-0000-000000000002', array['f0000000-0000-0000-0000-000000000003']::uuid[], 'going')$$,
+  'a new answer without a note'
+);
+select is(
+  (select status || ':' || note from public.list_rsvps()
+   where event_id = 'e0000000-0000-0000-0000-000000000002' and attendee_id = 'f0000000-0000-0000-0000-000000000003'),
+  'going:Sick', '... keeps the note'
+);
+
+-- RSVP notes (G31): the event's staff and the family read them; others see the status only.
+select pg_temp.login('a0000000-0000-0000-0000-000000000005');
+select is(
+  (select status || ':' || note from public.list_rsvps()
+   where event_id = 'e0000000-0000-0000-0000-000000000002' and attendee_id = 'f0000000-0000-0000-0000-000000000003'),
+  'going:', 'other families see the status but not the note'
+);
+select throws_ok(
+  'select note from public.rsvps', '42501', null, '... and cannot read notes from the table'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000003');
+select is(
+  (select note from public.list_rsvps()
+   where event_id = 'e0000000-0000-0000-0000-000000000002' and attendee_id = 'f0000000-0000-0000-0000-000000000003'),
+  'Sick', 'the event''s staff read notes'
+);
+
+-- Cancelling and deleting events (G8): whoever can edit the event.
+select pg_temp.login('a0000000-0000-0000-0000-000000000002');
+select lives_ok(
+  $$update public.events set cancelled = true where id = 'e0000000-0000-0000-0000-000000000001'$$,
+  'team staff cancel their team''s events'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000004');
+select throws_ok(
+  $$select public.set_rsvps('e0000000-0000-0000-0000-000000000001', array['f0000000-0000-0000-0000-000000000001']::uuid[], 'going')$$,
+  '22023', null, 'a cancelled event takes no RSVPs'
+);
+select lives_ok(
+  $$select public.set_rsvps('e0000000-0000-0000-0000-000000000001', array['f0000000-0000-0000-0000-000000000001']::uuid[], null)$$,
+  '... but answers can still be cleared'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000002');
+update public.events set cancelled = false where id = 'e0000000-0000-0000-0000-000000000001';
+insert into public.events (id, club_id, type, team, location) values
+  ('e0000000-0000-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000001', 'practice', 'U12G', 'Twice');
+select public.set_rsvps('e0000000-0000-0000-0000-000000000004', array['f0000000-0000-0000-0000-000000000001']::uuid[], 'going');
+delete from public.events where id in ('e0000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-000000000004');
+reset role;
+select is(
+  (select array_agg(id::text order by id) from public.events where id in ('e0000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-000000000004')),
+  array['e0000000-0000-0000-0000-000000000003'],
+  'team staff delete their team''s events, not club-wide ones'
+);
+select is_empty(
+  $$select 1 from public.rsvps where event_id = 'e0000000-0000-0000-0000-000000000004'$$,
+  '... and the RSVPs go with them'
 );
 
 -- ---------------------------------------------------------------------------------------------

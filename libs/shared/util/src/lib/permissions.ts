@@ -6,6 +6,7 @@ import {
   MemberGroup,
   Persona,
   PlayerProfile,
+  Team,
   TeamId,
   Thread,
   ThreadMembership,
@@ -192,4 +193,63 @@ export function canManageTeam(me: User, team: TeamId): boolean {
 export function canEditEvent(e: Pick<ClubEvent, 'team'>, me: User): boolean {
   if (me.kind === 'club') return true;
   return me.kind === 'staff' && e.team !== 'ALL' && me.teams.includes(e.team);
+}
+
+/**
+ * The approved players at an event: on its team or, for a club-wide event, on a team of its season
+ * (any team when the event has no season yet). Mirrors rsvp_profile_fits().
+ */
+export function eventPlayers(
+  e: Pick<ClubEvent, 'team' | 'season'>,
+  profiles: PlayerProfile[],
+  teams: Pick<Team, 'id' | 'season'>[],
+): PlayerProfile[] {
+  const seasonOf = (team: TeamId) => teams.find((t) => t.id === team)?.season;
+  return profiles.filter(
+    (p) => !p.pending && (p.team === e.team || (e.team === 'ALL' && (!e.season || seasonOf(p.team) === e.season))),
+  );
+}
+
+/**
+ * Players whose RSVP `me` records at an event: their children, and themself as a player. A player's
+ * RSVP is always their profile's, whoever records it, so parents and the player see one answer.
+ */
+export function rsvpPlayers(
+  e: Pick<ClubEvent, 'team' | 'season'>,
+  me: Pick<User, 'id'>,
+  profiles: PlayerProfile[],
+  teams: Pick<Team, 'id' | 'season'>[],
+): PlayerProfile[] {
+  return eventPlayers(e, profiles, teams).filter((p) => p.userId === me.id || p.parentIds.includes(me.id));
+}
+
+/** Members RSVP as themselves unless they are a player, who RSVPs through their profile. */
+export function rsvpsAsSelf(me: Pick<User, 'id'>, profiles: PlayerProfile[]): boolean {
+  return !profiles.some((p) => p.userId === me.id);
+}
+
+/** Whether `me` may record `attendeeId`'s RSVP to the event. Mirrors can_rsvp(). */
+export function canRsvp(
+  e: Pick<ClubEvent, 'team' | 'season'>,
+  attendeeId: string,
+  me: Pick<User, 'id'>,
+  profiles: PlayerProfile[],
+  teams: Pick<Team, 'id' | 'season'>[],
+): boolean {
+  if (attendeeId === me.id) return rsvpsAsSelf(me, profiles);
+  return rsvpPlayers(e, me, profiles, teams).some((p) => p.id === attendeeId);
+}
+
+/**
+ * Who reads an RSVP's note: the event's staff, and whoever RSVPs for the attendee. Mirrors
+ * can_see_rsvp_note().
+ */
+export function canSeeRsvpNote(
+  e: Pick<ClubEvent, 'team'>,
+  attendeeId: string,
+  me: User,
+  profiles: PlayerProfile[],
+): boolean {
+  if (canEditEvent(e, me) || attendeeId === me.id) return true;
+  return profiles.some((p) => p.id === attendeeId && (p.userId === me.id || p.parentIds.includes(me.id)));
 }

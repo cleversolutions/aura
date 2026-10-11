@@ -77,9 +77,62 @@ describe('SchedulePage', () => {
     const { fixture, el, buttons } = await render('dana');
     buttons('+ EVENT')[0].click();
     await fixture.whenStable();
-    buttons('CREATE EVENT')[0].click();
+    buttons('CREATE · U12 GIRLS')[0].click();
     await fixture.whenStable();
     expect(el.querySelector('[role=alert]')?.textContent).toContain('Pick a date and time, or mark TBD.');
+  });
+
+  it('starts club staff’s new events on a team, not club-wide', async () => {
+    const { fixture, buttons } = await render('sam');
+    buttons('+ EVENT')[0].click();
+    await fixture.whenStable();
+    expect(buttons('CREATE · U10 BOYS')).toHaveLength(1);
+  });
+
+  it('shows the team’s staff a headcount on the card and who is coming in the event', async () => {
+    const { fixture, el } = await render('kim-alvarez');
+    const practice = el.querySelectorAll('aura-event-card')[0];
+    expect(practice.textContent).toContain('2 going · 1 out · 6 undecided');
+
+    practice.querySelector('button')?.click();
+    await fixture.whenStable();
+    const attendance = el.querySelector('[aria-label=Attendance]');
+    expect(attendance?.textContent).toContain('OUT · 1');
+    expect(attendance?.textContent).toContain('Sick, sorry');
+  });
+
+  it('gives a coach who is a parent a checklist of who the RSVP is for', async () => {
+    const { fixture, el, buttons } = await render('dana');
+    await TestBed.inject(ClubStore).addPlayer({ team: 'U12G', name: 'Davis Reyes', jersey: '7', parentIds: ['dana'] });
+    await fixture.whenStable();
+    el.querySelector<HTMLButtonElement>('aura-event-card button')?.click();
+    await fixture.whenStable();
+    expect(el.textContent).toContain('RSVP FOR');
+
+    buttons('Dana Reyes')[0].click(); // untick the coach: only Davis is going
+    await fixture.whenStable();
+    buttons('CONFIRM GOING')[0].click();
+    await fixture.whenStable();
+    expect(TestBed.inject(Toaster).message()?.text).toBe('Davis: going · Practice');
+    const store = TestBed.inject(ScheduleStore);
+    expect(store.statusOf('e1', 'dana')).toBeUndefined();
+  });
+
+  it('cancels an event: it stays listed, marked CANCELLED, without RSVP buttons', async () => {
+    const { fixture, el, buttons } = await render('kim-alvarez');
+    el.querySelector<HTMLButtonElement>('aura-event-card button')?.click();
+    await fixture.whenStable();
+    buttons('EDIT EVENT')[0].click();
+    await fixture.whenStable();
+    buttons('CANCEL EVENT')[0].click();
+    await fixture.whenStable();
+    buttons('CANCEL EVENT')[0].click();
+    await new Promise((r) => setTimeout(r));
+    await fixture.whenStable();
+    const card = el.querySelectorAll('aura-event-card')[0];
+    expect(card.textContent).toContain('CANCELLED');
+    expect(card.textContent).not.toContain('GOING');
+    expect(TestBed.inject(Toaster).message()?.text).toBe('Cancelled: Practice');
   });
 
   it('shows a past season’s events read-only', async () => {

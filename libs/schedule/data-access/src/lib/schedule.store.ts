@@ -2,10 +2,36 @@ import { computed, inject } from '@angular/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
 import { ScheduleRepository } from '@aura/backend/api';
 import { ClubStore } from '@aura/club/data-access';
-import { Attendee, ClubEvent, ClubEventDraft, RsvpMap, RsvpStatus, Score, SeasonId } from '@aura/shared/models';
-import { CLOCK, canEditEvent, eventSortKey, eventTitle, isoDate, isUpcoming } from '@aura/shared/util';
+import {
+  Attendee,
+  ClubEvent,
+  ClubEventDraft,
+  PlayerProfile,
+  Rsvp,
+  RsvpMap,
+  RsvpStatus,
+  Score,
+  SeasonId,
+} from '@aura/shared/models';
+import {
+  CLOCK,
+  canEditEvent,
+  eventPlayers,
+  eventSortKey,
+  eventTitle,
+  isoDate,
+  isUpcoming,
+  rsvpPlayers,
+  rsvpsAsSelf,
+} from '@aura/shared/util';
 
 export type ScheduleSegment = 'upcoming' | 'past';
+
+/** A player at an event, with their RSVP if they have answered. */
+export interface PlayerAttendance {
+  player: PlayerProfile;
+  rsvp: Rsvp | undefined;
+}
 
 interface ScheduleState {
   events: ClubEvent[];
@@ -87,34 +113,54 @@ export const ScheduleStore = signalStore(
         return !!me && canEditEvent(e, me) && !isPastSeason(e);
       },
       /**
-       * Who the user RSVPs for: parents, their players on that team; everyone else, themself, plus
-       * any of their children on the team (a coach who is also a parent).
+       * Who the user RSVPs for (G21): themself, unless they are a player or a parent, then their
+       * players at the event: their own profile (a player) and their children (a parent, or a coach
+       * who is also one). A player's RSVP is always their profile's. Nobody, once the event is
+       * cancelled or its season has ended.
        */
       attendeesFor(e: ClubEvent): Attendee[] {
         const me = club.me();
-        if (!me || isPastSeason(e)) return [];
-        const children = club.myPlayers().filter((p) => p.userId !== me.id && (e.team === 'ALL' || p.team === e.team));
-        if (club.persona() === 'parent') return children;
-        return [{ id: me.id, name: me.name, jersey: '' }, ...children];
+        if (!me || isPastSeason(e) || e.cancelled) return [];
+        const players = rsvpPlayers(e, me, club.profiles(), club.allTeams())
+          .sort((a, b) => Number(b.userId === me.id) - Number(a.userId === me.id))
+          .map(({ id, name, jersey }) => ({ id, name, jersey }));
+        const self = club.persona() !== 'parent' && rsvpsAsSelf(me, club.profiles());
+        return self ? [{ id: me.id, name: me.name, jersey: '' }, ...players] : players;
       },
       statusOf(eventId: string, attendeeId: string): RsvpStatus | undefined {
+        return store.rsvps()[eventId]?.[attendeeId]?.status;
+      },
+      rsvpOf(eventId: string, attendeeId: string): Rsvp | undefined {
         return store.rsvps()[eventId]?.[attendeeId];
+      },
+      /**
+       * Every player at the event with their RSVP, by name, for the event's staff (G19). Null for
+       * anyone else, and for past seasons (whose rosters are not loaded).
+       */
+      attendance(e: ClubEvent): PlayerAttendance[] | null {
+        const me = club.me();
+        if (!me || !canEditEvent(e, me) || isPastSeason(e)) return null;
+        const forEvent = store.rsvps()[e.id] ?? {};
+        return eventPlayers(e, club.profiles(), club.allTeams())
+          .map((player) => ({ player, rsvp: forEvent[player.id] }))
+          .sort((a, b) => a.player.name.localeCompare(b.player.name));
       },
       async load(): Promise<void> {
         const [events, rsvps] = await Promise.all([repo.listEvents(), repo.listRsvps()]);
         patchState(store, { events, rsvps, loaded: true });
       },
-      async setRsvp(eventId: string, attendeeIds: string[], status: RsvpStatus | null): Promise<void> {
+      /** `note` undefined keeps each attendee's note; '' clears it. */
+      async setRsvp(eventId: string, attendeeIds: string[], status: RsvpStatus | null, note?: string): Promise<void> {
         const previous = store.rsvps();
         const forEvent = { ...(previous[eventId] ?? {}) };
         for (const id of attendeeIds) {
-          if (status) forEvent[id] = status;
+          if (status) forEvent[id] = { status, note: note?.trim() ?? forEvent[id]?.note };
           else delete forEvent[id];
         }
         // Optimistic: RSVPs should feel instant on a phone.
         patchState(store, { rsvps: { ...previous, [eventId]: forEvent } });
         try {
-          await repo.setRsvp(eventId, attendeeIds, status);
+          await repo.setRsvp(eventId, attendeeIds, status, note);
         } catch (e) {
           patchState(store, { rsvps: previous });
           throw e;
@@ -132,6 +178,18 @@ export const ScheduleStore = signalStore(
       async saveScore(eventId: string, score: Score): Promise<void> {
         const saved = await repo.saveScore(eventId, score);
         patchState(store, (s) => ({ events: s.events.map((e) => (e.id === saved.id ? saved : e)) }));
+      },
+      async setCancelled(eventId: string, cancelled: boolean): Promise<void> {
+        const saved = await repo.setCancelled(eventId, cancelled);
+        patchState(store, (s) => ({ events: s.events.map((e) => (e.id === saved.id ? saved : e)) }));
+      },
+      async deleteEvent(eventId: string): Promise<void> {
+        await repo.deleteEvent(eventId);
+        patchState(store, (s) => {
+          const rsvps = { ...s.rsvps };
+          delete rsvps[eventId];
+          return { events: s.events.filter((e) => e.id !== eventId), rsvps };
+        });
       },
     };
   }),

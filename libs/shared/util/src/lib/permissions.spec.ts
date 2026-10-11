@@ -1,4 +1,4 @@
-import { Thread, User } from '@aura/shared/models';
+import { PlayerProfile, Thread, User } from '@aura/shared/models';
 import {
   ALL_GROUPS,
   DEFAULT_CLUB_SETTINGS,
@@ -11,9 +11,12 @@ import {
   canReadThread,
   canRemoveMember,
   canResetPassword,
+  canRsvp,
   canSeeContact,
+  canSeeRsvpNote,
   effectiveMembers,
   includedViaTeam,
+  rsvpPlayers,
 } from './permissions';
 
 const users: User[] = [
@@ -92,6 +95,57 @@ describe('canEditEvent', () => {
     expect(canEditEvent({ team: 'U14B' }, dana)).toBe(true);
     expect(canEditEvent({ team: 'ALL' }, dana)).toBe(false);
     expect(canEditEvent({ team: 'U12G' }, jordan)).toBe(false);
+  });
+});
+
+describe('RSVPs', () => {
+  const teams = [
+    { id: 'U12G', season: 's1' },
+    { id: 'U18B', season: 's1' },
+    { id: 'OLD', season: 's0' },
+  ];
+  const profile = (o: Partial<PlayerProfile>): PlayerProfile => ({
+    id: 'p',
+    name: 'P',
+    jersey: '',
+    team: 'U12G',
+    parentIds: [],
+    userId: null,
+    ...o,
+  });
+  const profiles = [
+    profile({ id: 'maya', team: 'U12G', parentIds: ['jordan', 'dana'] }),
+    profile({ id: 'eli-p', team: 'U18B', parentIds: ['jordan'], userId: 'eli' }),
+    profile({ id: 'ava', team: 'U12G', parentIds: ['wei'] }),
+    profile({ id: 'zoe', team: 'U12G', parentIds: ['jordan'], pending: true }),
+    profile({ id: 'old-maya', team: 'OLD', parentIds: ['jordan'] }),
+  ];
+  const u12 = { team: 'U12G', season: 's1' };
+  const club = { team: 'ALL', season: 's1' };
+
+  it('keys a player by their profile, whether a parent or the player answers', () => {
+    expect(canRsvp({ team: 'U18B', season: 's1' }, 'eli-p', eli, profiles, teams)).toBe(true);
+    expect(canRsvp({ team: 'U18B', season: 's1' }, 'eli-p', jordan, profiles, teams)).toBe(true);
+    expect(canRsvp({ team: 'U18B', season: 's1' }, 'eli', eli, profiles, teams)).toBe(false);
+  });
+
+  it('lets other members answer for themselves, and parents for their approved players on the team', () => {
+    expect(canRsvp(u12, 'dana', dana, profiles, teams)).toBe(true);
+    expect(canRsvp(u12, 'maya', dana, profiles, teams)).toBe(true);
+    expect(canRsvp(u12, 'ava', jordan, profiles, teams)).toBe(false);
+    expect(canRsvp(u12, 'zoe', jordan, profiles, teams)).toBe(false);
+    expect(canRsvp({ team: 'U18B', season: 's1' }, 'maya', jordan, profiles, teams)).toBe(false);
+  });
+
+  it('counts a club-wide event as every team of its season', () => {
+    expect(rsvpPlayers(club, jordan, profiles, teams).map((p) => p.id)).toEqual(['maya', 'eli-p']);
+  });
+
+  it('shows notes to the event staff and the family only', () => {
+    expect(canSeeRsvpNote(u12, 'maya', dana, profiles)).toBe(true);
+    expect(canSeeRsvpNote(u12, 'maya', jordan, profiles)).toBe(true);
+    expect(canSeeRsvpNote(u12, 'ava', jordan, profiles)).toBe(false);
+    expect(canSeeRsvpNote(u12, 'ava', sam, profiles)).toBe(true);
   });
 });
 

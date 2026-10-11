@@ -34,10 +34,12 @@ describe('mock backend', () => {
 
   it('sets and clears RSVPs', async () => {
     const { schedule } = setup();
-    await schedule.setRsvp('e1', ['maya'], 'out');
-    expect((await schedule.listRsvps())['e1']).toEqual({ maya: 'out' });
+    await schedule.setRsvp('e1', ['maya'], 'out', 'Away');
+    expect((await schedule.listRsvps())['e1']['maya']).toEqual({ status: 'out', note: 'Away' });
+    // Other families' notes are hidden.
+    expect((await schedule.listRsvps())['e1']['pf11']).toEqual({ status: 'out' });
     await schedule.setRsvp('e1', ['maya'], null);
-    expect((await schedule.listRsvps())['e1']).toEqual({});
+    expect((await schedule.listRsvps())['e1']['maya']).toBeUndefined();
   });
 
   it('pushes a simulated reply from another member to subscribers', async () => {

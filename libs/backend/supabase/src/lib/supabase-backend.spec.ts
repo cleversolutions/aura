@@ -17,7 +17,7 @@ import {
 } from '@aura/backend/api';
 import { DEMO_PASSWORD, createMockClubs } from '@aura/backend/mock';
 import { Thread, User } from '@aura/shared/models';
-import { DEFAULT_LOGIN_DOMAIN, authEmailFor, canSeeContact, effectiveMembers } from '@aura/shared/util';
+import { DEFAULT_LOGIN_DOMAIN, authEmailFor, canRsvp, canSeeContact, effectiveMembers } from '@aura/shared/util';
 import { Database } from './database.types';
 import { createPlatformAdmin, deleteClubs, deletePlatformAdmin, seedDemoClub, throwawaySlug } from './demo-clubs';
 import { provideSupabaseBackend } from './provide-supabase-backend';
@@ -188,13 +188,58 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       if (!practice || !maya || !ava) throw new Error('seed missing');
       cleanups.push(() => service.from('rsvps').delete().eq('event_id', practice.id));
 
+      const mine = async () => (await schedule.listRsvps())[practice.id]?.[maya.id];
       await schedule.setRsvp(practice.id, [maya.id], 'going');
-      expect((await schedule.listRsvps())[practice.id]).toEqual({ [maya.id]: 'going' });
-      await schedule.setRsvp(practice.id, [maya.id], 'out');
-      expect((await schedule.listRsvps())[practice.id]).toEqual({ [maya.id]: 'out' });
+      expect(await mine()).toEqual({ status: 'going' });
+      await schedule.setRsvp(practice.id, [maya.id], 'out', 'Dentist');
+      expect(await mine()).toEqual({ status: 'out', note: 'Dentist' });
+      await schedule.setRsvp(practice.id, [maya.id], 'going');
+      expect(await mine()).toEqual({ status: 'going', note: 'Dentist' });
       await schedule.setRsvp(practice.id, [maya.id], null);
-      expect((await schedule.listRsvps())[practice.id]).toBeUndefined();
+      expect(await mine()).toBeUndefined();
       await expect(schedule.setRsvp(practice.id, [ava.id], 'going')).rejects.toThrow(/permission/);
+      // Other families' notes are hidden; their answers are not.
+      expect((await schedule.listRsvps())[practice.id]?.[ava.id]).toEqual({ status: 'going' });
+    });
+
+    it('records a player’s RSVP on their profile, whether they or a parent answer', async () => {
+      const player = setup();
+      await player.auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'eli.smith@email.com', password: 'password' });
+      const { profiles } = await player.directory.load();
+      const eli = profiles.find((p) => p.name === 'Eli Smith')!;
+      const game = (await player.schedule.listEvents()).find(
+        (e) => e.team === 'U18B' && e.opponent === 'Riverside Hawks',
+      )!;
+      cleanups.push(() => service.from('rsvps').delete().eq('event_id', game.id));
+      await player.schedule.setRsvp(game.id, [eli.id], 'out', 'Exam');
+      await expect(player.schedule.setRsvp(game.id, [eli.userId!], 'going')).rejects.toThrow(/permission/);
+      TestBed.resetTestingModule();
+
+      const parent = setup();
+      await parent.auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'jordan.smith@email.com', password: 'password' });
+      expect((await parent.schedule.listRsvps())[game.id]).toEqual({ [eli.id]: { status: 'out', note: 'Exam' } });
+    });
+
+    it('lets the event’s staff cancel, restore and delete it', async () => {
+      const { auth, schedule } = setup();
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'dana@spartans.example', password: 'password' });
+      const created = await schedule.saveEvent({
+        type: 'practice',
+        team: 'U12G',
+        tbd: true,
+        location: 'Gym',
+        notes: '',
+      });
+      cleanups.push(() => service.from('events').delete().eq('id', created.id));
+      expect(await schedule.setCancelled(created.id, true)).toMatchObject({ cancelled: true });
+      expect((await schedule.saveEvent({ ...created, cancelled: true, notes: 'Snow' })).cancelled).toBe(true);
+      expect((await schedule.setCancelled(created.id, false)).cancelled).toBeUndefined();
+
+      const clubWide = (await schedule.listEvents()).find((e) => e.team === 'ALL')!;
+      await expect(schedule.deleteEvent(clubWide.id)).rejects.toThrow(/staff/);
+      await expect(schedule.setCancelled(clubWide.id, true)).rejects.toThrow();
+      await schedule.deleteEvent(created.id);
+      expect((await schedule.listEvents()).some((e) => e.id === created.id)).toBe(false);
     });
 
     it('lets team staff edit their own team’s events only', async () => {
@@ -855,6 +900,31 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
         TestBed.resetTestingModule();
       }
     });
+  });
+
+  describe('who RSVPs for whom', () => {
+    it('is the same in SQL (can_rsvp) as in TypeScript (canRsvp)', async () => {
+      const club = setup();
+      await club.auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
+      const { users, profiles, teams } = await club.directory.load();
+      const all = await club.schedule.listEvents();
+      const events = ['U12G', 'U18B', 'ALL'].map((team) => all.find((e) => e.team === team)!);
+      const candidates = profiles.filter((p) => p.team === 'U12G' || p.team === 'U18B').map((p) => p.id);
+      TestBed.resetTestingModule();
+      for (const username of ['jordan.smith@email.com', 'dana@spartans.example', 'eli.smith@email.com']) {
+        const { auth } = setup();
+        const { userId } = await auth.signIn({ clubSlug: SPARTANS_SLUG, username, password: 'password' });
+        const me = users.find((u) => u.id === userId)!;
+        const client = TestBed.inject(SupabaseClients).active().client;
+        for (const e of events) {
+          for (const attendee of [me.id, ...candidates]) {
+            const { data } = await client.rpc('can_rsvp', { p_event: e.id, p_attendee: attendee });
+            expect(data, `${username} ${e.team} ${attendee}`).toBe(canRsvp(e, attendee, me, profiles, teams));
+          }
+        }
+        TestBed.resetTestingModule();
+      }
+    }, 60_000);
   });
 
   // Last: it ends the Panthers copy's season.

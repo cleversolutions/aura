@@ -401,12 +401,15 @@ export function createSeed(now: Date): MockData {
     },
   ];
 
+  // Players' RSVPs are their profiles' (Eli's profile id is also his user id here).
+  const going = { status: 'going' } as const;
   const rsvps: RsvpMap = {
-    e2: { eli: 'going' },
-    e6: { maya: 'going' },
-    e7: { eli: 'going' },
-    e8: { eli: 'going' },
-    e3: { maya: 'going' },
+    e1: { pf10: going, pf11: { status: 'out', note: 'Sick, sorry' }, pf12: { status: 'going', note: 'Late, 15 min' } },
+    e2: { eli: going },
+    e6: { maya: going },
+    e7: { eli: going },
+    e8: { eli: going },
+    e3: { maya: going },
   };
 
   for (const u of users) u.email ??= u.id === 'eli' ? 'eli.smith@email.com' : `${u.id}@spartans.example`;
