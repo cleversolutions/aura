@@ -21,6 +21,7 @@ import { Club, ClubSettings, PlayerProfile, Season, SeasonId, Team, TeamId, User
 import {
   DEFAULT_CLUB_SETTINGS,
   canChangeMemberTeam,
+  canEditTitle,
   canManageInvite,
   canSeePlayerCare,
   canManageTeam,
@@ -140,7 +141,7 @@ export const ClubStore = signalStore(
       const kind = me()?.kind;
       return kind === 'club' || kind === 'staff' || settings().contacts === 'everyone';
     }),
-    /** e.g. `Parent · 2 linked players`, `Team Staff · U12 Girls, U14 Boys`. */
+    /** e.g. `Parent · 2 linked players`, `Team Staff · Head Coach · U12 Girls, U14 Boys`. */
     roleLine: computed(() => {
       const m = me();
       if (!m) return '';
@@ -149,9 +150,9 @@ export const ClubStore = signalStore(
         case 'player':
           return `Player · ${name(m.teams[0] ?? '')}`;
         case 'teamStaff':
-          return `Team Staff · ${m.teams.map(name).join(', ')}`;
+          return ['Team Staff', m.title, m.teams.map(name).join(', ')].filter(Boolean).join(' · ');
         case 'clubStaff':
-          return `Club Staff · ${m.title ?? ''}`;
+          return ['Club Staff', m.title].filter(Boolean).join(' · ');
         default: {
           const n = myPlayers().length;
           return `Parent · ${n} linked ${n === 1 ? 'player' : 'players'}`;
@@ -285,6 +286,10 @@ export const ClubStore = signalStore(
         const updated = await directory.updateMember(input);
         patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
       },
+      async setMemberTitle(userId: UserId, title: string): Promise<void> {
+        const updated = await directory.setMemberTitle(userId, title);
+        patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
+      },
       async cancelInvite(userId: UserId): Promise<void> {
         await directory.cancelInvite(userId);
         patchState(store, (s) => ({ users: s.users.filter((u) => u.id !== userId) }));
@@ -334,6 +339,11 @@ export const ClubStore = signalStore(
       canManageInvite(user: User): boolean {
         const me = writer();
         return !!me && canManageInvite(me, user);
+      },
+      /** Any staff, for any staff (the club admin included). */
+      canEditTitle(user: User): boolean {
+        const me = writer();
+        return !!me && canEditTitle(me, user);
       },
       /**
        * Club staff, or staff of `team`: who adds, approves, moves and removes players and sets their

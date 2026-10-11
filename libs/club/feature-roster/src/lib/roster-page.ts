@@ -37,7 +37,7 @@ import {
 } from '@aura/club/ui';
 import { PlayerProfile, SeasonId, TeamId, User, UserKind } from '@aura/shared/models';
 import { AppHeader, Chips, Choice } from '@aura/shared/ui';
-import { KIND_GROUP, Submission, Toaster, errorMessage, isClubWide } from '@aura/shared/util';
+import { KIND_GROUP, Submission, Toaster, errorMessage, hasTitle, isClubWide } from '@aura/shared/util';
 
 /** A new member's sign-in, as the store returns it. */
 type MemberInvite = Awaited<ReturnType<ClubStore['resendInvite']>>;
@@ -332,7 +332,7 @@ export class RosterPage {
     const linked = new Set(players.flatMap((p) => p.parentIds));
     const row = (u: User, sub: string): PersonRowVm => ({ id: u.id, name: u.name, sub });
     return {
-      staff: people.filter((u) => u.kind === 'staff').map((u) => row(u, 'Team Staff')),
+      staff: people.filter((u) => u.kind === 'staff').map((u) => row(u, u.title || 'Team Staff')),
       players: players
         .map<PlayerRowVm>((p) => ({
           id: p.id,
@@ -444,7 +444,7 @@ export class RosterPage {
         return {
           id: u.id,
           name: u.name + (u.id === me ? ' (you)' : ''),
-          sub: 'Team Staff' + (others.length ? ` · also ${this.teamNames(others)}` : '') + disabledNote(u),
+          sub: (u.title || 'Team Staff') + (others.length ? ` · also ${this.teamNames(others)}` : '') + disabledNote(u),
         };
       });
   });
@@ -656,16 +656,26 @@ export class RosterPage {
         href: user.phone ? `tel:${user.phone.replace(/[^\d+]/g, '')}` : undefined,
         hint: 'Optional. Seen by whoever can see their email.',
       },
-      ...(user.kind === 'club'
-        ? [{ key: 'title', label: 'TITLE', value: user.title ?? '', editable: true }]
-        : [this.teamsField(user)]),
+      ...(hasTitle(user)
+        ? [
+            {
+              key: 'title',
+              label: 'TITLE',
+              value: user.title ?? '',
+              editable: this.club.canEditTitle(user),
+              hint: 'Optional, e.g. Head Coach, Assistant Coach or Team Manager. Any staff can change it.',
+            },
+          ]
+        : []),
+      ...(user.kind !== 'club' ? [this.teamsField(user)] : []),
       ...(children.length
         ? [{ key: 'players', label: 'PLAYERS', value: children.map((p) => p.name).join(', '), editable: false }]
         : []),
     ];
     const canEditDetails = this.club.canEditMember(user);
-    const teams = fields.find((f) => f.key === 'teams');
-    for (const f of fields) if (f !== teams) f.editable &&= canEditDetails;
+    // Teams and titles have rules of their own; the rest are the member's details.
+    const own = new Set(['teams', 'title']);
+    for (const f of fields) if (!own.has(f.key)) f.editable &&= canEditDetails;
     return {
       name: user.name,
       role:
@@ -675,7 +685,7 @@ export class RosterPage {
         (user.disabled ? ' · disabled' : ''),
       invited: !!user.invited,
       fields,
-      canEdit: canEditDetails || !!teams?.editable,
+      canEdit: fields.some((f) => f.editable),
       canManageInvite: this.club.canManageInvite(user),
       disabled: !!user.disabled,
       canResetPassword: this.club.canResetPassword(user),
@@ -803,6 +813,9 @@ export class RosterPage {
             ...(title !== undefined ? { title } : {}),
             ...(phone !== undefined ? { phone } : {}),
           });
+        } else if (user && title !== undefined && title.trim() !== (user.title ?? '')) {
+          // Staff who may not edit this member's details may still set their title.
+          await this.club.setMemberTitle(target.id, title);
         }
         const picked = values['teams'];
         if (user && Array.isArray(picked)) {

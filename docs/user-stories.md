@@ -291,6 +291,19 @@ or the "club created" screen). Each person then chooses their own.
 
 - When Casey opens More → EDIT PROFILE and changes their name, email or title
 - Then More shows the new details, and the new email is their sign-in from now on.
+- Evan, as team staff, has a title too: More → EDIT PROFILE shows TITLE for club and team staff, not for parents
+  or players.
+
+**US-3.20 Staff titles** ✅
+
+- When Casey opens Evan's details on the Roster → EDIT, enters the title "Head Coach" and presses SAVE
+- Then the U11 Boys TEAM STAFF list shows Evan as "Head Coach" instead of "Team Staff", and his More page reads
+  "Team Staff · Head Coach · U11 Boys".
+- Titles are free text (up to 60 characters), e.g. Head Coach, Assistant Coach, Team Manager. Clearing one shows
+  "Team Staff" (or "Club Staff") again.
+- Any staff member, club or team, the club admin included, can change any staff member's title, even on another
+  team. Their other details stay with the usual rules (US-3.17): staff of another team see only TITLE under EDIT.
+- Parents and players have no title, and can't change anyone's.
 
 **US-3.18 Phone numbers** ✅ (G22)
 

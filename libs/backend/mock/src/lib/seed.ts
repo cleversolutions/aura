@@ -155,8 +155,8 @@ export function createSeed(now: Date): MockData {
     email: 'jordan.smith@email.com',
     phone: '555-0101',
   });
-  addUser('Dana Reyes', 'staff', ['U12G', 'U14B'], { id: 'dana', phone: '555-0134' });
-  addUser('Mike Tran', 'staff', ['U18B'], { id: 'mike' });
+  addUser('Dana Reyes', 'staff', ['U12G', 'U14B'], { id: 'dana', phone: '555-0134', title: 'Head Coach' });
+  addUser('Mike Tran', 'staff', ['U18B'], { id: 'mike', title: 'Head Coach' });
   for (const [team, names] of Object.entries(TEAM_STAFF)) names.forEach((n) => addUser(n, 'staff', [team]));
 
   teams.forEach((team, ti) => {

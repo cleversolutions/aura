@@ -210,17 +210,17 @@ describe('ClubStore', () => {
 
   it('lets members edit themselves and club staff edit anyone, moving the sign-in', async () => {
     const store = await setup('jordan');
-    await store.updateMember({ id: 'jordan', name: 'Jordan A. Smith', email: 'jordan@new.example' });
+    await store.updateMember({ id: 'jordan', name: 'Jordan A. Smith', email: 'jordan@new.example', title: 'ignored' });
     expect(store.me()).toMatchObject({ name: 'Jordan A. Smith', email: 'jordan@new.example' });
+    expect(store.me()?.title).toBeUndefined();
     await expect(store.updateMember({ id: 'dana', name: 'X', email: 'x@x.example' })).rejects.toThrow(
       'Only club staff',
     );
 
     await store.signOut();
     await store.signIn('sam@spartans.example', 'password');
-    await store.updateMember({ id: 'dana', name: 'Dana R.', email: 'dana@new.example', title: 'ignored' });
-    expect(store.user('dana')).toMatchObject({ name: 'Dana R.', email: 'dana@new.example' });
-    expect(store.user('dana')?.title).toBeUndefined();
+    await store.updateMember({ id: 'dana', name: 'Dana R.', email: 'dana@new.example', title: 'Assistant Coach' });
+    expect(store.user('dana')).toMatchObject({ name: 'Dana R.', email: 'dana@new.example', title: 'Assistant Coach' });
     await store.updateMember({ id: 'sam', name: 'Sam Okoro', email: 'sam@spartans.example', title: 'President' });
     expect(store.me()?.title).toBe('President');
     await expect(store.updateMember({ id: 'lee', name: 'Lee', email: 'DANA@new.example' })).rejects.toThrow(
@@ -230,6 +230,27 @@ describe('ClubStore', () => {
     await store.signOut();
     await store.signIn('dana@new.example', 'password');
     expect(store.meId()).toBe('dana');
+  });
+
+  it('lets any staff set any staff member’s title, and nobody else', async () => {
+    const store = await setup('mike');
+    // Mike coaches U18B only, yet titles the U12G/U14B coach and the club admin.
+    expect(store.canEditMember(store.user('dana')!)).toBe(false);
+    expect(store.canEditTitle(store.user('dana')!)).toBe(true);
+    await store.setMemberTitle('dana', '  Team Manager ');
+    expect(store.user('dana')?.title).toBe('Team Manager');
+    await store.setMemberTitle('sam', 'President');
+    expect(store.user('sam')?.title).toBe('President');
+    await store.setMemberTitle('dana', '');
+    expect(store.user('dana')?.title).toBeUndefined();
+    await expect(store.setMemberTitle('dana', 'x'.repeat(61))).rejects.toThrow('60 characters');
+    expect(store.canEditTitle(store.user('jordan')!)).toBe(false);
+    await expect(store.setMemberTitle('jordan', 'Head Coach')).rejects.toThrow('Only staff');
+
+    await store.signOut();
+    await store.signIn('jordan.smith@email.com', 'password');
+    expect(store.canEditTitle(store.user('dana')!)).toBe(false);
+    await expect(store.setMemberTitle('dana', 'Head Coach')).rejects.toThrow('Only staff');
   });
 
   it('lets whoever could invite someone resend or cancel their invite until they join', async () => {
