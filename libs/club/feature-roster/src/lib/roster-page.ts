@@ -1,5 +1,15 @@
 import { DOCUMENT } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  linkedSignal,
+  resource,
+  signal,
+} from '@angular/core';
+import { Router } from '@angular/router';
 import { ChatStore } from '@aura/chat/data-access';
 import { ClubStore } from '@aura/club/data-access';
 import {
@@ -21,9 +31,11 @@ import {
   PersonRowVm,
   PlayerRow,
   PlayerRowVm,
+  SetupChecklist,
+  SetupStepVm,
   StaffRow,
 } from '@aura/club/ui';
-import { PlayerProfile, TeamId, User } from '@aura/shared/models';
+import { PlayerProfile, SeasonId, TeamId, User, UserKind } from '@aura/shared/models';
 import { AppHeader, Chips, Choice } from '@aura/shared/ui';
 import { KIND_GROUP, Submission, Toaster, errorMessage, isClubWide } from '@aura/shared/util';
 
@@ -40,14 +52,96 @@ function disabledNote(u: User): string {
 /** Roster tab container: picks the team and builds staff, player and invite lists. */
 @Component({
   selector: 'aura-roster-page',
-  imports: [AppHeader, Chips, StaffRow, PlayerRow, InvitedRow, InviteForm, MemberInvited, PersonDetails, AddPlayerForm],
+  imports: [
+    AppHeader,
+    Chips,
+    StaffRow,
+    PlayerRow,
+    InvitedRow,
+    InviteForm,
+    MemberInvited,
+    PersonDetails,
+    AddPlayerForm,
+    SetupChecklist,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
     <aura-app-header [clubName]="club.club()?.name ?? ''" [logoUrl]="club.club()?.logoUrl" title="Roster" />
 
     <main class="min-h-0 flex-1 overflow-y-auto">
-      @if (selected(); as teamId) {
+      @if (seasonTabs().length > 1 || setupSteps()) {
+        <div class="flex max-w-[1100px] flex-col gap-3 px-3.5 pt-3.5 wide:px-6 wide:pt-6">
+          @if (seasonTabs().length > 1) {
+            <aura-chips
+              class="-mx-3.5 px-3.5 wide:mx-0 wide:px-0"
+              aria-label="Season"
+              [scroll]="true"
+              [options]="seasonTabs()"
+              [value]="shownSeason()"
+              (valueChange)="shownSeason.set($event)"
+            />
+          }
+          @if (setupSteps(); as steps) {
+            <aura-setup-checklist [steps]="steps" (started)="startSetupStep($event)" />
+          }
+        </div>
+      }
+      @if (pastSeason(); as past) {
+        <div class="flex max-w-[1100px] flex-col gap-3 px-3.5 pt-3.5 pb-6 wide:p-6">
+          <p class="rounded-md border-2 border-dashed border-ink px-3 py-2.5 text-[13px] leading-snug">
+            {{ past.name }} has ended. Its rosters are kept as they were, read-only.
+          </p>
+          @if (pastTabs().length > 1) {
+            <aura-chips
+              class="-mx-3.5 px-3.5 wide:mx-0 wide:px-0"
+              [scroll]="true"
+              [options]="pastTabs()"
+              [value]="pastTeam() ?? ''"
+              (valueChange)="selectedPastTeam.set($event)"
+            />
+          }
+          @if (pastTeam(); as teamId) {
+            <h1 class="font-display text-2xl font-bold uppercase">{{ club.teamName(teamId) }}</h1>
+            <h2 class="label-caps text-[13px]">TEAM STAFF</h2>
+            <div class="card">
+              <div role="list" class="card-grid">
+                @for (s of pastPeople().staff; track s.id) {
+                  <aura-staff-row [vm]="s" [interactive]="false" />
+                } @empty {
+                  <div class="card-row text-sm">No staff.</div>
+                }
+              </div>
+            </div>
+            <h2 class="label-caps mt-1 text-[13px]">PLAYERS · {{ pastPeople().players.length }}</h2>
+            <div class="card">
+              <div role="list" class="card-grid">
+                @for (p of pastPeople().players; track p.id) {
+                  <aura-player-row [vm]="p" [interactive]="false" />
+                } @empty {
+                  <div class="card-row text-sm">No players.</div>
+                }
+              </div>
+            </div>
+            <h2 class="label-caps mt-1 text-[13px]">PARENTS · {{ pastPeople().parents.length }}</h2>
+            <div class="card">
+              <div role="list" class="card-grid">
+                @for (p of pastPeople().parents; track p.id) {
+                  <aura-staff-row [vm]="p" [interactive]="false" />
+                } @empty {
+                  <div class="card-row text-sm">No parents.</div>
+                }
+              </div>
+            </div>
+          } @else if (pastRoster.isLoading()) {
+            <p class="text-sm">Loading {{ past.name }}…</p>
+          } @else if (pastRoster.error()) {
+            <div class="error-box" role="alert">⚠ Could not load {{ past.name }}. Try again.</div>
+          } @else {
+            <p class="text-sm">{{ past.name }} had no teams.</p>
+          }
+        </div>
+      } @else if (selected(); as teamId) {
         <div class="flex max-w-[1100px] flex-col gap-3 px-3.5 pt-3.5 pb-6 wide:p-6">
           @if (tabs().length > 1) {
             <aura-chips
@@ -128,6 +222,12 @@ function disabledNote(u: User): string {
             </div>
           </div>
         </div>
+      } @else if (club.loaded() && !setupSteps()) {
+        <div
+          class="m-3.5 max-w-[600px] rounded-lg border-2 border-dashed border-ink px-4 py-7 text-center text-[15px] font-medium wide:m-6"
+        >
+          No teams yet. Club staff create teams from More.
+        </div>
       }
     </main>
 
@@ -135,6 +235,7 @@ function disabledNote(u: User): string {
       <aura-invite-form
         [teamOptions]="inviteTeamOptions()"
         [initialTeam]="teamId"
+        [initialKind]="inviteKind()"
         [linkedThreadCounts]="linkedThreadCounts()"
         [canInviteClubStaff]="club.isClubStaff()"
         [clubStaffThreadCount]="clubWideThreadCount()"
@@ -183,10 +284,104 @@ export class RosterPage {
   protected readonly club = inject(ClubStore);
   private readonly chat = inject(ChatStore);
   private readonly toaster = inject(Toaster);
+  private readonly router = inject(Router);
   private readonly origin = inject(DOCUMENT).location.origin;
 
   /** Optional `?team=` query parameter, e.g. when arriving from a team card. */
   readonly team = input<TeamId | undefined>();
+  /** Optional `?season=` query parameter: a past season to browse. */
+  readonly season = input<SeasonId | undefined>();
+
+  /** '' is the current season. */
+  protected readonly shownSeason = linkedSignal<string>(() => this.season() ?? '');
+  protected readonly seasonTabs = computed<Choice<string>[]>(() => [
+    { value: '', label: `${this.club.season()?.name ?? 'THIS SEASON'}`.toUpperCase() },
+    ...this.club.pastSeasons().map((s) => ({ value: s.id, label: s.name.toUpperCase() })),
+  ]);
+  protected readonly pastSeason = computed(
+    () => this.club.pastSeasons().find((s) => s.id === this.shownSeason()) ?? null,
+  );
+  protected readonly pastRoster = resource({
+    params: () => this.pastSeason()?.id,
+    loader: ({ params }) => this.club.loadSeason(params),
+  });
+  /** The past team picked; back to the first team whenever another season is shown. */
+  protected readonly selectedPastTeam = linkedSignal<SeasonId | undefined, TeamId>({
+    source: () => this.pastSeason()?.id,
+    computation: () => '',
+  });
+  protected readonly pastTabs = computed<Choice<TeamId>[]>(() =>
+    this.club
+      .allTeams()
+      .filter((t) => t.season === this.pastSeason()?.id)
+      .map((t) => ({ value: t.id, label: t.name.toUpperCase() })),
+  );
+  protected readonly pastTeam = computed(() => {
+    const tabs = this.pastTabs().map((t) => t.value);
+    if (!this.pastRoster.hasValue()) return null;
+    return tabs.includes(this.selectedPastTeam()) ? this.selectedPastTeam() : (tabs[0] ?? null);
+  });
+  /** A past team's people, from the season's rosters. Members since removed from the club are left out. */
+  protected readonly pastPeople = computed(() => {
+    const team = this.pastTeam();
+    const roster = this.pastRoster.hasValue() ? this.pastRoster.value() : null;
+    const people = (roster && team ? roster.members[team] : [])
+      .map((id) => this.club.user(id))
+      .filter((u): u is User => !!u);
+    const players = (roster?.profiles ?? []).filter((p) => p.team === team);
+    const linked = new Set(players.flatMap((p) => p.parentIds));
+    const row = (u: User, sub: string): PersonRowVm => ({ id: u.id, name: u.name, sub });
+    return {
+      staff: people.filter((u) => u.kind === 'staff').map((u) => row(u, 'Team Staff')),
+      players: players
+        .map<PlayerRowVm>((p) => ({
+          id: p.id,
+          name: p.name,
+          jersey: p.jersey,
+          mine: false,
+          sub: this.names(p.parentIds) ? `Parents: ${this.names(p.parentIds)}` : '',
+        }))
+        .sort((a, b) => (Number(a.jersey) || 99) - (Number(b.jersey) || 99)),
+      parents: this.club
+        .users()
+        .filter((u) => (u.kind === 'parent' && people.includes(u)) || linked.has(u.id))
+        .map((u) => {
+          const children = players.filter((p) => p.parentIds.includes(u.id)).map((p) => p.name);
+          return row(u, children.length ? `Parent of ${children.join(', ')}` : 'Parent');
+        }),
+    };
+  });
+
+  /** First-run guidance for club staff, until the club has a team, a coach and players. */
+  protected readonly setupSteps = computed<SetupStepVm[] | null>(() => {
+    if (!this.club.isClubStaff() || this.pastSeason()) return null;
+    const hasTeam = this.club.teams().length > 0;
+    const steps: SetupStepVm[] = [
+      {
+        id: 'team',
+        label: 'Create a team',
+        detail: 'Its #announcements and #general channels come with it.',
+        done: hasTeam,
+        action: 'CREATE TEAM',
+      },
+      {
+        id: 'coach',
+        label: 'Invite a coach',
+        detail: hasTeam ? 'Team staff manage their team’s roster and schedule.' : 'Create a team first.',
+        done: this.club.users().some((u) => u.kind === 'staff'),
+        action: hasTeam ? 'INVITE COACH' : '',
+      },
+      {
+        id: 'players',
+        label: 'Add players',
+        detail: hasTeam ? 'With their parents, or their own sign-in.' : 'Create a team first.',
+        done: this.club.profiles().some((p) => !p.pending),
+        action: hasTeam ? 'ADD PLAYER' : '',
+      },
+    ];
+    return steps.every((s) => s.done) ? null : steps;
+  });
+  protected readonly inviteKind = signal<UserKind>('parent');
 
   protected readonly inviting = signal(false);
   protected readonly addingPlayer = signal(false);
@@ -247,7 +442,7 @@ export class RosterPage {
         return {
           id: u.id,
           name: u.name + (u.id === me ? ' (you)' : ''),
-          sub: 'Team Staff' + (others.length ? ` · also ${others.join(', ')}` : '') + disabledNote(u),
+          sub: 'Team Staff' + (others.length ? ` · also ${this.teamNames(others)}` : '') + disabledNote(u),
         };
       });
   });
@@ -391,9 +586,17 @@ export class RosterPage {
       }));
   });
 
-  protected startInviting(): void {
+  protected startInviting(kind: UserKind = 'parent'): void {
     this.invite.reset();
+    this.inviteKind.set(kind);
     this.inviting.set(true);
+  }
+
+  protected startSetupStep(step: string): void {
+    if (step === 'team')
+      void this.router.navigate(['/', this.club.slug(), 'more'], { queryParams: { create: 'team' } });
+    else if (step === 'coach') this.startInviting('staff');
+    else if (step === 'players') this.startAddingPlayer();
   }
 
   protected async sendInvite(value: InviteFormValue): Promise<void> {

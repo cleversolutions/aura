@@ -1,4 +1,6 @@
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
+import { PlatformRepository } from '@aura/backend/api';
 import { provideTestBackend } from '@aura/backend/mock';
 import { ChatStore } from '@aura/chat/data-access';
 import { ClubStore } from '@aura/club/data-access';
@@ -15,7 +17,76 @@ async function render(initialUserId: string, team?: string) {
   return { fixture, el };
 }
 
+/** A brand-new club, signed in as its admin. */
+async function renderNewClub() {
+  TestBed.configureTestingModule({
+    providers: [provideTestBackend({ initialUserId: null, platformSignedIn: true }), provideRouter([])],
+  });
+  await TestBed.inject(PlatformRepository).createClub({
+    name: 'Rockets',
+    slug: 'r0ck3t',
+    logoUrl: '',
+    ink: '#000000',
+    paper: '#ffffff',
+    logoInk: '#000000',
+    logoPaper: '#ffffff',
+    adminName: 'Casey Morgan',
+    adminEmail: 'casey@rockets.example',
+    temporaryPassword: 'TEMP-pass-22',
+  });
+  const club = TestBed.inject(ClubStore);
+  await club.open('r0ck3t');
+  await club.signIn('casey@rockets.example', 'TEMP-pass-22');
+  await club.changePassword('casey-own-password');
+  await TestBed.inject(ChatStore).load();
+  const fixture = TestBed.createComponent(RosterPage);
+  await fixture.whenStable();
+  return { fixture, club, el: fixture.nativeElement as HTMLElement };
+}
+
 describe('RosterPage', () => {
+  it('guides a new club’s staff through setup until it has a team, a coach and players', async () => {
+    const { fixture, club, el } = await renderNewClub();
+    const buttons = () =>
+      Array.from(el.querySelectorAll('aura-setup-checklist button')).map((b) => b.textContent?.trim());
+    expect(el.textContent).toContain('GET STARTED · 0 OF 3');
+    expect(buttons()).toEqual(['CREATE TEAM']);
+
+    await club.saveTeam({ name: 'U11 Boys', staffIds: [] });
+    await fixture.whenStable();
+    expect(el.textContent).toContain('GET STARTED · 1 OF 3');
+    expect(buttons()).toEqual(['INVITE COACH', 'ADD PLAYER']);
+    expect(el.querySelector('h1')?.textContent).toContain('U11 Boys');
+
+    el.querySelector<HTMLButtonElement>('aura-setup-checklist button')?.click();
+    await fixture.whenStable();
+    expect(el.querySelector('aura-invite-form [role=radio][aria-checked=true]')?.textContent).toContain('Team Staff');
+  });
+
+  it('shows past seasons read-only', async () => {
+    const { fixture, el } = await render('sam');
+    const club = TestBed.inject(ClubStore);
+    const old = club.season()!;
+    await club.startSeason({
+      name: 'Next',
+      teams: [{ from: 'U12G', name: 'U13 Girls', age: 'U13', division: 'Girls', staff: true, players: true }],
+    });
+    await fixture.whenStable();
+    expect(el.querySelector('h1')?.textContent).toContain('U13 Girls');
+
+    Array.from(el.querySelectorAll<HTMLButtonElement>('[role=radio]'))
+      .find((b) => b.textContent?.trim() === old.name.toUpperCase())
+      ?.click();
+    await fixture.whenStable();
+    await new Promise((r) => setTimeout(r));
+    await fixture.whenStable();
+    expect(el.textContent).toContain(`${old.name} has ended`);
+    expect(el.querySelector('h1')?.textContent).toContain('U10 Boys');
+    expect(el.textContent).toContain('Chris Bell');
+    expect(el.textContent).not.toContain('ADD PLAYER');
+    expect(el.querySelector('aura-player-row button')).toBeNull();
+  });
+
   it('shows the first team with my player highlighted', async () => {
     const { el } = await render('jordan');
     expect(el.querySelector('h1')?.textContent).toContain('U12 Girls');

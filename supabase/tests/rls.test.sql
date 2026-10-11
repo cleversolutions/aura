@@ -1,10 +1,10 @@
 -- Row-level security: club isolation, thread membership, RSVPs, event editing, anonymous access,
--- disabled and removed members, contact details and roster corrections.
+-- disabled and removed members, contact details, roster corrections, teams and seasons.
 -- Run with `npm run db:test` (supabase test db). Everything happens in one rolled-back transaction.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(125);
+select plan(153);
 
 -- ---------------------------------------------------------------------------------------------
 -- Fixture: two clubs, each with a Jordan Smith who shares a username but is a different person.
@@ -633,6 +633,148 @@ select pg_temp.login('a0000000-0000-0000-0000-000000000001');
 select is_empty(
   $$select id from public.platform_club_staff('c0000000-0000-0000-0000-000000000001')$$,
   '... which club members cannot'
+);
+
+-- ---------------------------------------------------------------------------------------------
+-- Teams and seasons: new teams' ids, starting a season, past seasons read-only, deleting teams
+-- ---------------------------------------------------------------------------------------------
+
+reset role;
+create temporary table season_fx (name text primary key, id text);
+grant select, insert on season_fx to authenticated;
+insert into season_fx values ('old', public.current_season_id('c0000000-0000-0000-0000-000000000001')::text);
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000001');
+select is(
+  (select count(*)::integer from public.seasons where ended_at is null),
+  1, 'a club starts with one current season, and members see only their club''s'
+);
+insert into public.teams (club_id, name, age, division) values ('c0000000-0000-0000-0000-000000000001', 'U8 Mixed', 'U8', 'Mixed');
+select ok(
+  (select id from public.teams where name = 'U8 Mixed') ~ '^t[0-9a-f]{11}$',
+  'new teams get an id not derived from their name'
+);
+select is(
+  (select season_id::text from public.teams where name = 'U8 Mixed'), (select id from season_fx where name = 'old'),
+  '... in the current season'
+);
+select throws_ok(
+  $$insert into public.teams (club_id, name) values ('c0000000-0000-0000-0000-000000000001', 'u8 mixed ')$$,
+  '23505', null, 'team names are unique within a season'
+);
+select lives_ok(
+  $$update public.teams set name = 'U12 Girls Red' where id = 'U12G'$$, 'club staff rename a team'
+);
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000002');
+select throws_ok(
+  $$select public.start_season('Next', '[]')$$, '42501', null, 'only club staff start a season'
+);
+select throws_ok($$select public.delete_team('U8 Mixed')$$, '42501', null, '... or delete teams');
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000001');
+select throws_ok(
+  $$select public.delete_team('U12G')$$, 'P0001', null, 'a team with players or events cannot be deleted'
+);
+select lives_ok(
+  $$select public.delete_team((select id from public.teams where name = 'U8 Mixed'))$$, 'an empty team can'
+);
+select is(
+  (select count(*)::integer from public.threads where scope = (select id from public.teams where name = 'U8 Mixed')),
+  0, '... with its channels'
+);
+select throws_ok(
+  $$select public.start_season('Next', '[{"from": "U12G", "name": "A"}, {"from": "U18B", "name": "a"}]')$$,
+  'P0001', null, 'carried teams need different names'
+);
+insert into season_fx
+select 'new', public.start_season('Next', '[{"from": "U12G", "name": "U13 Girls", "age": "U13", "division": "Girls", "staff": true, "players": true}]')::text;
+insert into season_fx select 'u13g', id from public.teams where name = 'U13 Girls';
+
+select ok(
+  (select ended_at is not null from public.seasons where id::text = (select id from season_fx where name = 'old')),
+  'starting a season ends the old one'
+);
+select is(
+  (select season_id::text from public.teams where name = 'U13 Girls'), (select id from season_fx where name = 'new'),
+  'carried teams join the new season'
+);
+select is_empty(
+  $$select 1 from public.team_members where team_id in ('U12G', 'U18B')$$,
+  'the old season''s memberships move to history'
+);
+select set_eq(
+  $$select member_id from public.past_team_members where team_id = 'U12G'$$,
+  array[
+    'a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000004',
+    'a0000000-0000-0000-0000-000000000007'
+  ]::uuid[],
+  '... where they are kept'
+);
+select set_eq(
+  $$select member_id from public.team_members where team_id = (select id from season_fx where name = 'u13g')$$,
+  $$select 'a0000000-0000-0000-0000-000000000002'::uuid
+    union select pp.member_id from public.player_profiles p
+      join public.player_parents pp on pp.profile_id = p.id join public.members m on m.id = pp.member_id
+      where p.team_id = 'U12G' and not p.pending and m.kind = 'parent'$$,
+  'the new team has its staff, and the parents of its approved players'
+);
+select is(
+  public.member_teams('a0000000-0000-0000-0000-000000000003'), '{}'::text[],
+  'staff of a team left out are on no team'
+);
+select set_eq(
+  $$select pp.member_id from public.player_profiles p join public.player_parents pp on pp.profile_id = p.id
+    where p.team_id = (select id from season_fx where name = 'u13g') and p.name = 'Maya Smith'$$,
+  array['a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000002']::uuid[],
+  'carried players are copied with their parents'
+);
+select is(
+  (select count(*)::integer from public.player_profiles where team_id = 'U12G' and not pending),
+  (select count(*)::integer from public.player_profiles where team_id = (select id from season_fx where name = 'u13g')),
+  '... and the old season keeps its own'
+);
+
+-- Past seasons are read-only, for club staff too.
+select throws_ok(
+  $$update public.events set location = 'Moved' where id = 'e0000000-0000-0000-0000-000000000001'$$,
+  'P0001', null, 'a past season''s events cannot change'
+);
+select throws_ok(
+  $$insert into public.events (club_id, type, team, location) values ('c0000000-0000-0000-0000-000000000001', 'practice', 'U12G', 'Gym')$$,
+  'P0001', null, '... nor gain events'
+);
+select throws_ok(
+  $$update public.teams set name = 'Renamed' where id = 'U12G'$$, 'P0001', null, '... nor its teams'
+);
+select throws_ok(
+  $$select public.set_member_teams('a0000000-0000-0000-0000-000000000003', '{U18B}')$$,
+  'P0001', null, '... nor its rosters'
+);
+select throws_ok(
+  $$select public.remove_player('f0000000-0000-0000-0000-000000000002')$$, 'P0001', null, '... nor its players'
+);
+select throws_ok(
+  $$insert into public.messages (club_id, thread_id, from_member_id, text)
+    values ('c0000000-0000-0000-0000-000000000001', (select id from fx where name = 'u12g_general'), 'a0000000-0000-0000-0000-000000000001', 'Anyone?')$$,
+  'P0001', null, '... nor its team chats'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000004');
+select throws_ok(
+  $$insert into public.rsvps (club_id, event_id, attendee_id, status)
+    values ('c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'going')$$,
+  'P0001', null, '... nor its RSVPs'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000001');
+insert into public.events (club_id, type, team, location) values ('c0000000-0000-0000-0000-000000000001', 'special', 'ALL', 'Hall 2');
+select is(
+  (select season_id::text from public.events where location = 'Hall 2'), (select id from season_fx where name = 'new'),
+  'club-wide events made now belong to the new season'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000011');
+select ok(
+  (select ended_at is null from public.seasons where club_id = 'c0000000-0000-0000-0000-000000000002'),
+  'other clubs'' seasons are untouched'
 );
 
 select * from finish();

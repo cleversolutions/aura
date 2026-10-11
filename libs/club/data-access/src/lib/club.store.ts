@@ -5,16 +5,19 @@ import {
   ClubSession,
   DemoAccount,
   DemoClub,
+  Directory,
   DirectoryRepository,
   InviteMemberInput,
   AddPlayerInput,
   LinkPlayerInput,
   MemberInvite,
   SaveTeamInput,
+  SeasonRoster,
+  StartSeasonInput,
   UpdateMemberInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
-import { Club, ClubSettings, PlayerProfile, Team, TeamId, User, UserId } from '@aura/shared/models';
+import { Club, ClubSettings, PlayerProfile, Season, SeasonId, Team, TeamId, User, UserId } from '@aura/shared/models';
 import {
   DEFAULT_CLUB_SETTINGS,
   canChangeMemberTeam,
@@ -22,6 +25,7 @@ import {
   canManageTeam,
   canRemoveMember,
   canResetPassword,
+  currentSeason,
   personaOf,
   teamLabel,
 } from '@aura/shared/util';
@@ -31,7 +35,9 @@ interface ClubState {
   slug: string | null;
   club: Club | null;
   manifestUrl: string | null;
-  teams: Team[];
+  seasons: Season[];
+  /** Every season's teams; `teams()` are the current season's. */
+  allTeams: Team[];
   users: User[];
   profiles: PlayerProfile[];
   settings: ClubSettings;
@@ -48,7 +54,8 @@ const initialState: ClubState = {
   slug: null,
   club: null,
   manifestUrl: null,
-  teams: [],
+  seasons: [],
+  allTeams: [],
   users: [],
   profiles: [],
   settings: DEFAULT_CLUB_SETTINGS,
@@ -60,7 +67,8 @@ const initialState: ClubState = {
 };
 
 const signedOut = {
-  teams: [],
+  seasons: [],
+  allTeams: [],
   users: [],
   profiles: [],
   settings: DEFAULT_CLUB_SETTINGS,
@@ -69,16 +77,34 @@ const signedOut = {
   demoAccounts: [],
 };
 
+/** The store's share of a directory. People's teams and the profiles are the current season's. */
+function fromDirectory(dir: Directory) {
+  return { seasons: dir.seasons, allTeams: dir.teams, users: dir.users, profiles: dir.profiles };
+}
+
 /**
- * The open club: its branding, its directory (teams, people, player profiles) and who is
+ * The open club: its branding, its directory (seasons, teams, people, player profiles) and who is
  * signed in to it. Each club has its own session; people belong to one club only.
  */
 export const ClubStore = signalStore(
   { providedIn: 'root' },
   withState(initialState),
-  withComputed(({ users, meId }) => ({
-    me: computed(() => users().find((u) => u.id === meId()) ?? null),
-  })),
+  withComputed(({ users, meId, seasons, allTeams }) => {
+    const season = computed(() => currentSeason(seasons()));
+    return {
+      me: computed(() => users().find((u) => u.id === meId()) ?? null),
+      /** The current season. */
+      season,
+      /** Ended seasons, newest first. Read-only. */
+      pastSeasons: computed(() =>
+        seasons()
+          .filter((s) => !!s.endedAt)
+          .reverse(),
+      ),
+      /** The current season's teams. */
+      teams: computed(() => allTeams().filter((t) => t.season === season()?.id)),
+    };
+  }),
   withComputed(({ me, teams, profiles }) => {
     const persona = computed(() => {
       const m = me();
@@ -148,7 +174,8 @@ export const ClubStore = signalStore(
       }
       const dir = await directory.load();
       patchState(store, {
-        ...dir,
+        ...fromDirectory(dir),
+        settings: dir.settings,
         meId: session.userId,
         mustChangePassword: false,
         preview,
@@ -161,8 +188,12 @@ export const ClubStore = signalStore(
       user(id: UserId | null | undefined): User | undefined {
         return store.users().find((u) => u.id === id);
       },
+      /** Any season's team. */
       teamName(id: string): string {
-        return teamLabel(store.teams(), id);
+        return teamLabel(store.allTeams(), id);
+      },
+      team(id: TeamId): Team | undefined {
+        return store.allTeams().find((t) => t.id === id);
       },
       /** Seeded clubs to offer on the landing page. Empty for real backends. */
       demoClubs(): DemoClub[] {
@@ -230,8 +261,20 @@ export const ClubStore = signalStore(
       /** Resolves with the sign-in for `newStaff`, if any. */
       async saveTeam(input: SaveTeamInput): Promise<MemberInvite | null> {
         const { directory: dir, invite } = await directory.saveTeam(input);
-        patchState(store, { teams: dir.teams, users: dir.users, profiles: dir.profiles });
+        patchState(store, fromDirectory(dir));
         return invite;
+      },
+      /** Club staff: a team of this season with no players and no events. */
+      async deleteTeam(teamId: TeamId): Promise<void> {
+        patchState(store, fromDirectory(await directory.deleteTeam(teamId)));
+      },
+      /** Club staff: ends the current season, which becomes read-only, and starts `input.name`. */
+      async startSeason(input: StartSeasonInput): Promise<void> {
+        patchState(store, fromDirectory(await directory.startSeason(input)));
+      },
+      /** A past season's rosters, read-only. */
+      loadSeason(seasonId: SeasonId): Promise<SeasonRoster> {
+        return directory.loadSeason(seasonId);
       },
       async updateMember(input: UpdateMemberInput): Promise<void> {
         const updated = await directory.updateMember(input);
@@ -287,10 +330,13 @@ export const ClubStore = signalStore(
         const me = store.me();
         return !!me && canManageInvite(me, user);
       },
-      /** Club staff, or staff of `team`: who adds, approves, moves and removes players and sets their parents. */
+      /**
+       * Club staff, or staff of `team`: who adds, approves, moves and removes players and sets their
+       * parents. Only in the current season; past ones are read-only.
+       */
       canManageTeam(team: TeamId): boolean {
         const me = store.me();
-        return !!me && canManageTeam(me, team);
+        return !!me && canManageTeam(me, team) && store.teams().some((t) => t.id === team);
       },
       /** Who puts `user` on `team` or takes them off it. */
       canChangeMemberTeam(user: User, team: TeamId): boolean {
@@ -312,8 +358,7 @@ export const ClubStore = signalStore(
       },
       /** Their parents and own sign-in move with them, so the whole directory is refreshed. */
       async movePlayer(profileId: string, team: TeamId): Promise<void> {
-        const dir = await directory.movePlayer(profileId, team);
-        patchState(store, { teams: dir.teams, users: dir.users, profiles: dir.profiles });
+        patchState(store, fromDirectory(await directory.movePlayer(profileId, team)));
       },
       /** Resolves with the player's new sign-in to hand them. */
       async givePlayerSignIn(profileId: string, email: string): Promise<MemberInvite> {

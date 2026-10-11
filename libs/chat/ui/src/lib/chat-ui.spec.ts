@@ -7,8 +7,8 @@ import { MessageActions } from './message-actions';
 import { ThreadForm, ThreadFormValue } from './thread-form';
 
 const teams: Team[] = [
-  { id: 'U12G', name: 'U12 Girls' },
-  { id: 'U14B', name: 'U14 Boys' },
+  { id: 'U12G', name: 'U12 Girls', season: 's1' },
+  { id: 'U14B', name: 'U14 Boys', season: 's1' },
 ];
 const users: User[] = [
   { id: 'dana', name: 'Dana Reyes', kind: 'staff', teams: ['U12G', 'U14B'] },

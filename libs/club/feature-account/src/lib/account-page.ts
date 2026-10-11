@@ -1,6 +1,6 @@
 import { DOCUMENT } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
 import { ChatStore } from '@aura/chat/data-access';
 import { ClubStore } from '@aura/club/data-access';
 import {
@@ -18,7 +18,10 @@ import {
   PlayerProfileValue,
   ProfileHeader,
   ProfileVm,
+  SeasonTeamVm,
   StaffOptionVm,
+  StartSeasonForm,
+  StartSeasonValue,
   TeamCard,
   TeamCardVm,
   TeamForm,
@@ -26,12 +29,13 @@ import {
 } from '@aura/club/ui';
 import { ClubSettings, PlayerProfile, TeamId } from '@aura/shared/models';
 import { AppHeader, Chips, Choice } from '@aura/shared/ui';
-import { KIND_GROUP, Submission, Toaster, errorMessage } from '@aura/shared/util';
+import { KIND_GROUP, Submission, Toaster, errorMessage, formatSeasonSpan, teamBadge } from '@aura/shared/util';
 
 /** More tab container: profile, player access, teams, club settings and the demo account switcher. */
 @Component({
   selector: 'aura-account-page',
   imports: [
+    RouterLink,
     AppHeader,
     Chips,
     ProfileHeader,
@@ -43,6 +47,7 @@ import { KIND_GROUP, Submission, Toaster, errorMessage } from '@aura/shared/util
     MemberInvited,
     MemberForm,
     ClubSettingsForm,
+    StartSeasonForm,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
@@ -87,6 +92,36 @@ import { KIND_GROUP, Submission, Toaster, errorMessage } from '@aura/shared/util
                   <aura-team-card [vm]="t" (opened)="openTeam(t.id)" />
                 }
               </div>
+            </section>
+          }
+
+          @if (club.isClubStaff() || club.pastSeasons().length) {
+            <section class="flex flex-col gap-2.5 px-3.5 py-[18px] wide:px-6">
+              <div class="flex items-center justify-between">
+                <h2 class="heading-section">SEASON</h2>
+                @if (club.isClubStaff()) {
+                  <button type="button" class="btn-small" (click)="startSeasonForm()">START NEW SEASON</button>
+                }
+              </div>
+              @if (club.season(); as season) {
+                <div class="rounded-md border-2 border-ink px-3.5 py-3 wide:max-w-[420px]">
+                  <span class="block text-base font-semibold">{{ season.name }} · current</span>
+                  <span class="block text-[13px]">{{ seasonSpan(season) }} · {{ club.teams().length }} teams</span>
+                </div>
+              }
+              @for (past of club.pastSeasons(); track past.id) {
+                <a
+                  class="flex items-center justify-between gap-3 rounded-md border-2 border-dashed border-ink px-3.5 py-3 active:bg-pressed wide:max-w-[420px]"
+                  [routerLink]="['/', club.slug(), 'roster']"
+                  [queryParams]="{ season: past.id }"
+                >
+                  <span>
+                    <span class="block text-base font-semibold">{{ past.name }}</span>
+                    <span class="block text-[13px]">{{ seasonSpan(past) }} · read-only</span>
+                  </span>
+                  <span class="font-display text-sm font-bold tracking-[0.05em]">VIEW</span>
+                </a>
+              }
             </section>
           }
 
@@ -154,13 +189,25 @@ import { KIND_GROUP, Submission, Toaster, errorMessage } from '@aura/shared/util
     }
     @if (teamTarget(); as target) {
       <aura-team-form
-        [existingName]="target === 'new' ? null : club.teamName(target)"
+        [team]="target === 'new' ? null : (club.team(target) ?? null)"
+        [canDelete]="target !== 'new'"
         [staffOptions]="staffOptions()"
         [initialStaff]="teamStaff()"
         [saving]="save.saving()"
         [error]="save.error()"
         (closed)="teamTarget.set(null)"
         (submitted)="saveTeam(target, $event)"
+        (deleted)="deleteTeam(target)"
+      />
+    }
+    @if (startingSeason() && club.season(); as season) {
+      <aura-start-season-form
+        [currentName]="season.name"
+        [teams]="seasonTeams()"
+        [saving]="save.saving()"
+        [error]="save.error()"
+        (closed)="startingSeason.set(false)"
+        (submitted)="startSeason($event)"
       />
     }
     @if (editingMe() && club.me(); as me) {
@@ -194,11 +241,15 @@ export class AccountPage {
   private readonly router = inject(Router);
   private readonly origin = inject(DOCUMENT).location.origin;
 
+  /** Optional `?create=team` query parameter: opens the team form (from the roster's setup checklist). */
+  readonly create = input<string | undefined>();
+
   protected readonly editingPlayerId = signal<string | null>(null);
   protected readonly linking = signal(false);
   protected readonly teamTarget = signal<TeamId | 'new' | null>(null);
   protected readonly editingMe = signal(false);
   protected readonly editingSettings = signal(false);
+  protected readonly startingSeason = signal(false);
   /** Sign-in details for staff just invited with a team, to send them by hand. */
   protected readonly inviteReady = signal<MemberInvitedVm | null>(null);
   /** One sheet is open at a time, so they share a submission state. */
@@ -256,9 +307,11 @@ export class AccountPage {
       const players = profiles.filter((p) => p.team === id && !p.pending).length;
       const members = users.filter((u) => KIND_GROUP[u.kind] && u.teams.includes(id)).length;
       const staff = users.filter((u) => u.kind === 'staff' && u.teams.includes(id)).map((u) => u.name);
+      const team = this.club.team(id);
       return {
         id,
         name: this.club.teamName(id),
+        badge: team ? teamBadge(team) : id,
         counts: `${players} players · ${members} members`,
         staff: staff.length ? `Staff: ${staff.join(', ')}` : 'No staff assigned',
       };
@@ -272,9 +325,27 @@ export class AccountPage {
       .map((u) => ({
         id: u.id,
         name: u.name,
-        sub: u.teams.length ? `Currently: ${u.teams.join(', ')}` : 'No team yet',
+        sub: u.teams.length ? `Currently: ${u.teams.map((t) => this.club.teamName(t)).join(', ')}` : 'No team yet',
       })),
   );
+
+  protected readonly seasonTeams = computed<SeasonTeamVm[]>(() => {
+    const users = this.club.users();
+    const profiles = this.club.profiles();
+    return this.club.teams().map((t) => {
+      const players = profiles.filter((p) => p.team === t.id && !p.pending).length;
+      const staff = users.filter((u) => u.kind === 'staff' && u.teams.includes(t.id)).length;
+      return { ...t, counts: `${players} ${players === 1 ? 'player' : 'players'} · ${staff} staff` };
+    });
+  });
+
+  protected readonly seasonSpan = formatSeasonSpan;
+
+  constructor() {
+    effect(() => {
+      if (this.create() === 'team' && this.club.isClubStaff()) untracked(() => this.startTeam('new'));
+    });
+  }
 
   protected readonly allTeamOptions = computed<Choice<TeamId>[]>(() =>
     this.club.teams().map((t) => ({ value: t.id, label: t.name })),
@@ -342,6 +413,35 @@ export class AccountPage {
     this.editingSettings.set(false);
   }
 
+  protected startSeasonForm(): void {
+    this.save.reset();
+    this.startingSeason.set(true);
+  }
+
+  protected async startSeason(value: StartSeasonValue): Promise<void> {
+    const ok = await this.save.run(async () => {
+      await this.club.startSeason(value);
+      // New teams come with default channels; the old teams' channels are read-only now.
+      await this.chat.load();
+    }, errorMessage('Could not start the season.'));
+    if (!ok) return;
+    const n = value.teams.length;
+    this.toaster.show(`${value.name} has started with ${n} ${n === 1 ? 'team' : 'teams'}.`);
+    this.startingSeason.set(false);
+  }
+
+  protected async deleteTeam(target: TeamId | 'new'): Promise<void> {
+    if (target === 'new') return;
+    const name = this.club.teamName(target);
+    const ok = await this.save.run(async () => {
+      await this.club.deleteTeam(target);
+      await this.chat.load();
+    }, errorMessage('Could not delete the team.'));
+    if (!ok) return;
+    this.toaster.show(`${name} deleted.`);
+    this.teamTarget.set(null);
+  }
+
   protected startLinking(): void {
     this.save.reset();
     this.linking.set(true);
@@ -382,7 +482,6 @@ export class AccountPage {
 
   protected async saveTeam(target: TeamId | 'new', value: TeamFormValue): Promise<void> {
     const editing = target === 'new' ? null : target;
-    const teamName = editing ? this.club.teamName(editing) : (value.name ?? '');
     let ready: MemberInvitedVm | null = null;
     const ok = await this.save.run(async () => {
       const invite = await this.club.saveTeam({ id: editing ?? undefined, ...value });
@@ -400,10 +499,12 @@ export class AccountPage {
     }, errorMessage('Could not save the team.'));
     if (!ok) return;
     const count = value.staffIds.length + (value.newStaff ? 1 : 0);
+    const staff = count ? ` with ${count} staff` : '';
     this.toaster.show(
       editing
-        ? `${teamName} staff updated.`
-        : `${teamName} created with ${count} staff. #announcements and #general are ready.`,
+        ? `${value.name} saved.`
+        : `${value.name} created${staff}. #announcements and #general are ready.` +
+            (count ? '' : ' Club staff manage it until it has staff.'),
     );
     this.teamTarget.set(null);
     this.inviteReady.set(ready);

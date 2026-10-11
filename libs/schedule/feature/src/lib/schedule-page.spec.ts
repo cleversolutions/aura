@@ -81,4 +81,25 @@ describe('SchedulePage', () => {
     await fixture.whenStable();
     expect(el.querySelector('[role=alert]')?.textContent).toContain('Pick a date and time, or mark TBD.');
   });
+
+  it('shows a past season’s events read-only', async () => {
+    const { fixture, el, buttons } = await render('sam');
+    const club = TestBed.inject(ClubStore);
+    const old = club.season()!;
+    await club.startSeason({ name: 'Next', teams: [] });
+    await fixture.whenStable();
+    expect(el.querySelectorAll('aura-event-card')).toHaveLength(0);
+    expect(buttons('+ EVENT')).toHaveLength(1);
+
+    Array.from(el.querySelectorAll<HTMLButtonElement>('[role=radio]'))
+      .find((b) => b.textContent?.trim() === old.name.toUpperCase())
+      ?.click();
+    await fixture.whenStable();
+    expect(el.textContent).toContain(`${old.name} has ended`);
+    expect(buttons('+ EVENT')).toHaveLength(0);
+    // Past and still-undated events alike: no RSVP buttons.
+    expect(el.querySelectorAll('aura-event-card')).not.toHaveLength(0);
+    expect(buttons('GOING')).toHaveLength(0);
+    expect(el.querySelector('aura-event-card .badge')?.textContent).toMatch(/^U\d+[BG]$|^CLUB$/);
+  });
 });

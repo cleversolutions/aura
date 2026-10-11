@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { PlayerProfile } from '@aura/shared/models';
 import { AddPlayerForm, ClubSettingsForm, InviteForm, MemberForm, PlayerProfileForm, TeamForm } from './forms';
+import { SetupChecklist, StartSeasonForm } from './seasons';
 import { CopiedValue, MemberInvited } from './member-invited';
 import { TeamCard } from './people';
 import { PersonDetails, PersonDetailsVm } from './person-details';
@@ -143,24 +144,171 @@ describe('ClubSettingsForm', () => {
 });
 
 describe('TeamForm', () => {
-  it('names a new team from age and division and requires staff', async () => {
+  const nameField = (el: HTMLElement) => el.querySelector<HTMLInputElement>('input[placeholder^="e.g."]')!;
+
+  it('suggests a name from the optional age and division, and needs no staff', async () => {
     const fixture = TestBed.createComponent(TeamForm);
-    fixture.componentRef.setInput('staffOptions', [{ id: 'dana', name: 'Dana Reyes', sub: 'Currently: U12G' }]);
+    fixture.componentRef.setInput('staffOptions', [{ id: 'dana', name: 'Dana Reyes', sub: 'Currently: U12 Girls' }]);
     await fixture.whenStable();
     const el = fixture.nativeElement as HTMLElement;
     const submitted = vi.fn();
     fixture.componentInstance.submitted.subscribe(submitted);
 
-    click(el, 'U15');
-    click(el, 'BOYS');
     click(el, 'CREATE TEAM');
     await fixture.whenStable();
-    expect(el.textContent).toContain('U15 Boys');
-    expect(el.querySelector('[role=alert]')?.textContent).toContain('Assign at least one team staff member.');
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Name the team');
 
-    click(el, 'Dana Reyes');
+    click(el, 'U15');
+    click(el, 'BOYS');
+    await fixture.whenStable();
+    expect(nameField(el).value).toBe('U15 Boys');
     click(el, 'CREATE TEAM');
-    expect(submitted).toHaveBeenCalledWith({ name: 'U15 Boys', staffIds: ['dana'], newStaff: undefined });
+    expect(submitted).toHaveBeenLastCalledWith({
+      name: 'U15 Boys',
+      age: 'U15',
+      division: 'Boys',
+      staffIds: [],
+      newStaff: undefined,
+    });
+    expect(el.textContent).not.toContain('DELETE TEAM');
+  });
+
+  it('keeps a typed name, and allows teams without an age or division', async () => {
+    const fixture = TestBed.createComponent(TeamForm);
+    fixture.componentRef.setInput('staffOptions', []);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const submitted = vi.fn();
+    fixture.componentInstance.submitted.subscribe(submitted);
+
+    nameField(el).value = 'Masters';
+    nameField(el).dispatchEvent(new Event('input'));
+    click(el, 'ADULT');
+    await fixture.whenStable();
+    expect(nameField(el).value).toBe('Masters');
+    click(el, 'CREATE TEAM');
+    expect(submitted).toHaveBeenLastCalledWith({ name: 'Masters', age: 'Adult', staffIds: [], newStaff: undefined });
+  });
+
+  it('edits an existing team and confirms before deleting it', async () => {
+    const fixture = TestBed.createComponent(TeamForm);
+    fixture.componentRef.setInput('team', { name: 'U11 Boys', age: 'U11', division: 'Boys' });
+    fixture.componentRef.setInput('staffOptions', [{ id: 'dana', name: 'Dana Reyes', sub: '' }]);
+    fixture.componentRef.setInput('initialStaff', ['dana']);
+    fixture.componentRef.setInput('canDelete', true);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const submitted = vi.fn();
+    const deleted = vi.fn();
+    fixture.componentInstance.submitted.subscribe(submitted);
+    fixture.componentInstance.deleted.subscribe(deleted);
+
+    expect(el.textContent).toContain('MANAGE TEAM');
+    click(el, 'GIRLS');
+    await fixture.whenStable();
+    expect(nameField(el).value).toBe('U11 Boys');
+    click(el, 'SAVE TEAM');
+    expect(submitted).toHaveBeenLastCalledWith({
+      name: 'U11 Boys',
+      age: 'U11',
+      division: 'Girls',
+      staffIds: ['dana'],
+      newStaff: undefined,
+    });
+
+    click(el, 'DELETE TEAM');
+    await fixture.whenStable();
+    expect(deleted).not.toHaveBeenCalled();
+    click(el, 'DELETE');
+    expect(deleted).toHaveBeenCalled();
+  });
+});
+
+describe('StartSeasonForm', () => {
+  it('carries teams over a year older, and confirms before ending the season', async () => {
+    const fixture = TestBed.createComponent(StartSeasonForm);
+    fixture.componentRef.setInput('currentName', '2026–27');
+    fixture.componentRef.setInput('teams', [
+      { id: 'U11B', name: 'U11 Boys Red', age: 'U11', division: 'Boys', counts: '9 players · 1 staff' },
+      { id: 'masters', name: 'Masters', age: 'Adult', counts: '12 players · 0 staff' },
+      { id: 'U18B', name: 'U18 Boys', age: 'U18', division: 'Boys', counts: '10 players · 1 staff' },
+    ]);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const submitted = vi.fn();
+    fixture.componentInstance.submitted.subscribe(submitted);
+
+    expect(el.querySelector<HTMLInputElement>('input[placeholder="e.g. 2027–28"]')?.value).toBe('2027–28');
+    const names = () => Array.from(el.querySelectorAll<HTMLInputElement>('input[aria-label^="New name"]'));
+    expect(names().map((i) => i.value)).toEqual(['U12 Boys Red', 'Masters', 'U19 Boys']);
+
+    // U18 Boys ends; Masters rebuilds without its players.
+    Array.from(el.querySelectorAll<HTMLButtonElement>('button[aria-pressed]'))
+      .find((b) => b.textContent?.includes('U18 Boys'))
+      ?.click();
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Ends with 2026–27');
+    Array.from(el.querySelectorAll<HTMLButtonElement>('button[aria-pressed]'))
+      .filter((b) => b.textContent?.trim() === 'PLAYERS')[1]
+      ?.click();
+    await fixture.whenStable();
+
+    click(el, 'START 2027–28');
+    await fixture.whenStable();
+    expect(submitted).not.toHaveBeenCalled();
+    expect(el.textContent).toContain('End 2026–27 and start 2027–28 with 2 teams?');
+    click(el, 'START SEASON');
+    expect(submitted).toHaveBeenCalledWith({
+      name: '2027–28',
+      teams: [
+        { from: 'U11B', name: 'U12 Boys Red', age: 'U12', division: 'Boys', staff: true, players: true },
+        { from: 'masters', name: 'Masters', age: 'Adult', staff: true, players: false },
+      ],
+    });
+  });
+
+  it('asks for distinct names', async () => {
+    const fixture = TestBed.createComponent(StartSeasonForm);
+    fixture.componentRef.setInput('currentName', 'Spring');
+    fixture.componentRef.setInput('teams', [
+      { id: 'a', name: 'Red', counts: '' },
+      { id: 'b', name: 'Blue', counts: '' },
+    ]);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    click(el, 'START SEASON');
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Name the new season.');
+
+    const season = el.querySelector<HTMLInputElement>('input[placeholder="e.g. 2027–28"]')!;
+    season.value = 'Fall';
+    season.dispatchEvent(new Event('input'));
+    const blue = el.querySelectorAll<HTMLInputElement>('input[aria-label^="New name"]')[1];
+    blue.value = 'red';
+    blue.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    click(el, 'START FALL');
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Give each team a different name.');
+  });
+});
+
+describe('SetupChecklist', () => {
+  it('shows progress and offers the open steps', async () => {
+    const fixture = TestBed.createComponent(SetupChecklist);
+    fixture.componentRef.setInput('steps', [
+      { id: 'team', label: 'Create a team', detail: '', done: true, action: 'CREATE TEAM' },
+      { id: 'coach', label: 'Invite a coach', detail: '', done: false, action: 'INVITE COACH' },
+      { id: 'players', label: 'Add players', detail: 'Create a team first.', done: false, action: '' },
+    ]);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const started = vi.fn();
+    fixture.componentInstance.started.subscribe(started);
+    expect(el.textContent).toContain('GET STARTED · 1 OF 3');
+    expect(Array.from(el.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['INVITE COACH']);
+    click(el, 'INVITE COACH');
+    expect(started).toHaveBeenCalledWith('coach');
   });
 });
 
@@ -192,10 +340,17 @@ describe('PlayerProfileForm', () => {
 describe('TeamCard', () => {
   it('emits when opened', async () => {
     const fixture = TestBed.createComponent(TeamCard);
-    fixture.componentRef.setInput('vm', { id: 'U12G', name: 'U12 Girls', counts: '9 players', staff: 'Staff: Dana' });
+    fixture.componentRef.setInput('vm', {
+      id: 't1',
+      name: 'U12 Girls',
+      badge: 'U12G',
+      counts: '9 players',
+      staff: 'Staff: Dana',
+    });
     await fixture.whenStable();
     const opened = vi.fn();
     fixture.componentInstance.opened.subscribe(opened);
+    expect(fixture.nativeElement.textContent).toContain('U12G');
     click(fixture.nativeElement, 'U12 Girls');
     expect(opened).toHaveBeenCalled();
   });

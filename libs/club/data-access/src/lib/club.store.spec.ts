@@ -39,12 +39,59 @@ describe('ClubStore', () => {
     expect(store.myPlayers().map((p) => p.id)).toEqual(['eli']);
   });
 
-  it('creates a team with staff', async () => {
+  it('creates a team with staff, with an id not derived from its name', async () => {
     const store = await setup('sam');
-    await store.saveTeam({ name: 'U13 Girls', staffIds: ['dana'] });
-    expect(store.teamName('U13G')).toBe('U13 Girls');
-    expect(store.user('dana')?.teams).toContain('U13G');
-    await expect(store.saveTeam({ name: 'U13 Girls', staffIds: [] })).rejects.toThrow('already exists');
+    await store.saveTeam({ name: 'U13 Girls', age: 'U13', division: 'Girls', staffIds: ['dana'] });
+    const team = store.teams().find((t) => t.name === 'U13 Girls');
+    expect(team).toMatchObject({ age: 'U13', division: 'Girls', season: store.season()?.id });
+    expect(team?.id).not.toBe('U13G');
+    expect(store.user('dana')?.teams).toContain(team?.id);
+    await expect(store.saveTeam({ name: 'u13 girls', staffIds: [] })).rejects.toThrow('already exists this season');
+  });
+
+  it('only lets club staff create teams', async () => {
+    const store = await setup('dana');
+    await expect(store.saveTeam({ name: 'U9 Boys', staffIds: [] })).rejects.toThrow('Only club staff');
+  });
+
+  it('starts a season: memberships move to history, carried teams start fresh, the past is read-only', async () => {
+    const store = await setup('sam');
+    const old = store.season()!;
+    const jordanTeams = store.user('jordan')?.teams;
+    expect(jordanTeams).toEqual(['U12G', 'U18B']);
+    await store.startSeason({
+      name: 'Next',
+      teams: [
+        { from: 'U12G', name: 'U13 Girls', age: 'U13', division: 'Girls', staff: false, players: true },
+        { from: 'U18B', name: 'U18 Boys', age: 'U18', division: 'Boys', staff: true, players: false },
+      ],
+    });
+    expect(store.season()?.name).toBe('Next');
+    expect(store.pastSeasons()).toEqual([expect.objectContaining({ id: old.id, endedAt: expect.any(String) })]);
+    const [girls, boys] = ['U13 Girls', 'U18 Boys'].map((n) => store.teams().find((t) => t.name === n)!);
+
+    // Players carried with their parents (Jordan's Maya is on U12G); staff only where asked.
+    expect(store.user('jordan')?.teams).toEqual([girls.id]);
+    expect(store.user('dana')?.teams).toEqual([]);
+    expect(store.user('mike')?.teams).toEqual([boys.id]);
+    expect(store.profiles().every((p) => p.team === girls.id)).toBe(true);
+    expect(
+      store
+        .profiles()
+        .filter((p) => p.parentIds.includes('jordan'))
+        .map((p) => p.name),
+    ).toEqual(['Maya Smith']);
+
+    // The old season's rosters are kept.
+    const past = await store.loadSeason(old.id);
+    expect(past.members['U12G']).toEqual(expect.arrayContaining(['jordan', 'dana']));
+    expect(past.profiles.some((p) => p.team === 'U18B' && p.name === 'Eli Smith')).toBe(true);
+
+    // ...and read-only.
+    expect(store.canManageTeam('U12G')).toBe(false);
+    await expect(store.setMemberTeams('jordan', ['U12G'])).resolves.toBeUndefined();
+    expect(store.user('jordan')?.teams).toEqual([]);
+    await expect(store.startSeason({ name: 'next', teams: [] })).rejects.toThrow('already a season called');
   });
 
   it('invites a member who signs in with the temporary password and then accepts', async () => {
@@ -71,8 +118,9 @@ describe('ClubStore', () => {
       staffIds: [],
       newStaff: { name: 'Ty Cole', email: 'ty@x.example' },
     });
-    expect(invite?.user).toMatchObject({ name: 'Ty Cole', kind: 'staff', teams: ['U9B'], invited: true });
-    expect(await store.saveTeam({ id: 'U9B', staffIds: [] })).toBeNull();
+    const team = store.teams().find((t) => t.name === 'U9 Boys')!;
+    expect(invite?.user).toMatchObject({ name: 'Ty Cole', kind: 'staff', teams: [team.id], invited: true });
+    expect(await store.saveTeam({ id: team.id, name: 'U9 Boys', staffIds: [] })).toBeNull();
   });
 
   it('records a pending player link', async () => {
