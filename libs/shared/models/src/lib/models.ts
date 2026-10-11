@@ -1,5 +1,6 @@
-/** Team identifier, e.g. `U12G`. */
+/** Team identifier: stable, never derived from the name (older teams have ids like `U12G`). */
 export type TeamId = string;
+export type SeasonId = string;
 export type UserId = string;
 
 /** Events can target a single team or the whole club. */
@@ -59,9 +60,28 @@ export interface PlatformAdmin {
   email: string;
 }
 
+/**
+ * A club's season. Teams, rosters and events belong to one; only the current season changes, and
+ * past seasons are read-only.
+ */
+export interface Season {
+  id: SeasonId;
+  name: string;
+  /** ISO date. */
+  startedAt: string;
+  /** ISO date; absent for the current season. */
+  endedAt?: string;
+}
+
 export interface Team {
   id: TeamId;
+  /** Free text, unique within its season, e.g. `U11 Boys Red`. */
   name: string;
+  season: SeasonId;
+  /** Optional age group, e.g. `U11` or `Adult` (`TEAM_AGES` in shared/util). */
+  age?: string;
+  /** Optional division, e.g. `Boys` (`TEAM_DIVISIONS` in shared/util). */
+  division?: string;
 }
 
 export type UserKind = 'club' | 'staff' | 'parent' | 'player';
@@ -113,6 +133,8 @@ export interface ClubEvent {
   id: string;
   type: EventType;
   team: EventTeam;
+  /** The season it belongs to (its team's, or the current one for club-wide events). Left out of drafts. */
+  season?: SeasonId;
   /** Title for special events. */
   title?: string;
   /** Opponent for games. */

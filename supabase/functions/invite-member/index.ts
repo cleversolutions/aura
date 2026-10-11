@@ -41,10 +41,16 @@ serve(async (req, body) => {
       throw new HttpError(403, 'Only club staff and this team’s staff can invite members.');
     }
     const teamRow = check(
-      await admin.from('teams').select('id').eq('club_id', clubId).eq('id', team).maybeSingle(),
+      await admin.from('teams').select('id, season_id').eq('club_id', clubId).eq('id', team).maybeSingle(),
       'Load team',
-    );
+    ) as { id: string; season_id: string } | null;
     if (!teamRow) throw new HttpError(404, 'Team not found.');
+    // Past seasons are read-only: only the current season's teams take new members.
+    const season = check(
+      await admin.from('seasons').select('ended_at').eq('club_id', clubId).eq('id', teamRow.season_id).single(),
+      'Load season',
+    ) as { ended_at: string | null };
+    if (season.ended_at) throw new HttpError(409, 'That team’s season has ended. Invite them to this season’s team.');
   }
 
   const profileId = kind === 'player' ? text(body, 'profile', { required: false }) : '';

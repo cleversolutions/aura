@@ -391,25 +391,44 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
       const dana = await memberId(SPARTANS_SLUG, 'dana@spartans.example');
       const club = await service.from('clubs').select('id').eq('slug', SPARTANS_SLUG).single();
+      let u9bId = '';
       cleanups.push(async () => {
         const quinn = service.from('members').select('user_id').eq('club_id', club.data!.id);
         const { data } = await quinn.eq('username', 'quinn@x.example');
         for (const m of data ?? []) if (m.user_id) await service.auth.admin.deleteUser(m.user_id);
         await service.from('members').delete().eq('club_id', club.data!.id).eq('username', 'quinn@x.example');
-        await service.from('teams').delete().eq('club_id', club.data!.id).eq('id', 'U9B');
+        await service.from('threads').delete().eq('club_id', club.data!.id).eq('scope', u9bId);
+        await service.from('teams').delete().eq('club_id', club.data!.id).eq('id', u9bId);
       });
 
       const { directory: dir, invite } = await directory.saveTeam({
         name: 'U9 Boys',
+        age: 'U9',
+        division: 'Boys',
         staffIds: [dana],
         newStaff: { name: 'Quinn Lam', email: 'quinn@x.example' },
       });
-      expect(dir.teams.map((t) => t.id)).toContain('U9B');
-      expect(dir.users.find((u) => u.id === dana)?.teams).toContain('U9B');
-      expect(invite?.user).toMatchObject({ name: 'Quinn Lam', kind: 'staff', teams: ['U9B'], invited: true });
-      await expect(directory.saveTeam({ name: 'U9 Boys', staffIds: [] })).rejects.toThrow('U9 Boys already exists.');
+      const team = dir.teams.find((t) => t.name === 'U9 Boys')!;
+      u9bId = team.id;
+      expect(team).toMatchObject({ age: 'U9', division: 'Boys', season: dir.seasons.at(-1)?.id });
+      expect(u9bId).not.toBe('U9B');
+      expect(dir.users.find((u) => u.id === dana)?.teams).toContain(u9bId);
+      expect(invite?.user).toMatchObject({ name: 'Quinn Lam', kind: 'staff', teams: [u9bId], invited: true });
+      await expect(directory.saveTeam({ name: 'u9 boys', staffIds: [] })).rejects.toThrow(
+        'u9 boys already exists this season.',
+      );
+      const renamed = await directory.saveTeam({
+        id: u9bId,
+        name: 'U9 Boys Red',
+        staffIds: [dana, invite!.user.id],
+      });
+      expect(renamed.directory.teams.find((t) => t.id === u9bId)).toEqual({
+        id: u9bId,
+        name: 'U9 Boys Red',
+        season: team.season,
+      });
       // Club staff read the new team's default channels without being members of them.
-      const u9b = (await chat.listThreads()).filter((t) => t.scope === 'U9B');
+      const u9b = (await chat.listThreads()).filter((t) => t.scope === u9bId);
       expect(u9b.map((t) => [t.name, t.announceOnly]).sort()).toEqual([
         ['#announcements', true],
         ['#general', false],
@@ -428,7 +447,7 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       expect(me?.invited).toBeUndefined();
       expect(
         (await chat.listThreads())
-          .filter((t) => t.scope === 'U9B')
+          .filter((t) => t.scope === u9bId)
           .map((t) => t.name)
           .sort(),
       ).toEqual(['#announcements', '#general']);
@@ -835,6 +854,51 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
         expect(new Set(seen), username).toEqual(new Set(expected));
         TestBed.resetTestingModule();
       }
+    });
+  });
+
+  // Last: it ends the Panthers copy's season.
+  describe('seasons', () => {
+    it('starts a season, keeps the old one read-only and browsable, and deletes only empty teams', async () => {
+      const { auth, directory, schedule } = setup();
+      await auth.signIn({ clubSlug: PANTHERS_SLUG, username: 'morgan@panthers.example', password: 'password' });
+      const before = await directory.load();
+      const old = before.seasons.find((s) => !s.endedAt)!;
+      expect(before.teams.every((t) => t.season === old.id)).toBe(true);
+      await expect(directory.deleteTeam('U13B')).rejects.toThrow('no players and no events');
+
+      const dir = await directory.startSeason({
+        name: 'Next',
+        teams: [{ from: 'U13B', name: 'U14 Boys', age: 'U14', division: 'Boys', staff: true, players: true }],
+      });
+      const u14 = dir.teams.find((t) => t.name === 'U14 Boys')!;
+      expect(dir.seasons.find((s) => s.id === old.id)?.endedAt).toBeTruthy();
+      expect(u14.season).toBe(dir.seasons.find((s) => !s.endedAt)?.id);
+      expect(dir.profiles.map((p) => p.name).sort()).toEqual(
+        before.profiles
+          .filter((p) => p.team === 'U13B')
+          .map((p) => p.name)
+          .sort(),
+      );
+      const pat = before.users.find((u) => u.name === 'Pat Kim')!;
+      const chris = before.users.find((u) => u.name === 'Chris Obi')!;
+      expect(dir.users.find((u) => u.id === pat.id)?.teams).toEqual([]);
+      expect(dir.users.find((u) => u.id === chris.id)?.teams).toEqual([u14.id]);
+
+      const past = await directory.loadSeason(old.id);
+      expect(past.members['U11G']).toContain(pat.id);
+      expect(past.profiles.filter((p) => p.team === 'U13B')).toHaveLength(3);
+
+      const oldEvent = (await schedule.listEvents()).find((e) => e.team === 'U13B')!;
+      expect(oldEvent.season).toBe(old.id);
+      await expect(schedule.saveEvent({ ...oldEvent, notes: 'moved' })).rejects.toThrow('That season has ended');
+      await expect(directory.saveTeam({ id: 'U11G', name: 'Renamed', staffIds: [] })).rejects.toThrow(
+        'That season has ended',
+      );
+
+      const { directory: withTeam } = await directory.saveTeam({ name: 'U8 Mixed', staffIds: [] });
+      const u8 = withTeam.teams.find((t) => t.name === 'U8 Mixed')!;
+      expect((await directory.deleteTeam(u8.id)).teams.some((t) => t.id === u8.id)).toBe(false);
     });
   });
 });

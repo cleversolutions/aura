@@ -7,18 +7,22 @@ import {
   MemberInvite,
   SaveTeamInput,
   SaveTeamResult,
+  SeasonRoster,
+  StartSeasonInput,
   UpdateMemberInput,
   AddPlayerInput,
   AddPlayerResult,
   UpdateProfileInput,
 } from '@aura/backend/api';
-import { Club, ClubSettings, PlayerProfile, TeamId, User } from '@aura/shared/models';
+import { Club, ClubSettings, PlayerProfile, SeasonId, TeamId, User } from '@aura/shared/models';
 import {
   MEMBER_SELECT,
   PROFILE_SELECT,
+  SEASON_SELECT,
+  TEAM_SELECT,
   dbError,
   functionError,
-  teamIdFor,
+  seasonFromTrigger,
   toClub,
   toDirectory,
   toMemberInvite,
@@ -47,17 +51,26 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
   async load(): Promise<Directory> {
     if (this.clients.previewing) return this.preview.directory.load();
     const { club, client } = this.clients.active();
-    const [clubRow, teams, members, contacts, profiles, settings] = await Promise.all([
+    const [clubRow, seasons, teams, members, contacts, profiles, settings] = await Promise.all([
       client.from('clubs').select().eq('id', club.id).single(),
-      client.from('teams').select('id, name').eq('club_id', club.id).order('id'),
+      client.from('seasons').select(SEASON_SELECT).eq('club_id', club.id).order('started_at'),
+      client.from('teams').select(TEAM_SELECT).eq('club_id', club.id).order('name'),
       client.from('members').select(MEMBER_SELECT).eq('club_id', club.id).order('name'),
       client.rpc('member_contacts'),
       client.from('player_profiles').select(PROFILE_SELECT).eq('club_id', club.id).order('name'),
       client.from('club_settings').select().eq('club_id', club.id).maybeSingle(),
     ]);
-    for (const r of [clubRow, teams, members, contacts, profiles, settings])
+    for (const r of [clubRow, seasons, teams, members, contacts, profiles, settings])
       if (r.error) throw dbError(r.error, 'Could not load the club.');
-    return toDirectory(clubRow.data!, teams.data!, members.data!, contacts.data!, profiles.data!, settings.data);
+    return toDirectory(
+      clubRow.data!,
+      seasons.data!,
+      teams.data!,
+      members.data!,
+      contacts.data!,
+      profiles.data!,
+      settings.data,
+    );
   }
 
   async inviteMember(input: InviteMemberInput): Promise<MemberInvite> {
@@ -71,14 +84,19 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
   async saveTeam(input: SaveTeamInput): Promise<SaveTeamResult> {
     if (this.clients.previewing) return this.preview.directory.saveTeam(input);
     const { club, client } = this.clients.active();
-    let teamId = input.id;
-    if (!teamId) {
-      const name = (input.name ?? '').trim();
-      teamId = teamIdFor(name);
-      const created = await client.from('teams').insert({ club_id: club.id, id: teamId, name });
-      if (created.error?.code === '23505') throw new Error(`${name} already exists.`);
-      if (created.error) throw dbError(created.error, 'Could not create the team.');
-    }
+    const name = input.name.trim();
+    const details = { name, age: input.age || null, division: input.division || null };
+    // New teams get a generated id and the current season (teams_season trigger).
+    const saved = input.id
+      ? await client.from('teams').update(details).eq('club_id', club.id).eq('id', input.id).select('id').single()
+      : await client
+          .from('teams')
+          .insert(seasonFromTrigger({ club_id: club.id, ...details }))
+          .select('id')
+          .single();
+    if (saved.error?.code === '23505') throw new Error(`${name} already exists this season.`);
+    if (saved.error) throw dbError(saved.error, 'Could not save the team.');
+    const teamId = saved.data.id;
 
     const staff = await client
       .from('team_members')
@@ -104,6 +122,38 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
 
     const invite = input.newStaff ? await this.inviteMember({ team: teamId, kind: 'staff', ...input.newStaff }) : null;
     return { directory: await this.load(), invite };
+  }
+
+  async deleteTeam(teamId: TeamId): Promise<Directory> {
+    if (this.clients.previewing) return this.preview.directory.deleteTeam(teamId);
+    const { error } = await this.clients.active().client.rpc('delete_team', { p_team: teamId });
+    if (error) throw dbError(error, 'Could not delete the team.');
+    return this.load();
+  }
+
+  async startSeason(input: StartSeasonInput): Promise<Directory> {
+    if (this.clients.previewing) return this.preview.directory.startSeason(input);
+    const teams = input.teams.map((t) => ({ ...t, age: t.age ?? null, division: t.division ?? null }));
+    const { error } = await this.clients.active().client.rpc('start_season', { p_name: input.name, p_teams: teams });
+    if (error) throw dbError(error, 'Could not start the season.');
+    return this.load();
+  }
+
+  async loadSeason(seasonId: SeasonId): Promise<SeasonRoster> {
+    if (this.clients.previewing) return this.preview.directory.loadSeason(seasonId);
+    const { club, client } = this.clients.active();
+    const teams = await client.from('teams').select('id').eq('club_id', club.id).eq('season_id', seasonId);
+    if (teams.error) throw dbError(teams.error, 'Could not load the season.');
+    const ids = teams.data.map((t) => t.id);
+    const [members, profiles] = await Promise.all([
+      client.from('past_team_members').select('team_id, member_id').eq('club_id', club.id).in('team_id', ids),
+      client.from('player_profiles').select(PROFILE_SELECT).eq('club_id', club.id).in('team_id', ids).order('name'),
+    ]);
+    if (members.error) throw dbError(members.error, 'Could not load the season.');
+    if (profiles.error) throw dbError(profiles.error, 'Could not load the season.');
+    const byTeam: SeasonRoster['members'] = Object.fromEntries(ids.map((id) => [id, []]));
+    for (const m of members.data) byTeam[m.team_id].push(m.member_id);
+    return { members: byTeam, profiles: profiles.data.filter((p) => !p.pending).map(toProfile) };
   }
 
   /** Through an edge function: the email is the sign-in username, so its auth identity moves with it. */

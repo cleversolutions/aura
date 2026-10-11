@@ -11,6 +11,8 @@ import {
   RsvpMap,
   RsvpStatus,
   Score,
+  Season,
+  SeasonId,
   Team,
   TeamId,
   Thread,
@@ -84,12 +86,43 @@ export abstract class AuthRepository {
   abstract usePreview(slug: string): Promise<void>;
 }
 
+/**
+ * The club as the signed-in member sees it. Teams cover every season; people's teams and the player
+ * profiles are the current season's (`loadSeason` has a past season's).
+ */
 export interface Directory {
   club: Club;
+  seasons: Season[];
   teams: Team[];
   users: User[];
   profiles: PlayerProfile[];
   settings: ClubSettings;
+}
+
+/** A past season's rosters, read-only: who was on each of its teams, and its players. */
+export interface SeasonRoster {
+  /** Team id → the members who were on it (staff, parents, players), if still in the club. */
+  members: Record<TeamId, UserId[]>;
+  profiles: PlayerProfile[];
+}
+
+/** A team of the current season carried into the next one. */
+export interface CarriedTeam {
+  /** The current season's team. */
+  from: TeamId;
+  name: string;
+  age?: string;
+  division?: string;
+  /** Its staff join the new team. */
+  staff: boolean;
+  /** Its approved players join the new team, with their parents and own sign-ins. */
+  players: boolean;
+}
+
+export interface StartSeasonInput {
+  name: string;
+  /** Teams left out end with the current season. */
+  teams: CarriedTeam[];
 }
 
 /** Someone invited to a team, or (by club staff) to the club staff, who belong to no team. */
@@ -111,8 +144,11 @@ export interface MemberInvite {
 export interface SaveTeamInput {
   /** Set when editing an existing team. */
   id?: TeamId;
-  /** Required when creating, e.g. `U13 Girls`. */
-  name?: string;
+  /** Free text, e.g. `U11 Boys Red`; unique within the season. */
+  name: string;
+  age?: string;
+  division?: string;
+  /** May be empty: club staff manage a team until it has staff. */
   staffIds: UserId[];
   newStaff?: { name: string; email: string };
 }
@@ -172,8 +208,23 @@ export abstract class DirectoryRepository {
   /** The active club's directory. */
   abstract load(): Promise<Directory>;
   abstract inviteMember(input: InviteMemberInput): Promise<MemberInvite>;
-  /** Creates or updates a team and its staff assignments. Returns the refreshed directory. */
+  /**
+   * Club staff create a team in the current season, or rename one and change its staff. Returns the
+   * refreshed directory.
+   */
   abstract saveTeam(input: SaveTeamInput): Promise<SaveTeamResult>;
+  /**
+   * Club staff delete a team of the current season that has no players and no events (a mistake),
+   * with its chat threads. Teams with a history end with their season instead.
+   */
+  abstract deleteTeam(teamId: TeamId): Promise<Directory>;
+  /**
+   * Club staff end the current season and start a new one, carrying teams over (renamed, with or
+   * without their staff and players). The ended season becomes read-only. Returns the new directory.
+   */
+  abstract startSeason(input: StartSeasonInput): Promise<Directory>;
+  /** A past season's rosters, read-only. */
+  abstract loadSeason(seasonId: SeasonId): Promise<SeasonRoster>;
   /**
    * Members edit themselves; club staff edit anyone in the club; team staff edit invites to their
    * teams. Rejects an email already in use.

@@ -9,6 +9,7 @@ import {
   UserKind,
 } from '@aura/shared/models';
 import { Check, Chips, Choice, Segmented, Sheet } from '@aura/shared/ui';
+import { TEAM_AGES, TEAM_DIVISIONS, suggestedTeamName } from '@aura/shared/util';
 
 /** Who joins a team: everyone but club staff. */
 export type InviteKind = Exclude<UserKind, 'club'>;
@@ -121,6 +122,8 @@ type InviteMode = 'new' | 'existing';
 export class InviteForm {
   readonly teamOptions = input.required<Choice<TeamId>[]>();
   readonly initialTeam = input.required<TeamId>();
+  /** Who is being invited at first, e.g. `staff` when inviting a team's first coach. */
+  readonly initialKind = input<UserKind>('parent');
   /** team → invite kind → number of chat threads they would join automatically (club-wide ones too). */
   readonly linkedThreadCounts = input<Record<TeamId, Record<InviteKind, number>>>({});
   /** Offer "Club Staff" (club staff only). */
@@ -153,7 +156,7 @@ export class InviteForm {
   ]);
 
   protected readonly team = linkedSignal(() => this.initialTeam());
-  protected readonly kind = signal<UserKind>('parent');
+  protected readonly kind = linkedSignal(() => this.initialKind());
   protected readonly name = signal('');
   protected readonly email = signal('');
   protected readonly title = signal('');
@@ -328,43 +331,56 @@ export class LinkPlayerForm {
   }
 }
 
-const AGES = ['U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18', 'U19'];
-type Division = 'Boys' | 'Girls';
-
 export interface StaffOptionVm {
   id: UserId;
   name: string;
-  /** e.g. `Currently: U12G, U14B`. */
+  /** e.g. `Currently: U12 Girls, U14 Boys`. */
   sub: string;
 }
 
-export interface TeamFormValue {
-  /** Set when creating, e.g. `U13 Girls`. */
-  name?: string;
+/** A team's details, as the team form edits them. */
+export interface TeamDetails {
+  name: string;
+  age?: string;
+  division?: string;
+}
+
+export interface TeamFormValue extends TeamDetails {
+  /** May be empty: club staff manage a team until it has staff. */
   staffIds: UserId[];
   newStaff?: { name: string; email: string };
 }
 
-/** Create a team or change who coaches it. Pass `existingName` to edit. */
+/**
+ * Create a team, or (with `team`) rename it, change its age, division and staff, or delete it.
+ * The age and division are optional and suggest the name until it is typed.
+ */
 @Component({
   selector: 'aura-team-form',
   imports: [Sheet, Chips, Segmented, Check],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <aura-sheet [title]="existingName() ? 'MANAGE TEAM' : 'CREATE TEAM'" (closed)="closed.emit()">
-      @if (!existingName()) {
-        <div class="label-caps">AGE GROUP</div>
-        <aura-chips [options]="ageOptions" [(value)]="age" />
-        <div class="label-caps">DIVISION</div>
-        <aura-segmented [options]="divisionOptions" [(value)]="division" [height]="40" [fontSize]="15" />
-      }
-      <div class="rounded-md border-2 border-ink px-3 py-2.5">
-        <div class="label-caps">TEAM NAME</div>
-        <div class="mt-0.5 text-lg font-semibold">{{ teamName() }}</div>
-      </div>
+    <aura-sheet [title]="team() ? 'MANAGE TEAM' : 'CREATE TEAM'" (closed)="closed.emit()">
+      <div class="label-caps">AGE GROUP</div>
+      <aura-chips [options]="ageOptions" [value]="age()" (valueChange)="pickAge($event)" />
+      <div class="label-caps">DIVISION</div>
+      <aura-segmented
+        [options]="divisionOptions"
+        [value]="division()"
+        (valueChange)="pickDivision($event)"
+        [height]="40"
+        [fontSize]="15"
+      />
+      <label class="field">
+        TEAM NAME
+        <input class="field-input" placeholder="e.g. U11 Boys Red" [value]="name()" (input)="typeName(value($event))" />
+      </label>
 
       <div class="label-caps mt-1">ASSIGN TEAM STAFF</div>
-      <p class="-mt-1.5 text-[13px] leading-snug">Team staff can add other staff, parents and players to this team.</p>
+      <p class="-mt-1.5 text-[13px] leading-snug">
+        Team staff can add other staff, parents and players to this team. Optional: club staff manage a team until it
+        has staff.
+      </p>
       <div class="card">
         @for (s of staffOptions(); track s.id) {
           @let selected = staff().includes(s.id);
@@ -375,6 +391,8 @@ export interface TeamFormValue {
               <span class="block text-xs">{{ s.sub }}</span>
             </span>
           </button>
+        } @empty {
+          <div class="card-row text-sm">No team staff in the club yet. Invite one below.</div>
         }
       </div>
 
@@ -400,41 +418,85 @@ export interface TeamFormValue {
       @if (shownError()) {
         <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
       }
-      <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">
-        {{ existingName() ? 'SAVE STAFF' : 'CREATE TEAM' }}
-      </button>
+      @if (confirmingDelete()) {
+        <div class="flex flex-col gap-2 rounded-md border-2 border-dashed border-ink p-3" role="group">
+          <p class="text-[15px] font-medium">
+            Delete {{ team()?.name }} and its chat threads? Only a team with no players and no events can be deleted.
+          </p>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" class="btn-outline h-11" (click)="confirmingDelete.set(false)">BACK</button>
+            <button type="button" class="btn-primary h-11" [disabled]="saving()" (click)="deleted.emit()">
+              DELETE
+            </button>
+          </div>
+        </div>
+      } @else {
+        <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">
+          {{ team() ? 'SAVE TEAM' : 'CREATE TEAM' }}
+        </button>
+        @if (canDelete()) {
+          <button type="button" class="btn-outline h-11" (click)="confirmingDelete.set(true)">DELETE TEAM</button>
+        }
+      }
     </aura-sheet>
   `,
 })
 export class TeamForm {
-  /** Name of the team being edited; null creates a new team. */
-  readonly existingName = input<string | null>(null);
+  /** The team being edited; null creates a new team. */
+  readonly team = input<TeamDetails | null>(null);
   readonly staffOptions = input.required<StaffOptionVm[]>();
   readonly initialStaff = input<UserId[]>([]);
+  /** Offer DELETE TEAM (club staff, editing a team of this season). */
+  readonly canDelete = input(false);
   readonly saving = input(false);
   readonly error = input('');
 
   readonly submitted = output<TeamFormValue>();
+  readonly deleted = output<void>();
   readonly closed = output<void>();
 
-  protected readonly ageOptions: Choice<string>[] = AGES.map((a) => ({ value: a, label: a }));
-  protected readonly divisionOptions: Choice<Division>[] = [
-    { value: 'Boys', label: 'BOYS' },
-    { value: 'Girls', label: 'GIRLS' },
+  protected readonly ageOptions: Choice<string>[] = [
+    { value: '', label: 'NONE' },
+    ...TEAM_AGES.map((a) => ({ value: a, label: a.toUpperCase() })),
+  ];
+  protected readonly divisionOptions: Choice<string>[] = [
+    { value: '', label: 'NONE' },
+    ...TEAM_DIVISIONS.map((d) => ({ value: d, label: d.toUpperCase() })),
   ];
 
-  protected readonly age = signal('U13');
-  protected readonly division = signal<Division>('Girls');
+  protected readonly age = linkedSignal(() => this.team()?.age ?? '');
+  protected readonly division = linkedSignal(() => this.team()?.division ?? '');
+  protected readonly name = linkedSignal(() => this.team()?.name ?? '');
+  /** The name was typed (or the team already has one): age and division no longer change it. */
+  private readonly nameTyped = linkedSignal(() => !!this.team());
   protected readonly staff = linkedSignal(() => [...this.initialStaff()]);
   protected readonly newName = signal('');
   protected readonly newEmail = signal('');
+  protected readonly confirmingDelete = signal(false);
   private readonly validationError = signal('');
   protected readonly shownError = computed(() => this.validationError() || this.error());
 
-  protected readonly teamName = computed(() => this.existingName() ?? `${this.age()} ${this.division()}`);
-
   protected value(e: Event): string {
     return (e.target as HTMLInputElement).value;
+  }
+
+  protected pickAge(age: string): void {
+    this.age.set(age);
+    this.suggestName();
+  }
+
+  protected pickDivision(division: string): void {
+    this.division.set(division);
+    this.suggestName();
+  }
+
+  protected typeName(name: string): void {
+    this.name.set(name);
+    this.nameTyped.set(!!name.trim());
+  }
+
+  private suggestName(): void {
+    if (!this.nameTyped()) this.name.set(suggestedTeamName(this.age(), this.division()));
   }
 
   protected toggleStaff(id: UserId): void {
@@ -443,16 +505,19 @@ export class TeamForm {
   }
 
   protected submit(): void {
+    const teamName = this.name().trim();
+    if (!teamName) return this.validationError.set('Name the team, or pick its age and division.');
     const name = this.newName().trim();
     const email = this.newEmail().trim();
     const hasNew = !!(name || email);
     if (hasNew && (!name || !email.includes('@'))) {
       return this.validationError.set('Enter a name and valid email for the new staff member.');
     }
-    if (!this.staff().length && !hasNew) return this.validationError.set('Assign at least one team staff member.');
     this.validationError.set('');
     this.submitted.emit({
-      name: this.existingName() ? undefined : this.teamName(),
+      name: teamName,
+      ...(this.age() ? { age: this.age() } : {}),
+      ...(this.division() ? { division: this.division() } : {}),
       staffIds: this.staff(),
       newStaff: hasNew ? { name, email } : undefined,
     });
