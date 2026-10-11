@@ -283,6 +283,21 @@ or the "club created" screen). Each person then chooses their own.
 - When Casey opens More → EDIT PROFILE and changes their name, email or title
 - Then More shows the new details, and the new email is their sign-in from now on.
 
+**US-3.18 Phone numbers** ✅ (G22)
+
+- When Jenn opens More → EDIT PROFILE, enters her phone number and presses SAVE
+- Then Evan (her team's staff) and Casey see it in her details on the Roster, as a link that calls her.
+- Phone numbers follow the contacts setting, like emails (US-5.5): by default another U11B parent doesn't see
+  Jenn's. Jenn sees Evan's and Casey's.
+
+**US-3.19 Emergency contact and medical notes** ✅ (G22)
+
+- When Jenn opens Davis from More → YOUR PLAYERS (or the Roster) and enters an emergency contact ("Grandma Buell ·
+  555-0142") and medical notes ("Peanut allergy: EpiPen in his bag")
+- Then Evan, as U11B staff, and Casey see them in Davis's details on the Roster, and can correct them.
+- Rosa, another U11B parent, sees neither, whatever the contacts setting. Noah sees his own.
+- When a new season carries Davis over, his emergency contact and notes come with him.
+
 ---
 
 ## 4. Club admin and coach: schedule and chat
@@ -316,7 +331,15 @@ or the "club created" screen). Each person then chooses their own.
 - When they press DELETE EVENT instead and confirm (an event entered twice)
 - Then it is gone, with its RSVPs.
 
-**US-4.6 Weekly practices** ❌ G23
+**US-4.6 Weekly practices** ✅ (G23)
+
+- When Evan creates a practice for Tuesday 6:00–7:30 PM, ticks "Repeats weekly" and picks an UNTIL date
+- Then the form says "Every Tuesday: 8 practices." and CREATE adds one practice per week, each with its own RSVPs.
+- When he opens the third week → EDIT EVENT, moves it to Wednesday 6:30 PM, picks LATER WEEKS TOO and saves
+- Then that week and every later one move to Wednesday 6:30 PM; earlier weeks stay. A week he cancelled stays
+  cancelled.
+- When he picks THIS WEEK instead, only that practice changes (a gym clash).
+- DELETE EVENT asks THIS WEEK or ALL LATER WEEKS (the season ended early).
 
 **US-4.7 See who's coming** ✅ (G19, G31)
 
@@ -369,6 +392,13 @@ or the "club created" screen). Each person then chooses their own.
 - When Casey opens More → CLUB SETTINGS → Announcements, picks EVERYONE and presses SAVE
 - Then parents get a composer in #announcements and #club-announcements.
 - Coaches and parents have no CLUB SETTINGS.
+
+**US-4.15 When to arrive, when it ends, and where** ✅ (G32)
+
+- When Evan creates a game with ENDS 7:30 PM and ARRIVE BY 5:45 PM
+- Then the card reads "Sat, Oct 17 · 6:00 PM – 7:30 PM", and the event shows "Arrive by 5:45 PM".
+- OPEN MAP beside the location opens it in a map, in a new tab.
+- An end before the start, or arriving after it, is refused.
 
 ---
 

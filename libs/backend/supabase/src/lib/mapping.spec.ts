@@ -33,6 +33,9 @@ const eventRow: EventRow = {
   score_them: 38,
   season_id: 's1',
   cancelled: false,
+  end_time: null,
+  arrive_by: null,
+  series_id: null,
 };
 
 describe('mapping', () => {
@@ -121,6 +124,13 @@ describe('mapping', () => {
     expect(row.cancelled).toBe(false);
     expect(toEvent({ ...eventRow, cancelled: true }).cancelled).toBe(true);
     expect(fromEventDraft({ ...event, cancelled: true }, 'c1').cancelled).toBe(true);
+  });
+
+  it('maps end and arrive-by times and series', () => {
+    const event = toEvent({ ...eventRow, end_time: '11:30:00', arrive_by: '09:30:00', series_id: 'r1' });
+    expect(event).toMatchObject({ endTime: '11:30', arriveBy: '09:30', seriesId: 'r1' });
+    expect(fromEventDraft(event, 'c1')).toMatchObject({ end_time: '11:30', arrive_by: '09:30', series_id: 'r1' });
+    expect(fromEventDraft(toEvent(eventRow), 'c1')).toMatchObject({ end_time: null, arrive_by: null, series_id: null });
   });
 
   it('builds the RSVP map', () => {
@@ -226,11 +236,16 @@ describe('mapping', () => {
         { id: 'U10B', name: 'U10 Boys', season_id: 's1', age: 'U10', division: 'Boys' },
         { id: 't1', name: 'U11 Boys', season_id: 's2', age: 'U11', division: 'Boys' },
       ],
-      [],
-      [],
+      [{ id: 'm1', name: 'Pat', kind: 'parent', title: null, invited: false, disabled: false }],
+      [{ id: 'm1', email: 'pat@x.example', phone: '555-0101' }],
       [
         { ...profile, team_id: 'U10B' },
-        { ...profile, id: 'p2', team_id: 't1' },
+        {
+          ...profile,
+          id: 'p2',
+          team_id: 't1',
+          player_care: [{ emergency_contact: 'Gran · 555-0100', medical_notes: 'Asthma' }],
+        },
       ] as Parameters<typeof toDirectory>[5],
       null,
     );
@@ -240,6 +255,8 @@ describe('mapping', () => {
     ]);
     expect(dir.teams.map((t) => t.id)).toEqual(['U10B', 't1']);
     expect(dir.profiles.map((p) => p.id)).toEqual(['p2']);
+    expect(dir.profiles[0].care).toEqual({ emergencyContact: 'Gran · 555-0100', medicalNotes: 'Asthma' });
+    expect(dir.users[0]).toMatchObject({ email: 'pat@x.example', phone: '555-0101' });
   });
 
   it('turns errors into messages for people', async () => {

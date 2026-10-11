@@ -206,9 +206,18 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
 
   async updateProfile(input: UpdateProfileInput): Promise<PlayerProfile> {
     if (this.clients.previewing) return this.preview.directory.updateProfile(input);
-    const { data, error } = await this.clients
-      .active()
-      .client.from('player_profiles')
+    const { club, client } = this.clients.active();
+    if (input.care) {
+      const care = await client.from('player_care').upsert({
+        club_id: club.id,
+        profile_id: input.id,
+        emergency_contact: input.care.emergencyContact.trim(),
+        medical_notes: input.care.medicalNotes.trim(),
+      });
+      if (care.error) throw dbError(care.error, 'Could not save the player’s care details.');
+    }
+    const { data, error } = await client
+      .from('player_profiles')
       .update({ name: input.name, jersey: input.jersey })
       .eq('id', input.id)
       .select(PROFILE_SELECT)

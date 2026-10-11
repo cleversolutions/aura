@@ -8,13 +8,23 @@ const click = (el: HTMLElement, text: string) =>
     .find((b) => b.textContent?.includes(text))
     ?.click();
 
+const type = (el: HTMLElement, selector: string, value: string) => {
+  const input = el.querySelector<HTMLInputElement>(selector);
+  if (!input) throw new Error(`${selector} missing`);
+  input.value = value;
+  input.dispatchEvent(new Event('input'));
+};
+
 const detailVm: EventDetailVm = {
   type: 'special',
   title: 'Club Awards Night',
   sheetTitle: 'SPECIAL · CLUB-WIDE',
   when: 'Date & time TBD',
   homeAway: null,
+  arriveBy: null,
+  repeats: null,
   location: 'Spartan Centre Hall',
+  mapUrl: null,
   notes: '',
   finalScore: null,
   scoreEntry: null,
@@ -41,6 +51,20 @@ describe('EventDetail', () => {
     fixture.componentInstance.confirmed.subscribe((c) => confirmed.push(c));
     return { fixture, el: fixture.nativeElement as HTMLElement, confirmed };
   }
+
+  it('shows the arrive-by time, that it repeats, and a map link', async () => {
+    const { el } = await render({
+      ...detailVm,
+      arriveBy: 'Arrive by 5:45 PM',
+      repeats: 'Repeats weekly',
+      mapUrl: 'https://maps.example/?q=Hall',
+    });
+    expect(el.textContent).toContain('Arrive by 5:45 PM');
+    expect(el.textContent).toContain('Repeats weekly');
+    const map = el.querySelector<HTMLAnchorElement>('a[aria-label="Map of Spartan Centre Hall"]');
+    expect(map?.href).toBe('https://maps.example/?q=Hall');
+    expect(map?.target).toBe('_blank');
+  });
 
   it('shows statuses and emits the selected players', async () => {
     const { fixture, el, confirmed } = await render(detailVm);
@@ -135,9 +159,10 @@ describe('EventForm', () => {
     location.value = 'Court 4';
     location.dispatchEvent(new Event('input'));
     click(el, 'CREATE · U12 GIRLS');
-    expect(submitted).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'practice', team: 'U12G', tbd: true, location: 'Court 4' }),
-    );
+    expect(submitted).toHaveBeenCalledWith({
+      draft: expect.objectContaining({ type: 'practice', team: 'U12G', tbd: true, location: 'Court 4' }),
+      scope: 'one',
+    });
   });
 
   it('cancels, restores and deletes an event after confirming', async () => {
@@ -174,6 +199,82 @@ describe('EventForm', () => {
     expect(cancelled).toEqual([true, false]);
   });
 
+  it('creates a weekly event until a date, with end and arrive-by times', async () => {
+    const fixture = TestBed.createComponent(EventForm);
+    fixture.componentRef.setInput('teamOptions', [{ value: 'U12G', label: 'U12 Girls' }]);
+    fixture.componentRef.setInput('defaultTeam', 'U12G');
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const submitted = vi.fn();
+    fixture.componentInstance.submitted.subscribe(submitted);
+
+    type(el, 'input[aria-label=Date]', '2030-01-08');
+    type(el, 'input[aria-label=Time]', '18:00');
+    type(el, 'input[placeholder="Gym, court, or address"]', 'Northview');
+    const [ends, arrive] = Array.from(el.querySelectorAll<HTMLInputElement>('input[type=time]')).slice(1);
+    ends.value = '17:00';
+    ends.dispatchEvent(new Event('input'));
+    click(el, 'CREATE');
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('The end time must be after the start time.');
+
+    ends.value = '19:30';
+    ends.dispatchEvent(new Event('input'));
+    arrive.value = '17:45';
+    arrive.dispatchEvent(new Event('input'));
+    click(el, 'Repeats weekly');
+    await fixture.whenStable();
+    type(el, 'input[min="2030-01-08"]', '2030-01-08');
+    click(el, 'CREATE');
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('at least a week after');
+
+    type(el, 'input[min="2030-01-08"]', '2030-02-26');
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Every Tuesday: 8 practices.');
+    click(el, 'CREATE');
+    expect(submitted).toHaveBeenCalledWith({
+      draft: expect.objectContaining({ date: '2030-01-08', time: '18:00', endTime: '19:30', arriveBy: '17:45' }),
+      repeatUntil: '2030-02-26',
+      scope: 'one',
+    });
+  });
+
+  it('changes or deletes one week of a series, or later weeks too', async () => {
+    const fixture = TestBed.createComponent(EventForm);
+    const event = {
+      id: 'e1',
+      type: 'practice' as const,
+      team: 'U12G',
+      date: '2030-01-15',
+      time: '18:00',
+      location: 'Gym',
+      notes: '',
+      seriesId: 'r1',
+    };
+    fixture.componentRef.setInput('teamOptions', [{ value: 'U12G', label: 'U12 Girls' }]);
+    fixture.componentRef.setInput('event', event);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const submitted = vi.fn();
+    const deleted: string[] = [];
+    fixture.componentInstance.submitted.subscribe(submitted);
+    fixture.componentInstance.deleted.subscribe((d) => deleted.push(d));
+    expect(el.textContent).not.toContain('Repeats weekly');
+
+    click(el, 'LATER WEEKS TOO');
+    await fixture.whenStable();
+    click(el, 'SAVE CHANGES');
+    expect(submitted).toHaveBeenCalledWith({ draft: expect.objectContaining({ id: 'e1' }), scope: 'following' });
+
+    click(el, 'DELETE EVENT');
+    await fixture.whenStable();
+    expect(el.textContent).toContain('every later week');
+    click(el, 'ALL LATER WEEKS');
+    click(el, 'THIS WEEK');
+    expect(deleted).toEqual(['following', 'one']);
+  });
+
   it('shows the error passed in by the container', async () => {
     const fixture = TestBed.createComponent(EventForm);
     fixture.componentRef.setInput('teamOptions', []);
@@ -190,5 +291,11 @@ describe('EventForm', () => {
     expect(validateEventDraft({ ...base, type: 'special' })).toBe('Add a title.');
     expect(validateEventDraft({ ...base, opponent: 'Hawks', location: ' ' })).toBe('Add a location.');
     expect(validateEventDraft({ ...base, opponent: 'Hawks' })).toBeNull();
+    const timed: ClubEventDraft = { ...base, opponent: 'Hawks', tbd: false, date: '2030-01-08', time: '18:00' };
+    expect(validateEventDraft({ ...timed, endTime: '18:00' })).toBe('The end time must be after the start time.');
+    expect(validateEventDraft({ ...timed, arriveBy: '18:05' })).toBe(
+      'The arrive-by time can’t be after the start time.',
+    );
+    expect(validateEventDraft({ ...timed, endTime: '19:30', arriveBy: '17:45' })).toBeNull();
   });
 });

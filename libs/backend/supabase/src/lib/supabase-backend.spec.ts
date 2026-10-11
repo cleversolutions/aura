@@ -17,7 +17,14 @@ import {
 } from '@aura/backend/api';
 import { DEMO_PASSWORD, createMockClubs } from '@aura/backend/mock';
 import { Thread, User } from '@aura/shared/models';
-import { DEFAULT_LOGIN_DOMAIN, authEmailFor, canRsvp, canSeeContact, effectiveMembers } from '@aura/shared/util';
+import {
+  DEFAULT_LOGIN_DOMAIN,
+  authEmailFor,
+  canRsvp,
+  canSeeContact,
+  canSeePlayerCare,
+  effectiveMembers,
+} from '@aura/shared/util';
 import { Database } from './database.types';
 import { createPlatformAdmin, deleteClubs, deletePlatformAdmin, seedDemoClub, throwawaySlug } from './demo-clubs';
 import { provideSupabaseBackend } from './provide-supabase-backend';
@@ -180,7 +187,7 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       const { auth, schedule, directory } = setup();
       await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'jordan.smith@email.com', password: 'password' });
       const events = await schedule.listEvents();
-      expect(events).toHaveLength(12);
+      expect(events).toHaveLength(14);
       const practice = events.find((e) => e.type === 'practice' && e.team === 'U12G' && e.notes.startsWith('Bring'));
       const { profiles } = await directory.load();
       const maya = profiles.find((p) => p.name === 'Maya Smith');
@@ -240,6 +247,49 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       await expect(schedule.setCancelled(clubWide.id, true)).rejects.toThrow();
       await schedule.deleteEvent(created.id);
       expect((await schedule.listEvents()).some((e) => e.id === created.id)).toBe(false);
+    });
+
+    it('repeats an event weekly, changes it from one week on, and deletes later weeks', async () => {
+      const { auth, schedule } = setup();
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'dana@spartans.example', password: 'password' });
+      const draft = { type: 'practice' as const, team: 'U12G', location: 'Gym', notes: '' };
+      const weeks = await schedule.createWeekly(
+        { ...draft, date: '2030-01-08', time: '18:00', endTime: '19:30', arriveBy: '17:45' },
+        '2030-01-29',
+      );
+      cleanups.push(() =>
+        service
+          .from('events')
+          .delete()
+          .in(
+            'id',
+            weeks.map((e) => e.id),
+          ),
+      );
+      expect(weeks.map((e) => e.date)).toEqual(['2030-01-08', '2030-01-15', '2030-01-22', '2030-01-29']);
+      expect(weeks[0]).toMatchObject({ endTime: '19:30', arriveBy: '17:45', seriesId: weeks[3].seriesId });
+      await schedule.setCancelled(weeks[2].id, true);
+
+      const changed = await schedule.saveSeries({ ...weeks[1], date: '2030-01-16', time: '18:30', endTime: undefined });
+      expect(changed.map((e) => `${e.date} ${e.time} ${e.endTime ?? '-'} ${e.cancelled ?? false}`).sort()).toEqual([
+        '2030-01-16 18:30 - false',
+        '2030-01-23 18:30 - true',
+        '2030-01-30 18:30 - false',
+      ]);
+      await expect(schedule.saveEvent({ ...weeks[0], endTime: '17:00' })).rejects.toThrow();
+
+      expect((await schedule.deleteSeries(weeks[2].id)).sort()).toEqual([weeks[2].id, weeks[3].id].sort());
+      const left = (await schedule.listEvents()).filter((e) => e.seriesId === weeks[0].seriesId);
+      expect(left.map((e) => e.date).sort()).toEqual(['2030-01-08', '2030-01-16']);
+
+      TestBed.resetTestingModule();
+      const mike = setup();
+      await mike.auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'mike@spartans.example', password: 'password' });
+      await expect(mike.schedule.saveSeries({ ...weeks[0], location: 'Elsewhere' })).rejects.toThrow(/staff/);
+      await expect(mike.schedule.deleteSeries(weeks[0].id)).rejects.toThrow(/staff/);
+      await expect(
+        mike.schedule.createWeekly({ ...draft, date: '2030-01-08', time: '18:00' }, '2030-01-29'),
+      ).rejects.toThrow();
     });
 
     it('lets team staff edit their own team’s events only', async () => {
@@ -900,6 +950,63 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
         TestBed.resetTestingModule();
       }
     });
+  });
+
+  describe('phones and care details', () => {
+    it('saves phone numbers and players’ care details, which only the family and staff read', async () => {
+      const jordan = setup();
+      await jordan.auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'jordan.smith@email.com', password: 'password' });
+      const dir = await jordan.directory.load();
+      const me = dir.users.find((u) => u.name === 'Jordan Smith')!;
+      expect(dir.users.find((u) => u.name === 'Dana Reyes')?.phone).toBe('555-0134');
+      const saved = await jordan.directory.updateMember({
+        id: me.id,
+        name: me.name,
+        email: me.email!,
+        phone: '555-0199',
+      });
+      expect(saved.phone).toBe('555-0199');
+      const maya = dir.profiles.find((p) => p.name === 'Maya Smith')!;
+      expect(maya.care?.medicalNotes).toContain('asthma');
+      const care = { emergencyContact: 'Aunt Bea · 555-0111', medicalNotes: 'Peanut allergy' };
+      expect((await jordan.directory.updateProfile({ ...maya, care })).care).toEqual(care);
+      TestBed.resetTestingModule();
+
+      const priya = setup();
+      await priya.auth.signIn({
+        clubSlug: SPARTANS_SLUG,
+        username: 'priya-patel@spartans.example',
+        password: 'password',
+      });
+      const seen = await priya.directory.load();
+      expect(seen.profiles.find((p) => p.id === maya.id)).not.toHaveProperty('care');
+      expect(seen.users.find((u) => u.id === me.id)).not.toHaveProperty('phone');
+      await expect(priya.directory.updateProfile({ ...maya, care })).rejects.toThrow();
+    });
+
+    it('is the same in SQL (can_see_player_care) as in TypeScript (canSeePlayerCare)', async () => {
+      const club = setup();
+      await club.auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
+      const { users, profiles } = await club.directory.load();
+      const candidates = profiles.filter((p) => ['U12G', 'U14B', 'U18B'].includes(p.team));
+      TestBed.resetTestingModule();
+      for (const username of [
+        'jordan.smith@email.com',
+        'dana@spartans.example',
+        'mike@spartans.example',
+        'eli.smith@email.com',
+      ]) {
+        const { auth } = setup();
+        const { userId } = await auth.signIn({ clubSlug: SPARTANS_SLUG, username, password: 'password' });
+        const me = users.find((u) => u.id === userId)!;
+        const client = TestBed.inject(SupabaseClients).active().client;
+        for (const p of candidates) {
+          const { data } = await client.rpc('can_see_player_care', { p_profile: p.id });
+          expect(data, `${username} ${p.name}`).toBe(canSeePlayerCare(me, p));
+        }
+        TestBed.resetTestingModule();
+      }
+    }, 60_000);
   });
 
   describe('who RSVPs for whom', () => {

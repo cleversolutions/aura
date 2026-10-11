@@ -1,15 +1,31 @@
 import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
 import { ClubEvent, ClubEventDraft, EventTeam, EventType } from '@aura/shared/models';
 import { Check, Chips, Choice, Segmented, Sheet } from '@aura/shared/ui';
+import { MAX_WEEKS, weeklyDates } from '@aura/shared/util';
 
 /** Returns an error message for an incomplete draft, or null when it can be saved. */
 export function validateEventDraft(d: ClubEventDraft): string | null {
   if (d.type === 'game' && !d.opponent?.trim()) return 'Add the opponent.';
   if (d.type === 'special' && !d.title?.trim()) return 'Add a title.';
   if (!d.tbd && (!d.date || !d.time)) return 'Pick a date and time, or mark TBD.';
+  if (d.endTime && d.time && d.endTime <= d.time) return 'The end time must be after the start time.';
+  if (d.arriveBy && d.time && d.arriveBy > d.time) return 'The arrive-by time can’t be after the start time.';
   if (!d.location.trim()) return 'Add a location.';
   return null;
 }
+
+/** Which weeks of a repeating event a change applies to: this one, or this and every later one. */
+export type SeriesScope = 'one' | 'following';
+
+export interface EventFormValue {
+  draft: ClubEventDraft;
+  /** New events only: repeat every week until this date (`YYYY-MM-DD`). */
+  repeatUntil?: string;
+  /** Editing a repeating event: this week only, or later weeks too. Always `one` otherwise. */
+  scope: SeriesScope;
+}
+
+const PLURAL: Record<EventType, string> = { practice: 'practices', game: 'games', special: 'events' };
 
 /** Create or edit an event. Emits a validated draft; saving is the container's job. */
 @Component({
@@ -73,6 +89,52 @@ export function validateEventDraft(d: ClubEventDraft): string | null {
             (input)="time.set(value($event))"
           />
         </div>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="field">
+            ENDS
+            <input
+              class="field-input text-[15px]"
+              type="time"
+              [value]="endTime()"
+              (input)="endTime.set(value($event))"
+            />
+          </label>
+          <label class="field">
+            ARRIVE BY
+            <input
+              class="field-input text-[15px]"
+              type="time"
+              [value]="arriveBy()"
+              (input)="arriveBy.set(value($event))"
+            />
+          </label>
+        </div>
+        @if (!event()) {
+          <button
+            type="button"
+            class="flex items-center gap-2.5 py-1 text-[15px] font-semibold"
+            [attr.aria-pressed]="repeats()"
+            (click)="repeats.set(!repeats())"
+          >
+            <aura-check [checked]="repeats()" />
+            Repeats weekly
+          </button>
+          @if (repeats()) {
+            <label class="field">
+              UNTIL
+              <input
+                class="field-input text-[15px]"
+                type="date"
+                [min]="date()"
+                [value]="until()"
+                (input)="until.set(value($event))"
+              />
+            </label>
+            @if (repeatSummary(); as summary) {
+              <p class="-mt-1 text-[13px] leading-snug">{{ summary }}</p>
+            }
+          }
+        }
       }
 
       <label class="field">
@@ -95,6 +157,11 @@ export function validateEventDraft(d: ClubEventDraft): string | null {
         ></textarea>
       </label>
 
+      @if (inSeries() && !confirming()) {
+        <div class="label-caps">WEEKLY · CHANGE</div>
+        <aura-segmented [options]="scopeOptions" [(value)]="scope" [height]="40" [fontSize]="15" />
+      }
+
       @if (shownError()) {
         <div class="error-box" role="alert">⚠ {{ shownError() }}</div>
       }
@@ -103,21 +170,36 @@ export function validateEventDraft(d: ClubEventDraft): string | null {
           <p class="text-[15px] font-medium">
             @if (action === 'cancel') {
               Cancel this event? It stays on the schedule marked CANCELLED, and RSVPs close. You can restore it later.
+            } @else if (inSeries()) {
+              Delete this week only, or this week and every later week of the series? Their RSVPs go too; it cannot be
+              undone.
             } @else {
               Delete this event and its RSVPs? Use this for an event entered by mistake; it cannot be undone.
             }
           </p>
-          <div class="grid grid-cols-2 gap-2">
-            <button type="button" class="btn-outline h-11" (click)="confirming.set(null)">BACK</button>
-            <button
-              type="button"
-              class="btn-primary h-11"
-              [disabled]="saving()"
-              (click)="action === 'cancel' ? cancelledChange.emit(true) : deleted.emit()"
-            >
-              {{ action === 'cancel' ? 'CANCEL EVENT' : 'DELETE' }}
-            </button>
-          </div>
+          @if (action === 'delete' && inSeries()) {
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" class="btn-primary h-11" [disabled]="saving()" (click)="deleted.emit('one')">
+                THIS WEEK
+              </button>
+              <button type="button" class="btn-primary h-11" [disabled]="saving()" (click)="deleted.emit('following')">
+                ALL LATER WEEKS
+              </button>
+            </div>
+            <button type="button" class="btn-link h-10 self-center" (click)="confirming.set(null)">Back</button>
+          } @else {
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" class="btn-outline h-11" (click)="confirming.set(null)">BACK</button>
+              <button
+                type="button"
+                class="btn-primary h-11"
+                [disabled]="saving()"
+                (click)="action === 'cancel' ? cancelledChange.emit(true) : deleted.emit('one')"
+              >
+                {{ action === 'cancel' ? 'CANCEL EVENT' : 'DELETE' }}
+              </button>
+            </div>
+          }
         </div>
       } @else {
         <button type="button" class="btn-primary mt-1" [disabled]="saving()" (click)="submit()">
@@ -154,17 +236,21 @@ export class EventForm {
   /** Error from the last save attempt. */
   readonly error = input('');
 
-  readonly submitted = output<ClubEventDraft>();
+  readonly submitted = output<EventFormValue>();
   readonly closed = output<void>();
-  /** Editing only: call the event off (true) or restore it (false). */
+  /** Editing only: call the event off (true) or restore it (false); one week of a series at a time. */
   readonly cancelledChange = output<boolean>();
-  /** Editing only, after confirming. */
-  readonly deleted = output<void>();
+  /** Editing only, after confirming: this event, or (repeating events) this and every later week. */
+  readonly deleted = output<SeriesScope>();
 
   protected readonly typeOptions: Choice<EventType>[] = [
     { value: 'practice', label: 'PRACTICE' },
     { value: 'game', label: 'GAME' },
     { value: 'special', label: 'SPECIAL' },
+  ];
+  protected readonly scopeOptions: Choice<SeriesScope>[] = [
+    { value: 'one', label: 'THIS WEEK' },
+    { value: 'following', label: 'LATER WEEKS TOO' },
   ];
   protected readonly homeOptions: Choice<boolean>[] = [
     { value: true, label: 'HOME' },
@@ -179,6 +265,27 @@ export class EventForm {
   protected readonly tbd = linkedSignal(() => !!this.event()?.tbd);
   protected readonly date = linkedSignal(() => this.event()?.date ?? '');
   protected readonly time = linkedSignal(() => this.event()?.time ?? '');
+  protected readonly endTime = linkedSignal(() => this.event()?.endTime ?? '');
+  protected readonly arriveBy = linkedSignal(() => this.event()?.arriveBy ?? '');
+  protected readonly repeats = signal(false);
+  protected readonly until = signal('');
+  /** Back to this week only whenever another event is opened. */
+  protected readonly scope = linkedSignal<ClubEvent | null, SeriesScope>({
+    source: this.event,
+    computation: () => 'one',
+  });
+  /** Editing one week of a repeating event. */
+  protected readonly inSeries = computed(() => !!this.event()?.seriesId && !!this.event()?.date);
+  /** e.g. `Every Tuesday: 8 practices.` */
+  protected readonly repeatSummary = computed(() => {
+    const date = this.date();
+    const until = this.until();
+    if (!date || !until || until < date) return '';
+    const n = weeklyDates(date, until).length;
+    const day = new Date(`${date}T12:00`).toLocaleDateString('en-US', { weekday: 'long' });
+    const what = n === 1 ? this.type() : PLURAL[this.type()];
+    return `Every ${day}: ${n} ${what}` + (n === MAX_WEEKS ? ` (the most at once).` : '.');
+  });
   protected readonly location = linkedSignal(() => this.event()?.location ?? '');
   protected readonly notes = linkedSignal(() => this.event()?.notes ?? '');
 
@@ -204,6 +311,8 @@ export class EventForm {
     }
     const type = this.type();
     const tbd = this.tbd();
+    const repeats = !this.event() && !tbd && this.repeats();
+    const scope: SeriesScope = this.inSeries() ? this.scope() : 'one';
     const draft: ClubEventDraft = {
       ...(this.event() ?? {}),
       type,
@@ -214,11 +323,22 @@ export class EventForm {
       tbd,
       date: tbd ? undefined : this.date(),
       time: tbd ? undefined : this.time(),
+      endTime: (!tbd && this.endTime()) || undefined,
+      arriveBy: (!tbd && this.arriveBy()) || undefined,
       location: this.location().trim(),
       notes: this.notes().trim(),
     };
-    const problem = validateEventDraft(draft);
+    const problem = validateEventDraft(draft) ?? this.seriesProblem(draft, repeats, scope);
     this.validationError.set(problem ?? '');
-    if (!problem) this.submitted.emit(draft);
+    if (problem) return;
+    this.submitted.emit(repeats ? { draft, repeatUntil: this.until(), scope } : { draft, scope });
+  }
+
+  private seriesProblem(draft: ClubEventDraft, repeats: boolean, scope: SeriesScope): string | null {
+    if (repeats && (!this.until() || weeklyDates(draft.date ?? '', this.until()).length < 2)) {
+      return 'Pick an end date at least a week after the first event.';
+    }
+    if (scope === 'following' && draft.tbd) return 'Pick a date and time to change later weeks too.';
+    return null;
   }
 }

@@ -118,6 +118,42 @@ describe('SchedulePage', () => {
     expect(store.statusOf('e1', 'dana')).toBeUndefined();
   });
 
+  it('shows the end time on the card, and when to arrive and a map link in the event', async () => {
+    const { fixture, el } = await render('kim-alvarez');
+    const practice = el.querySelectorAll('aura-event-card')[0];
+    expect(practice.textContent).toContain('6:00 PM – 7:30 PM');
+    practice.querySelector('button')?.click();
+    await fixture.whenStable();
+    const detail = el.querySelector('aura-event-detail');
+    expect(detail?.textContent).toContain('Arrive by 5:45 PM');
+    expect(detail?.querySelector<HTMLAnchorElement>('a[aria-label^="Map of"]')?.href).toContain(
+      'query=Northview%20Middle%20School%20Gym',
+    );
+  });
+
+  it('changes a weekly practice from one week on', async () => {
+    const { fixture, el, buttons } = await render('dana');
+    const weekly = Array.from(el.querySelectorAll('aura-event-card')).find((c) => c.textContent?.includes('U14'));
+    weekly?.querySelector('button')?.click();
+    await fixture.whenStable();
+    expect(el.querySelector('aura-event-detail')?.textContent).toContain('Repeats weekly');
+    buttons('EDIT EVENT')[0].click();
+    await fixture.whenStable();
+    const location = el.querySelector<HTMLInputElement>('aura-event-form input[placeholder="Gym, court, or address"]')!;
+    location.value = 'Court 5';
+    location.dispatchEvent(new Event('input'));
+    buttons('LATER WEEKS TOO')[0].click();
+    await fixture.whenStable();
+    buttons('SAVE CHANGES')[0].click();
+    await new Promise((r) => setTimeout(r));
+    await fixture.whenStable();
+    expect(TestBed.inject(Toaster).message()?.text).toBe('3 events updated.');
+    const series = TestBed.inject(ScheduleStore)
+      .events()
+      .filter((e) => e.seriesId === 'r1');
+    expect(series.map((e) => e.location)).toEqual(['Court 5', 'Court 5', 'Court 5']);
+  });
+
   it('cancels an event: it stays listed, marked CANCELLED, without RSVP buttons', async () => {
     const { fixture, el, buttons } = await render('kim-alvarez');
     el.querySelector<HTMLButtonElement>('aura-event-card button')?.click();

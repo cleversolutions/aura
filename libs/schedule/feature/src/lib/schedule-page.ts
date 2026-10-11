@@ -9,20 +9,25 @@ import {
   EventDetail,
   EventDetailVm,
   EventForm,
+  EventFormValue,
   RsvpConfirmation,
+  SeriesScope,
   ScheduleToolbar,
 } from '@aura/schedule/ui';
-import { ClubEvent, ClubEventDraft, EventTeam, RsvpStatus } from '@aura/shared/models';
+import { ClubEvent, EventTeam, RsvpStatus } from '@aura/shared/models';
 import { AppHeader, Chips, Choice } from '@aura/shared/ui';
 import {
   RSVP_LABEL,
   Submission,
   Toaster,
   Viewport,
+  errorMessage,
   eventTitle,
   firstName,
   formatEventWhen,
   formatResult,
+  formatTime,
+  mapLink,
   teamShortName,
 } from '@aura/shared/util';
 
@@ -114,7 +119,7 @@ import {
         (closed)="editing.set(null)"
         (submitted)="saveEvent($event)"
         (cancelledChange)="setCancelled(target, $event)"
-        (deleted)="deleteEvent(target)"
+        (deleted)="deleteEvent(target, $event)"
       />
     }
   `,
@@ -216,7 +221,10 @@ export class SchedulePage {
       sheetTitle: `${e.type.toUpperCase()} · ${this.club.teamName(e.team).toUpperCase()}`,
       when: formatEventWhen(e),
       homeAway: e.type === 'game' ? (e.home ? 'Home game' : 'Away game') : null,
+      arriveBy: e.arriveBy && !e.tbd ? `Arrive by ${formatTime(e.arriveBy)}` : null,
+      repeats: e.seriesId ? 'Repeats weekly' : null,
       location: e.location,
+      mapUrl: e.location.trim() ? mapLink(e.location) : null,
       notes: e.notes,
       cancelled: !!e.cancelled,
       finalScore: !upcoming && !canEdit && !e.cancelled ? (e.score ?? null) : null,
@@ -333,11 +341,23 @@ export class SchedulePage {
     }
   }
 
-  protected async saveEvent(draft: ClubEventDraft): Promise<void> {
-    const isEdit = !!draft.id;
-    const ok = await this.save.run(() => this.store.saveEvent(draft), 'Could not save the event. Try again.');
+  protected async saveEvent({ draft, repeatUntil, scope }: EventFormValue): Promise<void> {
+    let message = '';
+    const ok = await this.save.run(async () => {
+      const id = draft.id;
+      if (id && scope === 'following') {
+        const n = (await this.store.saveSeries({ ...draft, id })).length;
+        message = `${n} ${n === 1 ? 'event' : 'events'} updated.`;
+      } else if (!id && repeatUntil) {
+        const n = (await this.store.createWeekly(draft, repeatUntil)).length;
+        message = `${n} weekly events created.`;
+      } else {
+        await this.store.saveEvent(draft);
+        message = id ? 'Event updated.' : 'Event created.';
+      }
+    }, errorMessage('Could not save the event. Try again.'));
     if (!ok) return;
-    this.toaster.show(isEdit ? 'Event updated.' : 'Event created.');
+    this.toaster.show(message);
     this.editing.set(null);
     this.closeDetail();
   }
@@ -353,11 +373,15 @@ export class SchedulePage {
     this.editing.set(null);
   }
 
-  protected async deleteEvent(target: ClubEvent | 'new'): Promise<void> {
+  protected async deleteEvent(target: ClubEvent | 'new', scope: SeriesScope): Promise<void> {
     if (target === 'new') return;
-    const ok = await this.save.run(() => this.store.deleteEvent(target.id), 'Could not delete the event. Try again.');
+    let n = 1;
+    const ok = await this.save.run(async () => {
+      if (scope === 'following') n = await this.store.deleteSeries(target.id);
+      else await this.store.deleteEvent(target.id);
+    }, 'Could not delete the event. Try again.');
     if (!ok) return;
-    this.toaster.show(`Deleted: ${eventTitle(target)}`);
+    this.toaster.show(n > 1 ? `Deleted ${n} weeks: ${eventTitle(target)}` : `Deleted: ${eventTitle(target)}`);
     this.editing.set(null);
     this.openId.set(null);
   }
