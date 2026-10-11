@@ -32,6 +32,7 @@ const eventRow: EventRow = {
   score_us: 42,
   score_them: 38,
   season_id: 's1',
+  cancelled: false,
 };
 
 describe('mapping', () => {
@@ -117,16 +118,22 @@ describe('mapping', () => {
     const row = fromEventDraft({ ...event, tbd: true, date: undefined, time: undefined, score: undefined }, 'c1');
     expect(row).toMatchObject({ club_id: 'c1', tbd: true, date: null, time: null, score_us: null, title: null });
     expect(row).not.toHaveProperty('id');
+    expect(row.cancelled).toBe(false);
+    expect(toEvent({ ...eventRow, cancelled: true }).cancelled).toBe(true);
+    expect(fromEventDraft({ ...event, cancelled: true }, 'c1').cancelled).toBe(true);
   });
 
   it('builds the RSVP map', () => {
     expect(
       toRsvpMap([
-        { event_id: 'e1', attendee_id: 'p1', status: 'going' },
-        { event_id: 'e1', attendee_id: 'p2', status: 'out' },
-        { event_id: 'e2', attendee_id: 'p1', status: 'going' },
+        { event_id: 'e1', attendee_id: 'p1', status: 'going', note: '' },
+        { event_id: 'e1', attendee_id: 'p2', status: 'out', note: 'Sick' },
+        { event_id: 'e2', attendee_id: 'p1', status: 'going', note: '' },
       ]),
-    ).toEqual({ e1: { p1: 'going', p2: 'out' }, e2: { p1: 'going' } });
+    ).toEqual({
+      e1: { p1: { status: 'going' }, p2: { status: 'out', note: 'Sick' } },
+      e2: { p1: { status: 'going' } },
+    });
   });
 
   it('groups messages by thread, oldest first, and maps threads', () => {

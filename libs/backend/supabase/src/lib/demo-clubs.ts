@@ -220,14 +220,15 @@ export async function seedDemoClub(
     );
   }
 
-  // In the mock a player's profile and user can share an id (`eli`), so one RSVP serves both the
-  // parent's view (profile) and the player's (user). Here they are two ids: record both.
+  // In the mock a player's profile and user can share an id (`eli`); players RSVP as their profile.
   const rsvps = Object.entries(data.rsvps).flatMap(([eventId, byAttendee]) =>
-    Object.entries(byAttendee).flatMap(([attendee, status]) =>
-      [profileIds.get(attendee), memberIds.get(attendee)]
-        .filter((id) => !!id)
-        .map((id) => ({ club_id: clubId, event_id: eventIds.get(eventId), attendee_id: id, status })),
-    ),
+    Object.entries(byAttendee).map(([attendee, { status, note }]) => ({
+      club_id: clubId,
+      event_id: eventIds.get(eventId),
+      attendee_id: profileIds.get(attendee) ?? memberIds.get(attendee),
+      status,
+      note: note ?? '',
+    })),
   );
   if (rsvps.length) must(await db.from('rsvps').insert(rsvps), 'RSVPs');
 

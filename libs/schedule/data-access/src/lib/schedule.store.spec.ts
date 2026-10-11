@@ -51,17 +51,78 @@ describe('ScheduleStore', () => {
     expect(store.attendeesFor(awards).map((a) => a.id)).toEqual(['maya', 'eli']);
 
     expect(await store.quickRsvp(awards, 'going')).toBe('going');
-    expect(store.rsvps()['e3']).toEqual({ maya: 'going', eli: 'going' });
+    expect(store.rsvps()['e3']).toEqual({ maya: { status: 'going' }, eli: { status: 'going' } });
 
     expect(await store.quickRsvp(awards, 'going')).toBeNull();
     expect(store.rsvps()['e3']).toEqual({});
   });
 
-  it('players RSVP for themselves', async () => {
+  it('players RSVP through their profile, as their parents do', async () => {
     const store = await setup('eli');
+    const club = TestBed.inject(ClubStore);
     const game = store.events().find((e) => e.id === 'e2');
     if (!game) throw new Error('missing seed event');
-    expect(store.attendeesFor(game)).toEqual([{ id: 'eli', name: 'Eli Smith', jersey: '' }]);
+    const profile = club.profiles().find((p) => p.userId === 'eli');
+    expect(store.attendeesFor(game)).toEqual([{ id: profile?.id, name: 'Eli Smith', jersey: '1' }]);
+  });
+
+  it('refuses RSVPs for other families’ players', async () => {
+    const store = await setup();
+    await expect(store.setRsvp('e1', ['pf10'], 'going')).rejects.toThrow(/yourself and your players/);
+    expect(store.statusOf('e1', 'pf10')).toBe('going');
+  });
+
+  it('keeps an RSVP’s note until it is changed', async () => {
+    const store = await setup();
+    await store.setRsvp('e1', ['maya'], 'out', ' Sick ');
+    expect(store.rsvpOf('e1', 'maya')).toEqual({ status: 'out', note: 'Sick' });
+    await store.quickRsvp(
+      store.events().find((e) => e.id === 'e1')!,
+      'going',
+    );
+    expect(store.rsvpOf('e1', 'maya')).toEqual({ status: 'going', note: 'Sick' });
+    await store.load();
+    expect(store.rsvpOf('e1', 'maya')).toEqual({ status: 'going', note: 'Sick' });
+  });
+
+  it('shows the team’s staff who is coming, with notes; parents see only their own notes', async () => {
+    const staff = await setup('kim-alvarez');
+    const practice = staff.events().find((e) => e.id === 'e1')!;
+    const rows = staff.attendance(practice) ?? [];
+    expect(rows).toHaveLength(9);
+    expect(rows[0].player.name).toBe('Ava Chen');
+    expect(rows.filter((r) => r.rsvp?.status === 'going').map((r) => r.player.name)).toEqual([
+      'Ava Chen',
+      'Lily Okafor',
+    ]);
+    expect(rows.find((r) => r.rsvp?.status === 'out')?.rsvp?.note).toBe('Sick, sorry');
+
+    TestBed.resetTestingModule();
+    const parent = await setup();
+    expect(parent.attendance(practice)).toBeNull();
+    expect(parent.rsvpOf('e1', 'pf11')).toEqual({ status: 'out' });
+  });
+
+  it('cancels, restores and deletes events', async () => {
+    const store = await setup('sam');
+    const practice = store.events().find((e) => e.id === 'e1')!;
+    await store.setCancelled('e1', true);
+    const cancelled = store.events().find((e) => e.id === 'e1')!;
+    expect(cancelled.cancelled).toBe(true);
+    expect(store.attendeesFor(cancelled)).toEqual([]);
+    await store.setCancelled('e1', false);
+    expect(store.events().find((e) => e.id === 'e1')?.cancelled).toBeUndefined();
+
+    await store.deleteEvent(practice.id);
+    expect(store.events().some((e) => e.id === 'e1')).toBe(false);
+    expect(store.rsvps()['e1']).toBeUndefined();
+  });
+
+  it('only lets the event’s staff cancel or delete it', async () => {
+    const store = await setup('dana');
+    await expect(store.deleteEvent('e2')).rejects.toThrow(/staff/);
+    await expect(store.setCancelled('e3', true)).rejects.toThrow(/staff/);
+    expect(store.events().some((e) => e.id === 'e2')).toBe(true);
   });
 
   it('creates events and records scores', async () => {

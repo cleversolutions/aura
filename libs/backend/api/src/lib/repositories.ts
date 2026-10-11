@@ -285,11 +285,20 @@ export abstract class DirectoryRepository {
 
 export abstract class ScheduleRepository {
   abstract listEvents(): Promise<ClubEvent[]>;
+  /** Every RSVP in the club; notes only where the viewer may read them (`canSeeRsvpNote`). */
   abstract listRsvps(): Promise<RsvpMap>;
+  /** Whoever can edit the event (`canEditEvent`), in the current season. */
   abstract saveEvent(draft: ClubEventDraft): Promise<ClubEvent>;
   abstract saveScore(eventId: string, score: Score): Promise<ClubEvent>;
-  /** `status: null` clears the RSVP (undecided). */
-  abstract setRsvp(eventId: string, attendeeIds: string[], status: RsvpStatus | null): Promise<void>;
+  /** Calls an event off, keeping it on the schedule with its RSVPs, or restores it. */
+  abstract setCancelled(eventId: string, cancelled: boolean): Promise<ClubEvent>;
+  /** Deletes an event entered by mistake, with its RSVPs. */
+  abstract deleteEvent(eventId: string): Promise<void>;
+  /**
+   * Records the RSVP of attendees `canRsvp` allows; `status: null` clears it (undecided). A note is
+   * kept unless `note` is given ('' clears it). Cancelled events take no new answers.
+   */
+  abstract setRsvp(eventId: string, attendeeIds: string[], status: RsvpStatus | null, note?: string): Promise<void>;
 }
 
 export interface NewThreadInput extends Omit<ThreadMembership, 'creatorId'> {
