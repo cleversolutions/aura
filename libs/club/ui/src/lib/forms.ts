@@ -10,7 +10,7 @@ import {
   UserKind,
 } from '@aura/shared/models';
 import { Check, Chips, Choice, Segmented, Sheet } from '@aura/shared/ui';
-import { TEAM_AGES, TEAM_DIVISIONS, isValidPhone, suggestedTeamName } from '@aura/shared/util';
+import { TEAM_AGES, TEAM_DIVISIONS, TITLE_MAX, isValidPhone, suggestedTeamName } from '@aura/shared/util';
 
 /** Who joins a team: everyone but club staff. */
 export type InviteKind = Exclude<UserKind, 'club'>;
@@ -563,7 +563,7 @@ export interface MemberFormValue {
   title?: string;
 }
 
-/** Edit a member's name, sign-in email, phone and (club staff) title. */
+/** Edit a member's name, sign-in email, phone and (club or team staff) title. */
 @Component({
   selector: 'aura-member-form',
   imports: [Sheet],
@@ -596,9 +596,10 @@ export interface MemberFormValue {
           TITLE
           <input
             class="field-input"
+            [attr.maxlength]="titleMax"
             [value]="title()"
             (input)="title.set(value($event))"
-            placeholder="e.g. Club Director"
+            [placeholder]="titlePlaceholder()"
           />
         </label>
       }
@@ -613,6 +614,7 @@ export class MemberForm {
   readonly heading = input('EDIT PROFILE');
   readonly member = input.required<MemberFormValue>();
   readonly showTitle = input(false);
+  readonly titlePlaceholder = input('e.g. Club Director');
   readonly saving = input(false);
   readonly error = input('');
 
@@ -622,6 +624,7 @@ export class MemberForm {
   protected readonly name = linkedSignal(() => this.member().name);
   protected readonly email = linkedSignal(() => this.member().email);
   protected readonly title = linkedSignal(() => this.member().title ?? '');
+  protected readonly titleMax = TITLE_MAX;
   protected readonly phone = linkedSignal(() => this.member().phone ?? '');
   private readonly validationError = signal('');
   protected readonly shownError = computed(() => this.validationError() || this.error());

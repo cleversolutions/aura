@@ -164,6 +164,15 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
     return toUserResult(data);
   }
 
+  async setMemberTitle(userId: string, title: string): Promise<User> {
+    if (this.clients.previewing) return this.preview.directory.setMemberTitle(userId, title);
+    const { data, error } = await this.clients
+      .active()
+      .client.functions.invoke('update-member', { body: { id: userId, title } });
+    if (error) throw await functionError(error);
+    return toUserResult(data);
+  }
+
   async cancelInvite(userId: string): Promise<void> {
     if (this.clients.previewing) return this.preview.directory.cancelInvite(userId);
     const { error } = await this.clients

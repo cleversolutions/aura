@@ -104,7 +104,7 @@ export interface User {
   name: string;
   kind: UserKind;
   teams: TeamId[];
-  /** Job title, used for club staff. */
+  /** Free-text job title for club and team staff, e.g. `Club Director`, `Head Coach`. */
   title?: string;
   /** Also their sign-in username. Left out when the viewer may not see it (`ClubSettings.contacts`). */
   email?: string;

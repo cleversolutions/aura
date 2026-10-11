@@ -52,6 +52,7 @@ import {
   canEditEvent,
   canEditMessage,
   canChangeMemberTeam,
+  canEditTitle,
   canManageInvite,
   canManageTeam,
   canPostInThread,
@@ -65,10 +66,12 @@ import {
   currentSeason,
   daysBetween,
   effectiveMembers,
+  hasTitle,
   isValidPhone,
   isoDate,
   shiftDate,
   temporaryPassword,
+  TITLE_MAX,
   weeklyDates,
 } from '@aura/shared/util';
 import { DEMO_PLATFORM_ADMIN, MockClub, createEmptyClubData } from './clubs';
@@ -78,6 +81,13 @@ import { MockData } from './seed';
 const PAST_SEASON = 'That season has ended. Its teams, rosters and events are read-only.';
 /** As guard_archived_club() and the edge functions refuse every member's change to an archived club. */
 const ARCHIVED = 'This club is archived. It is read-only.';
+const TITLE_TOO_LONG = `Keep the title to ${TITLE_MAX} characters.`;
+
+/** Free text, trimmed; '' clears it. */
+function setTitle(user: User, title: string): void {
+  if (title.trim()) user.title = title.trim();
+  else delete user.title;
+}
 
 /** As the events check constraints do: an end after the start, and arriving no later than it. */
 function eventTimesProblem(d: ClubEventDraft): string | null {
@@ -548,16 +558,28 @@ export class MockDirectoryRepository extends DirectoryRepository {
       return this.db.fail('Only club staff can edit other people’s details.');
     }
     if (phone !== undefined && !isValidPhone(phone)) return this.db.fail('Enter a valid phone number.');
+    if (title && title.trim().length > TITLE_MAX) return this.db.fail(TITLE_TOO_LONG);
     const username = email.trim();
     const taken = club.credentials.some((c) => c.userId !== id && c.username.toLowerCase() === username.toLowerCase());
     if (taken) return this.db.fail(`${username} already has an account at this club.`);
     Object.assign(user, { name: name.trim(), email: username });
-    if (user.kind === 'club' && title !== undefined) user.title = title.trim();
+    if (hasTitle(user) && title !== undefined) setTitle(user, title);
     if (phone?.trim()) user.phone = phone.trim();
     else if (phone !== undefined) delete user.phone;
     const cred = club.credentials.find((c) => c.userId === id);
     if (cred) cred.username = username;
     if (id === club.adminUserId) Object.assign(club.account, { adminName: user.name, adminEmail: username });
+    return this.db.respond(this.withAdmin(user));
+  }
+
+  setMemberTitle(userId: UserId, title: string): Promise<User> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
+    const user = this.db.club.data.users.find((u) => u.id === userId);
+    if (!user) return this.db.fail('Member not found.');
+    const me = this.me();
+    if (!me || !canEditTitle(me, user)) return this.db.fail('Only staff can change staff titles.');
+    if (title.trim().length > TITLE_MAX) return this.db.fail(TITLE_TOO_LONG);
+    setTitle(user, title);
     return this.db.respond(this.withAdmin(user));
   }
 

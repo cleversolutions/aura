@@ -220,6 +220,24 @@ describe('RosterPage', () => {
       expect(h.sheet()?.textContent).not.toContain('EDIT');
     });
 
+    it('shows staff titles; any staff change any staff member’s title, and only that', async () => {
+      const { fixture, el } = await render('dana');
+      const h = helpers(fixture, el);
+      const row = (name: string) =>
+        Array.from(el.querySelectorAll('[role=listitem]')).find((r) => r.textContent?.includes(name));
+      expect(row('Dana Reyes')?.textContent).toContain('Head Coach · also U14 Boys');
+      expect(row('Kim Alvarez')?.textContent).toContain('Team Staff');
+
+      // Dana can't edit Kim's details (Kim has joined), but can set Kim's title.
+      await h.openPerson('Kim Alvarez');
+      await h.click('EDIT');
+      expect(h.sheet()!.querySelectorAll('input')).toHaveLength(1);
+      h.type('TITLE', 'Assistant Coach');
+      await h.click('SAVE');
+      expect(TestBed.inject(ClubStore).user('kim-alvarez')?.title).toBe('Assistant Coach');
+      expect(row('Kim Alvarez')?.textContent).toContain('Assistant Coach');
+    });
+
     it('shows a player’s care details to their family and staff, who edit them', async () => {
       const { fixture, el } = await render('dana');
       const h = helpers(fixture, el);
