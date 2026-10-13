@@ -455,6 +455,23 @@ describe('PersonDetails', () => {
     return { fixture, el };
   }
 
+  it('makes a parent team staff after asking', async () => {
+    const { fixture, el } = await render(vm({ roleChange: { to: 'staff', teams: 'U12 Girls' } }));
+    const changed: unknown[] = [];
+    fixture.componentInstance.roleChange.subscribe((v) => changed.push(v));
+    click(el, 'MAKE TEAM STAFF');
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Make Rae Moss team staff of U12 Girls?');
+    expect(changed).toEqual([]);
+    click(el, 'CHANGE ROLE');
+    expect(changed).toEqual(['staff']);
+
+    fixture.componentRef.setInput('vm', vm({ roleChange: { to: 'parent', teams: 'U12 Girls' } }));
+    await fixture.whenStable();
+    expect(el.textContent).not.toContain('MAKE TEAM STAFF');
+    expect(el.textContent).toContain('MAKE PARENT');
+  });
+
   it('shows details, then edits the editable fields in place', async () => {
     const { fixture, el } = await render(vm());
     const saved: unknown[] = [];

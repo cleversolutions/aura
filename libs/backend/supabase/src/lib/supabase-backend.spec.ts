@@ -580,6 +580,29 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
     });
 
+    it('lets team staff make a parent on their own team team staff, and club staff make them a parent again', async () => {
+      const { auth, directory } = setup();
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'dana@spartans.example', password: 'password' });
+      const { users } = await directory.load();
+      const dana = users.find((u) => u.email === 'dana@spartans.example')!;
+      const parent = users.find(
+        (u) => u.kind === 'parent' && !u.invited && u.teams.length === 1 && dana.teams.includes(u.teams[0]),
+      )!;
+      cleanups.push(() => service.from('members').update({ kind: 'parent', title: null }).eq('id', parent.id));
+
+      expect(await directory.setMemberRole(parent.id, 'staff')).toMatchObject({
+        id: parent.id,
+        kind: 'staff',
+        teams: parent.teams,
+      });
+      await expect(directory.setMemberRole(parent.id, 'parent')).rejects.toThrow('Only club staff');
+      await auth.signOut();
+
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
+      expect((await directory.setMemberRole(parent.id, 'parent')).kind).toBe('parent');
+      await auth.signOut();
+    });
+
     it('lets team staff set any team staff member’s title, but not club staff’s', async () => {
       const { auth, directory } = setup();
       const dana = await memberId(SPARTANS_SLUG, 'dana@spartans.example');

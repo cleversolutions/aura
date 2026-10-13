@@ -245,6 +245,32 @@ describe('RosterPage', () => {
       expect(h.sheet()?.textContent).not.toContain('EDIT');
     });
 
+    it('lets team staff make a parent on their team team staff', async () => {
+      const { fixture, el } = await render('dana');
+      const club = TestBed.inject(ClubStore);
+      const h = helpers(fixture, el);
+      const parent = club.users().find((u) => u.kind === 'parent' && u.teams.join() === 'U12G')!;
+      const section = (heading: string) =>
+        Array.from(el.querySelectorAll('h2')).find((e) => e.textContent?.startsWith(heading))?.nextElementSibling
+          ?.textContent ?? '';
+      expect(section('TEAM STAFF')).not.toContain(parent.name);
+
+      await h.openPerson(parent.name);
+      await h.click('MAKE TEAM STAFF');
+      expect(h.sheet()?.textContent).toContain(`Make ${parent.name} team staff of U12 Girls?`);
+      await h.click('CHANGE ROLE');
+      expect(club.user(parent.id)?.kind).toBe('staff');
+      expect(h.sheet()?.textContent).toContain('Team Staff');
+      expect(h.sheet()?.textContent).not.toContain('MAKE TEAM STAFF');
+      expect(section('TEAM STAFF')).toContain(parent.name);
+
+      // Jordan's other team, U18B, isn't Dana's.
+      h.sheet()?.querySelector<HTMLButtonElement>('[aria-label=Close]')?.click();
+      await fixture.whenStable();
+      await h.openPerson('Jordan Smith');
+      expect(h.sheet()?.textContent).not.toContain('MAKE TEAM STAFF');
+    });
+
     it('shows a player’s care details to their family and staff, who edit them', async () => {
       const { fixture, el } = await render('dana');
       const h = helpers(fixture, el);

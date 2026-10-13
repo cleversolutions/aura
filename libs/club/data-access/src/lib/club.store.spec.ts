@@ -260,6 +260,31 @@ describe('ClubStore', () => {
     await expect(store.setMemberTitle('dana', 'Head Coach')).rejects.toThrow('Only club staff');
   });
 
+  it('lets team staff make parents on their own teams team staff, and club staff make them parents again', async () => {
+    const store = await setup('dana');
+    const parent = store.users().find((u) => u.kind === 'parent' && u.teams.join() === 'U12G')!;
+    const players = store.profiles().filter((p) => p.parentIds.includes(parent.id));
+    // Jordan is also on U18B, which Dana doesn't coach.
+    expect(store.canChangeRole(store.user('jordan')!, 'staff')).toBe(false);
+    await expect(store.setMemberRole('jordan', 'staff')).rejects.toThrow('Only club staff');
+
+    expect(store.canChangeRole(parent, 'staff')).toBe(true);
+    await store.setMemberRole(parent.id, 'staff');
+    expect(store.user(parent.id)).toMatchObject({ kind: 'staff', teams: ['U12G'] });
+    expect(store.profiles().filter((p) => p.parentIds.includes(parent.id))).toEqual(players);
+    await store.setMemberTitle(parent.id, 'Head Coach');
+    expect(store.canChangeRole(store.user(parent.id)!, 'parent')).toBe(false);
+    expect(store.canChangeRole(store.user('dana')!, 'parent')).toBe(false);
+
+    await store.signOut();
+    await store.signIn('sam@spartans.example', 'password');
+    expect(store.canChangeRole(store.user('sam')!, 'parent')).toBe(false);
+    expect(store.canChangeRole(store.user('lee')!, 'parent')).toBe(false);
+    await store.setMemberRole(parent.id, 'parent');
+    expect(store.user(parent.id)?.kind).toBe('parent');
+    expect(store.user(parent.id)?.title).toBeUndefined();
+  });
+
   it('lets whoever could invite someone resend or cancel their invite until they join', async () => {
     const store = await setup('dana');
     const rae = await store.inviteMember({ team: 'U12G', kind: 'parent', name: 'Rae', email: 'rae@x.example' });

@@ -17,10 +17,22 @@ import {
   UpdateMemberInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
-import { Club, ClubSettings, PlayerProfile, Season, SeasonId, Team, TeamId, User, UserId } from '@aura/shared/models';
+import {
+  Club,
+  ClubSettings,
+  PlayerProfile,
+  Season,
+  SeasonId,
+  Team,
+  TeamId,
+  TeamRole,
+  User,
+  UserId,
+} from '@aura/shared/models';
 import {
   DEFAULT_CLUB_SETTINGS,
   canChangeMemberTeam,
+  canChangeRole,
   canEditTitle,
   canManageInvite,
   canSeePlayerCare,
@@ -306,6 +318,10 @@ export const ClubStore = signalStore(
         const updated = await directory.setMemberDisabled(userId, disabled);
         patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
       },
+      async setMemberRole(userId: UserId, kind: TeamRole): Promise<void> {
+        const updated = await directory.setMemberRole(userId, kind);
+        patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
+      },
       /** Their messages stay, from a former member; they are unlinked from their players. */
       async removeMember(userId: UserId): Promise<void> {
         await directory.removeMember(userId);
@@ -339,6 +355,11 @@ export const ClubStore = signalStore(
       canManageInvite(user: User): boolean {
         const me = writer();
         return !!me && canManageInvite(me, user);
+      },
+      /** Parent to team staff, or back (`canChangeRole`). */
+      canChangeRole(user: User, to: TeamRole): boolean {
+        const me = writer();
+        return !!me && canChangeRole(me, user, to);
       },
       /** Club staff for any staff; team staff for team staff, not club staff. */
       canEditTitle(user: User): boolean {

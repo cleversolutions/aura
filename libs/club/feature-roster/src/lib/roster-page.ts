@@ -35,7 +35,7 @@ import {
   SetupStepVm,
   StaffRow,
 } from '@aura/club/ui';
-import { PlayerProfile, SeasonId, TeamId, User, UserKind } from '@aura/shared/models';
+import { PlayerProfile, SeasonId, TeamId, TeamRole, User, UserKind } from '@aura/shared/models';
 import { AppHeader, Chips, Choice } from '@aura/shared/ui';
 import { KIND_GROUP, Submission, Toaster, errorMessage, hasTitle, isClubWide } from '@aura/shared/util';
 
@@ -273,6 +273,7 @@ function disabledNote(u: User): string {
         (approve)="approvePlayer()"
         (removePlayer)="removePlayer()"
         (giveSignIn)="givePlayerSignIn($event)"
+        (roleChange)="changeRole($event)"
       />
     }
     @if (inviteReady(); as ready) {
@@ -690,7 +691,15 @@ export class RosterPage {
       disabled: !!user.disabled,
       canResetPassword: this.club.canResetPassword(user),
       canRemove: this.club.canRemoveMember(user),
+      roleChange: this.roleChange(user),
     };
+  }
+
+  /** Parent to team staff, or back, when the viewer may. */
+  private roleChange(user: User): PersonDetailsVm['roleChange'] {
+    const to = user.kind === 'parent' ? 'staff' : user.kind === 'staff' ? 'parent' : null;
+    if (!to || !this.club.canChangeRole(user, to)) return undefined;
+    return { to, teams: this.teamNames(user.teams) };
   }
 
   /** The teams the viewer may put this member on or take them off; the others are kept as they are. */
@@ -969,6 +978,16 @@ export class RosterPage {
       errorMessage(`Could not ${disabled ? 'disable' : 'enable'} them. Try again.`),
     );
     if (ok) this.toaster.show(`${user.name} ${disabled ? 'disabled' : 'enabled'}.`);
+  }
+
+  protected async changeRole(kind: TeamRole): Promise<void> {
+    const user = this.club.user(this.opened()?.id);
+    if (!user) return;
+    const ok = await this.detailsWork.run(
+      () => this.club.setMemberRole(user.id, kind),
+      errorMessage('Could not change their role. Try again.'),
+    );
+    if (ok) this.toaster.show(`${user.name} is now ${kind === 'staff' ? 'team staff' : 'a parent'}.`);
   }
 
   protected async removeMember(): Promise<void> {

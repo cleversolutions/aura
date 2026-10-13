@@ -233,6 +233,23 @@ export function managesInvite(me: MemberRow, target: MemberRow): boolean {
   return me.kind === 'staff' && target.team_members.some((t) => mine.has(t.team_id));
 }
 
+/**
+ * Who moves a member between parent and team staff: club staff, either way; team staff make a
+ * parent team staff when every team the parent is on is theirs. Never themselves. As
+ * canChangeRole() in shared/util.
+ */
+export function changesRole(me: MemberRow, target: MemberRow, to: 'staff' | 'parent'): boolean {
+  if (target.id === me.id || target.kind === to || (target.kind !== 'parent' && target.kind !== 'staff')) return false;
+  if (me.kind === 'club') return true;
+  const mine = new Set(me.team_members.map((t) => t.team_id));
+  return (
+    me.kind === 'staff' &&
+    to === 'staff' &&
+    target.team_members.length > 0 &&
+    target.team_members.every((t) => mine.has(t.team_id))
+  );
+}
+
 /** Titles are free text up to this many characters. As TITLE_MAX in shared/util. */
 export const TITLE_MAX = 60;
 
