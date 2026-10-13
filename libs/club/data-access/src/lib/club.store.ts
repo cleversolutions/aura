@@ -361,7 +361,7 @@ export const ClubStore = signalStore(
         const me = writer();
         return !!me && canChangeRole(me, user, to);
       },
-      /** Any staff, for any staff (the club admin included). */
+      /** Club staff for any staff; team staff for team staff, not club staff. */
       canEditTitle(user: User): boolean {
         const me = writer();
         return !!me && canEditTitle(me, user);

@@ -87,7 +87,7 @@ Deno.test('update-member', async (t) => {
       assertEquals((await phone({ phone: '' })).data['phone'], undefined);
     });
 
-    await t.step('any staff set any staff member’s title; nobody else does', async () => {
+    await t.step('club staff set any staff member’s title, team staff team staff’s; nobody else does', async () => {
       await clubAdmin.from('teams').insert({ club_id: club.id, id: 'U14B', name: 'U14 Boys' });
       const other = (
         await invoke(clubAdmin, 'invite-member', {
@@ -100,11 +100,11 @@ Deno.test('update-member', async (t) => {
       const lou = await signIn(await authEmailFor(club.id, 'lou@test.example'), other.temporaryPassword);
       const title = (who: typeof lou, id: string, value: string) => invoke(who, 'update-member', { id, title: value });
 
-      // Team staff of another team, for team staff and for the club admin; then the admin clears it.
+      // Team staff of another team, for team staff but not the club admin; then the admin clears it.
       const set = await title(lou, coach.user.id, 'Assistant Coach');
       assertEquals(set.status, 200, JSON.stringify(set.data));
       assertEquals([set.data['name'], set.data['title']], ['Kim Coach', 'Assistant Coach']);
-      assertEquals((await title(lou, adminId, 'Team Manager')).data['title'], 'Team Manager');
+      assertEquals((await title(lou, adminId, 'Team Manager')).status, 403);
       assertEquals((await title(clubAdmin, coach.user.id, '  ')).data['title'], undefined);
 
       assertEquals((await title(parentClient, coach.user.id, 'Head Coach')).status, 403);
