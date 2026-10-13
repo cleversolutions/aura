@@ -27,7 +27,13 @@ type Functions = Database['public']['Functions'];
 
 export type ClubPublicRow = Database['public']['Views']['club_public']['Row'];
 export type ClubRow = Row<'clubs'>;
-export type MemberRow = Row<'members'> & { team_members?: { team_id: string }[] };
+/** Members' columns everyone in the club reads; emails come from member_contacts(). */
+export const MEMBER_SELECT = 'id, name, kind, title, invited, disabled, team_members(team_id)';
+export type MemberRow = Pick<Row<'members'>, 'id' | 'name' | 'kind' | 'title' | 'invited' | 'disabled'> & {
+  email?: string | null;
+  team_members?: { team_id: string }[];
+};
+export type ContactRow = Functions['member_contacts']['Returns'][number];
 export type ProfileRow = Row<'player_profiles'> & { player_parents?: { member_id: string }[] };
 /** Profile columns with their parents. */
 export const PROFILE_SELECT = '*, player_parents(member_id)';
@@ -104,27 +110,34 @@ export function toProfile(row: ProfileRow): PlayerProfile {
     team: row.team_id,
     parentIds: (row.player_parents ?? []).map((p) => p.member_id).sort(),
     userId: row.user_member_id,
-    login: row.login,
     ...(row.pending ? { pending: true } : {}),
   };
 }
 
 /** A club without a settings row has the defaults. */
-export function toSettings(row: Pick<ClubSettingsRow, 'announcements'> | null): ClubSettings {
-  return row ? { announcements: row.announcements as ClubSettings['announcements'] } : { ...DEFAULT_CLUB_SETTINGS };
+export function toSettings(row: Pick<ClubSettingsRow, 'announcements' | 'contacts'> | null): ClubSettings {
+  return row
+    ? {
+        announcements: row.announcements as ClubSettings['announcements'],
+        contacts: row.contacts as ClubSettings['contacts'],
+      }
+    : { ...DEFAULT_CLUB_SETTINGS };
 }
 
+/** `contacts` are the emails the signed-in member may see (member_contacts()). */
 export function toDirectory(
   club: ClubRow,
   teams: Team[],
   members: MemberRow[],
+  contacts: ContactRow[],
   profiles: ProfileRow[],
   settings: ClubSettingsRow | null,
 ): Directory {
+  const emails = new Map(contacts.map((c) => [c.id, c.email]));
   return {
     club: toClub(club),
     teams,
-    users: members.map((m) => toUser(m, club.admin_member_id)),
+    users: members.map((m) => toUser({ ...m, email: emails.get(m.id) ?? null }, club.admin_member_id)),
     profiles: profiles.map(toProfile),
     settings: toSettings(settings),
   };

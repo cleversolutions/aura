@@ -17,11 +17,11 @@ import {
 } from '@aura/backend/api';
 import { DEMO_PASSWORD, createMockClubs } from '@aura/backend/mock';
 import { Thread, User } from '@aura/shared/models';
-import { DEFAULT_LOGIN_DOMAIN, authEmailFor, effectiveMembers } from '@aura/shared/util';
+import { DEFAULT_LOGIN_DOMAIN, authEmailFor, canSeeContact, effectiveMembers } from '@aura/shared/util';
 import { Database } from './database.types';
 import { createPlatformAdmin, deleteClubs, deletePlatformAdmin, seedDemoClub, throwawaySlug } from './demo-clubs';
 import { provideSupabaseBackend } from './provide-supabase-backend';
-import { SUPABASE_CLIENT_FACTORY } from './supabase-clients';
+import { SUPABASE_CLIENT_FACTORY, SupabaseClients } from './supabase-clients';
 
 // jsdom has no SubtleCrypto (sign-in derives the auth email with it); browsers and Node do.
 if (!globalThis.crypto?.subtle) Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
@@ -289,9 +289,11 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
         isDefault: true,
         announceOnly: true,
       });
-      expect((await directory.load()).settings).toEqual({ announcements: 'staff' });
+      expect((await directory.load()).settings).toEqual({ announcements: 'staff', contacts: 'staff' });
       await expect(chat.sendMessage(ann.id, jordan.userId, 'Ride Sunday?')).rejects.toThrow(/permission/);
-      await expect(directory.saveSettings({ announcements: 'everyone' })).rejects.toThrow(/permission/);
+      await expect(directory.saveSettings({ announcements: 'everyone', contacts: 'staff' })).rejects.toThrow(
+        /permission/,
+      );
 
       await auth.signOut();
       const sam = await auth.signIn({
@@ -303,11 +305,14 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       const general = (await chat.listThreads()).find((t) => t.name === '#general' && t.scope === 'U18B')!;
       const fromSam = await chat.sendMessage(general.id, sam.userId, 'Great game, U18B!');
       cleanups.push(() => service.from('messages').delete().eq('id', fromSam.id));
-      expect(await directory.saveSettings({ announcements: 'everyone' })).toEqual({ announcements: 'everyone' });
+      expect(await directory.saveSettings({ announcements: 'everyone', contacts: 'staff' })).toEqual({
+        announcements: 'everyone',
+        contacts: 'staff',
+      });
 
       await auth.signOut();
       await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'jordan.smith@email.com', password: 'password' });
-      expect((await directory.load()).settings).toEqual({ announcements: 'everyone' });
+      expect((await directory.load()).settings).toEqual({ announcements: 'everyone', contacts: 'staff' });
       const posted = await chat.sendMessage(ann.id, jordan.userId, 'Thanks coach!');
       cleanups.push(() => service.from('messages').delete().eq('id', posted.id));
     });
@@ -568,7 +573,7 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       expect(managed.profile).toMatchObject({ name: 'Davis Moore', jersey: '–', userId: null });
       expect(managed.profile.parentIds.sort()).toEqual([dana.userId, wei].sort());
       expect(own.invite?.user).toMatchObject({ kind: 'player', invited: true });
-      expect(own.profile).toMatchObject({ userId: own.invite?.user.id, login: 'ola@x.example', parentIds: [] });
+      expect(own.profile).toMatchObject({ userId: own.invite?.user.id, parentIds: [] });
 
       expect((await directory.setPlayerParents(managed.profile.id, [wei])).parentIds).toEqual([wei]);
       await expect(directory.addPlayer({ team: 'U18B', name: 'X', jersey: '', parentIds: [] })).rejects.toThrow(
@@ -602,12 +607,108 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
         parentIds: [session.userId],
         userId: null,
       });
-      expect(await directory.updateProfile({ id: link.id, name: 'Skye Smith', jersey: '9', login: '' })).toMatchObject({
+      expect(await directory.updateProfile({ id: link.id, name: 'Skye Smith', jersey: '9' })).toMatchObject({
         name: 'Skye Smith',
         jersey: '9',
       });
       const ava = (await directory.load()).profiles.find((p) => p.name === 'Ava Chen')!;
       await expect(directory.updateProfile({ ...ava, name: 'Hacked' })).rejects.toThrow();
+    });
+  });
+
+  describe('roster corrections', () => {
+    async function signIn(username: string) {
+      const backend = setup();
+      await backend.auth.signIn({ clubSlug: SPARTANS_SLUG, username, password: 'password' });
+      return backend;
+    }
+
+    it('lets the team’s staff approve and reject link requests', async () => {
+      const jordan = await signIn('jordan.smith@email.com');
+      const me = (await jordan.auth.session())!.userId;
+      const keep = await jordan.directory.requestPlayerLink({
+        name: 'Ann Smith',
+        team: 'U12G',
+        jersey: '',
+        parentId: me,
+      });
+      const drop = await jordan.directory.requestPlayerLink({
+        name: 'Bo Smith',
+        team: 'U12G',
+        jersey: '',
+        parentId: me,
+      });
+      cleanups.push(() => service.from('player_profiles').delete().in('id', [keep.id, drop.id]));
+      await expect(jordan.directory.approvePlayer(keep.id)).rejects.toThrow(/permission/);
+      TestBed.resetTestingModule();
+
+      const dana = await signIn('dana@spartans.example');
+      expect(await dana.directory.approvePlayer(keep.id)).not.toHaveProperty('pending');
+      await dana.directory.removePlayer(drop.id);
+      const profiles = (await dana.directory.load()).profiles;
+      expect(profiles.find((p) => p.id === keep.id)?.pending).toBeUndefined();
+      expect(profiles.some((p) => p.id === drop.id)).toBe(false);
+    });
+
+    it('moves a player between teams the staff manage, taking their parents along', async () => {
+      const { directory } = await signIn('dana@spartans.example');
+      const wei = await memberId(SPARTANS_SLUG, 'wei-chen@spartans.example');
+      const added = await directory.addPlayer({ team: 'U14B', name: 'Cy Chen', jersey: '', parentIds: [wei] });
+      cleanups.push(async () => {
+        await service.from('player_profiles').delete().eq('id', added.profile.id);
+        await service.from('team_members').delete().eq('member_id', wei).eq('team_id', 'U14B');
+      });
+      await expect(directory.movePlayer(added.profile.id, 'U18B')).rejects.toThrow(/permission/);
+
+      // Wei keeps U12G (Ava is there) and joins U14B.
+      const dir = await directory.movePlayer(added.profile.id, 'U12G');
+      expect(dir.profiles.find((p) => p.id === added.profile.id)?.team).toBe('U12G');
+      await directory.movePlayer(added.profile.id, 'U14B');
+      const after = await directory.load();
+      expect(after.users.find((u) => u.id === wei)?.teams).toEqual(['U12G', 'U14B']);
+    });
+
+    it('changes a member’s teams, by the same rules as canChangeMemberTeam', async () => {
+      const { directory } = await signIn('dana@spartans.example');
+      const wei = await memberId(SPARTANS_SLUG, 'wei-chen@spartans.example');
+      const mike = await memberId(SPARTANS_SLUG, 'mike@spartans.example');
+      cleanups.push(() => service.from('team_members').delete().eq('member_id', wei).eq('team_id', 'U14B'));
+      expect((await directory.setMemberTeams(wei, ['U12G', 'U14B'])).teams).toEqual(['U12G', 'U14B']);
+      await expect(directory.setMemberTeams(wei, ['U12G', 'U14B', 'U18B'])).rejects.toThrow(/permission/);
+      await expect(directory.setMemberTeams(mike, ['U18B', 'U12G'])).rejects.toThrow(/permission/);
+    });
+
+    it('gives a player on the roster their own sign-in', async () => {
+      const { directory } = await signIn('dana@spartans.example');
+      const added = await directory.addPlayer({ team: 'U12G', name: 'Di Moss', jersey: '', parentIds: [] });
+      const invite = await directory.givePlayerSignIn(added.profile.id, 'di@x.example');
+      cleanups.push(async () => {
+        await service.from('player_profiles').delete().eq('id', added.profile.id);
+        const { data } = await service.from('members').select('user_id').eq('id', invite.user.id).single();
+        if (data?.user_id) await service.auth.admin.deleteUser(data.user_id);
+        await service.from('members').delete().eq('id', invite.user.id);
+      });
+      expect(invite.user).toMatchObject({ kind: 'player', teams: ['U12G'], invited: true });
+      const profile = (await directory.load()).profiles.find((p) => p.id === added.profile.id);
+      expect(profile?.userId).toBe(invite.user.id);
+    });
+
+    it('shows emails by the contacts setting, as canSeeContact does', async () => {
+      const jordan = await signIn('jordan.smith@email.com');
+      const wei = await memberId(SPARTANS_SLUG, 'wei-chen@spartans.example');
+      const dana = await memberId(SPARTANS_SLUG, 'dana@spartans.example');
+      const email = async (id: string) => (await jordan.directory.load()).users.find((u) => u.id === id)?.email;
+      expect(await email(dana)).toBe('dana@spartans.example');
+      expect(await email(wei)).toBeUndefined();
+
+      cleanups.push(() => service.from('club_settings').delete().eq('club_id', clubIds[0]));
+      await service.from('club_settings').upsert({ club_id: clubIds[0], contacts: 'everyone' });
+      expect(await email(wei)).toBe('wei-chen@spartans.example');
+
+      // Nothing leaks around member_contacts().
+      const { client } = TestBed.inject(SupabaseClients).active();
+      const direct = await client.from('members').select('email').limit(1);
+      expect(direct.error).not.toBeNull();
     });
   });
 
@@ -709,6 +810,30 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
             effectiveMembers(membership, users),
           );
         }
+      }
+    });
+  });
+
+  describe('contact visibility', () => {
+    it('is the same in SQL (member_contacts) as in TypeScript (canSeeContact)', async () => {
+      const club = setup();
+      await club.auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
+      const { users, profiles, settings } = await club.directory.load();
+      TestBed.resetTestingModule();
+      for (const username of [
+        'jordan.smith@email.com',
+        'wei-chen@spartans.example',
+        'dana@spartans.example',
+        'mike@spartans.example',
+        'eli.smith@email.com',
+      ]) {
+        const { auth, directory } = setup();
+        const { userId } = await auth.signIn({ clubSlug: SPARTANS_SLUG, username, password: 'password' });
+        const me = users.find((u) => u.id === userId)!;
+        const seen = (await directory.load()).users.filter((u) => u.email).map((u) => u.id);
+        const expected = users.filter((u) => u.email && canSeeContact(me, u, settings, profiles)).map((u) => u.id);
+        expect(new Set(seen), username).toEqual(new Set(expected));
+        TestBed.resetTestingModule();
       }
     });
   });

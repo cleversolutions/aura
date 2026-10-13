@@ -1,5 +1,6 @@
 // Club or team staff: invites someone to a team (InviteMemberInput, and saveTeam's new staff).
-// Club staff also invite more club staff, who join the club rather than a team.
+// Club staff also invite more club staff, who join the club rather than a team. Inviting a player
+// with `profile` gives a player already on the roster their own sign-in.
 // v1 has no email: it creates the member and their sign-in with a temporary password, and returns
 // both for staff to share by hand. The member must choose their own password on first sign-in.
 import {
@@ -46,6 +47,23 @@ serve(async (req, body) => {
     if (!teamRow) throw new HttpError(404, 'Team not found.');
   }
 
+  const profileId = kind === 'player' ? text(body, 'profile', { required: false }) : '';
+  if (profileId) {
+    const profile = /^[0-9a-f-]{36}$/i.test(profileId)
+      ? (check(
+          await admin
+            .from('player_profiles')
+            .select('team_id, user_member_id')
+            .eq('club_id', clubId)
+            .eq('id', profileId)
+            .maybeSingle(),
+          'Load player',
+        ) as { team_id: string; user_member_id: string | null } | null)
+      : null;
+    if (!profile || profile.team_id !== team) throw new HttpError(404, 'Player not found on this team.');
+    if (profile.user_member_id) throw new HttpError(409, `${name} already has their own sign-in.`);
+  }
+
   const inserted = await admin
     .from('members')
     .insert({ club_id: clubId, username: email, email, name, kind, title: title || null, invited: true })
@@ -71,6 +89,12 @@ serve(async (req, body) => {
     });
     if (created.error || !created.data.user) throw new Error(`Create sign-in: ${created.error?.message}`);
     check(await admin.from('members').update({ user_id: created.data.user.id }).eq('id', member.id), 'Link sign-in');
+    if (profileId) {
+      check(
+        await admin.from('player_profiles').update({ user_member_id: member.id }).eq('id', profileId),
+        'Link player',
+      );
+    }
 
     return {
       user: { id: member.id, name, kind, teams: team ? [team] : [], ...(title ? { title } : {}), email, invited: true },

@@ -53,7 +53,7 @@ describe('ChatStore', () => {
 
     const club = TestBed.inject(ClubStore);
     await club.switchUser('sam');
-    await club.saveSettings({ announcements: 'everyone' });
+    await club.saveSettings({ announcements: 'everyone', contacts: 'staff' });
     await club.switchUser('jordan');
     expect(store.canPost(ann())).toBe(true);
     await store.send('Thanks coach!');

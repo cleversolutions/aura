@@ -224,10 +224,7 @@ describe('ClubStore', () => {
       email: 'ola@x.example',
     });
     expect(invite?.user).toMatchObject({ kind: 'player', teams: ['U12G'], invited: true });
-    expect(store.profiles().find((p) => p.name === 'Ola Diaz')).toMatchObject({
-      userId: invite?.user.id,
-      login: 'ola@x.example',
-    });
+    expect(store.profiles().find((p) => p.name === 'Ola Diaz')).toMatchObject({ userId: invite?.user.id });
 
     await store.setPlayerParents(davis!.id, ['wei-chen']);
     expect(store.profiles().find((p) => p.id === davis!.id)?.parentIds).toEqual(['wei-chen']);
@@ -242,5 +239,51 @@ describe('ClubStore', () => {
       'Only club staff',
     );
     await expect(store.setPlayerParents(davis!.id, [])).rejects.toThrow('Only club staff');
+  });
+
+  it('approves link requests, and moves and removes players, keeping the directory in step', async () => {
+    const store = await setup('dana');
+    const maya = () => store.profiles().find((p) => p.id === 'maya');
+    await store.movePlayer('maya', 'U14B');
+    expect(maya()?.team).toBe('U14B');
+    expect(store.user('jordan')?.teams).toEqual(['U14B', 'U18B']);
+
+    await store.signOut();
+    await store.signIn('wei-chen@spartans.example', 'password');
+    await store.requestPlayerLink({ name: 'Kai Chen', team: 'U12G', jersey: '', parentId: 'wei-chen' });
+    const kai = store.profiles().find((p) => p.name === 'Kai Chen')!;
+    expect(store.canManageTeam('U12G')).toBe(false);
+
+    await store.signOut();
+    await store.signIn('dana@spartans.example', 'password');
+    await store.approvePlayer(kai.id);
+    expect(store.profiles().find((p) => p.id === kai.id)?.pending).toBeUndefined();
+    await store.removePlayer(kai.id);
+    expect(store.profiles().some((p) => p.id === kai.id)).toBe(false);
+  });
+
+  it('changes members’ teams and gives players their own sign-in', async () => {
+    const store = await setup('dana');
+    const wei = store.user('wei-chen')!;
+    expect(store.canChangeMemberTeam(wei, 'U14B')).toBe(true);
+    expect(store.canChangeMemberTeam(wei, 'U18B')).toBe(false);
+    await store.setMemberTeams('wei-chen', ['U12G', 'U14B']);
+    expect(store.user('wei-chen')?.teams).toEqual(['U12G', 'U14B']);
+
+    const invite = await store.givePlayerSignIn('maya', 'maya@x.example');
+    expect(store.user(invite.user.id)).toMatchObject({ kind: 'player', invited: true });
+    expect(store.profiles().find((p) => p.id === 'maya')?.userId).toBe(invite.user.id);
+  });
+
+  it('shows the INVITED list to staff, and to everyone when the club shows everyone’s contacts', async () => {
+    const store = await setup('jordan');
+    expect(store.seesInvites()).toBe(false);
+    await store.signOut();
+    await store.signIn('sam@spartans.example', 'password');
+    expect(store.seesInvites()).toBe(true);
+    await store.saveSettings({ announcements: 'staff', contacts: 'everyone' });
+    await store.signOut();
+    await store.signIn('jordan.smith@email.com', 'password');
+    expect(store.seesInvites()).toBe(true);
   });
 });

@@ -12,8 +12,9 @@ import {
   AddPlayerResult,
   UpdateProfileInput,
 } from '@aura/backend/api';
-import { Club, ClubSettings, PlayerProfile, User } from '@aura/shared/models';
+import { Club, ClubSettings, PlayerProfile, TeamId, User } from '@aura/shared/models';
 import {
+  MEMBER_SELECT,
   PROFILE_SELECT,
   dbError,
   functionError,
@@ -46,16 +47,17 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
   async load(): Promise<Directory> {
     if (this.clients.previewing) return this.preview.directory.load();
     const { club, client } = this.clients.active();
-    const [clubRow, teams, members, profiles, settings] = await Promise.all([
+    const [clubRow, teams, members, contacts, profiles, settings] = await Promise.all([
       client.from('clubs').select().eq('id', club.id).single(),
       client.from('teams').select('id, name').eq('club_id', club.id).order('id'),
-      client.from('members').select('*, team_members(team_id)').eq('club_id', club.id).order('name'),
+      client.from('members').select(MEMBER_SELECT).eq('club_id', club.id).order('name'),
+      client.rpc('member_contacts'),
       client.from('player_profiles').select(PROFILE_SELECT).eq('club_id', club.id).order('name'),
       client.from('club_settings').select().eq('club_id', club.id).maybeSingle(),
     ]);
-    for (const r of [clubRow, teams, members, profiles, settings])
+    for (const r of [clubRow, teams, members, contacts, profiles, settings])
       if (r.error) throw dbError(r.error, 'Could not load the club.');
-    return toDirectory(clubRow.data!, teams.data!, members.data!, profiles.data!, settings.data);
+    return toDirectory(clubRow.data!, teams.data!, members.data!, contacts.data!, profiles.data!, settings.data);
   }
 
   async inviteMember(input: InviteMemberInput): Promise<MemberInvite> {
@@ -157,12 +159,52 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
     const { data, error } = await this.clients
       .active()
       .client.from('player_profiles')
-      .update({ name: input.name, jersey: input.jersey, login: input.login })
+      .update({ name: input.name, jersey: input.jersey })
       .eq('id', input.id)
       .select(PROFILE_SELECT)
       .single();
     if (error) throw dbError(error, 'Could not save the player.');
     return toProfile(data);
+  }
+
+  async setMemberTeams(userId: string, teams: TeamId[]): Promise<User> {
+    if (this.clients.previewing) return this.preview.directory.setMemberTeams(userId, teams);
+    const { error } = await this.clients.active().client.rpc('set_member_teams', { p_member: userId, p_teams: teams });
+    if (error) throw dbError(error, 'Could not change their teams.');
+    const user = (await this.load()).users.find((u) => u.id === userId);
+    if (!user) throw new Error('Member not found.');
+    return user;
+  }
+
+  async approvePlayer(profileId: string): Promise<PlayerProfile> {
+    if (this.clients.previewing) return this.preview.directory.approvePlayer(profileId);
+    const { error } = await this.clients.active().client.rpc('approve_player', { p_profile: profileId });
+    if (error) throw dbError(error, 'Could not approve the player.');
+    return this.profile(profileId);
+  }
+
+  async removePlayer(profileId: string): Promise<void> {
+    if (this.clients.previewing) return this.preview.directory.removePlayer(profileId);
+    const { error } = await this.clients.active().client.rpc('remove_player', { p_profile: profileId });
+    if (error) throw dbError(error, 'Could not remove the player.');
+  }
+
+  async movePlayer(profileId: string, team: TeamId): Promise<Directory> {
+    if (this.clients.previewing) return this.preview.directory.movePlayer(profileId, team);
+    const { error } = await this.clients.active().client.rpc('move_player', { p_profile: profileId, p_team: team });
+    if (error) throw dbError(error, 'Could not move the player.');
+    return this.load();
+  }
+
+  /** invite-member creates the player's sign-in and links it to their profile. */
+  async givePlayerSignIn(profileId: string, email: string): Promise<MemberInvite> {
+    if (this.clients.previewing) return this.preview.directory.givePlayerSignIn(profileId, email);
+    const profile = await this.profile(profileId);
+    const { data, error } = await this.clients.active().client.functions.invoke('invite-member', {
+      body: { kind: 'player', team: profile.team, name: profile.name, email, profile: profileId },
+    });
+    if (error) throw await functionError(error);
+    return toMemberInvite(data);
   }
 
   async requestPlayerLink(input: LinkPlayerInput): Promise<PlayerProfile> {
@@ -209,7 +251,7 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
     const { club, client } = this.clients.active();
     const { data, error } = await client
       .from('club_settings')
-      .upsert({ club_id: club.id, announcements: settings.announcements })
+      .upsert({ club_id: club.id, announcements: settings.announcements, contacts: settings.contacts })
       .select()
       .single();
     if (error) throw dbError(error, 'Could not save the club settings.');

@@ -92,10 +92,6 @@ serve(async (req, body) => {
  * member row, and their messages, threads and own-login player profiles keep going without them.
  */
 async function remove(admin: ReturnType<typeof adminClient>, clubId: string, target: MemberRow): Promise<void> {
-  check(
-    await admin.from('player_profiles').update({ login: '' }).eq('club_id', clubId).eq('user_member_id', target.id),
-    'Unlink player',
-  );
   // RSVPs are keyed by attendee id, with no foreign key to members.
   check(await admin.from('rsvps').delete().eq('club_id', clubId).eq('attendee_id', target.id), 'Delete RSVPs');
   check(await admin.from('members').delete().eq('id', target.id), 'Remove member');
