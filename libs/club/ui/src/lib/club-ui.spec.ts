@@ -333,7 +333,11 @@ describe('PlayerProfileForm', () => {
     const submitted = vi.fn();
     fixture.componentInstance.submitted.subscribe(submitted);
     click(el, 'SAVE PLAYER');
-    expect(submitted).toHaveBeenCalledWith({ name: 'Eli Smith', jersey: '1' });
+    expect(submitted).toHaveBeenCalledWith({
+      name: 'Eli Smith',
+      jersey: '1',
+      care: { emergencyContact: '', medicalNotes: '' },
+    });
   });
 });
 
@@ -417,8 +421,14 @@ describe('MemberForm', () => {
     expect(el.querySelector('[role=alert]')?.textContent).toContain('Enter a valid email.');
 
     type(el, 'input[type=email]', 'sam@new.example');
+    type(el, 'input[type=tel]', 'call me');
     click(el, 'SAVE');
-    expect(emitted).toEqual([{ name: 'Sam Okoro', email: 'sam@new.example', title: 'Director' }]);
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Enter a valid phone number.');
+
+    type(el, 'input[type=tel]', ' 555-0134 ');
+    click(el, 'SAVE');
+    expect(emitted).toEqual([{ name: 'Sam Okoro', email: 'sam@new.example', phone: '555-0134', title: 'Director' }]);
   });
 });
 

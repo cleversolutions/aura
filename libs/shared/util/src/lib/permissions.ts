@@ -190,6 +190,15 @@ export function canManageTeam(me: User, team: TeamId): boolean {
   return me.kind === 'club' || (me.kind === 'staff' && me.teams.includes(team));
 }
 
+/**
+ * Who reads and edits a player's emergency contact and medical notes: their parents, the player
+ * themself, club staff and the team's staff, whatever the contacts setting. The same people edit the
+ * player's profile. Mirrors can_see_player_care().
+ */
+export function canSeePlayerCare(me: User, profile: Pick<PlayerProfile, 'team' | 'parentIds' | 'userId'>): boolean {
+  return profile.parentIds.includes(me.id) || profile.userId === me.id || canManageTeam(me, profile.team);
+}
+
 export function canEditEvent(e: Pick<ClubEvent, 'team'>, me: User): boolean {
   if (me.kind === 'club') return true;
   return me.kind === 'staff' && e.team !== 'ALL' && me.teams.includes(e.team);

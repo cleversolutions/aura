@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
 import { Avatar, Check, Chips, Choice, Sheet } from '@aura/shared/ui';
+import { isValidPhone } from '@aura/shared/util';
 
 export interface DetailFieldVm {
   key: string;
@@ -7,7 +8,11 @@ export interface DetailFieldVm {
   value: string;
   /** Shown as an input in edit mode. */
   editable: boolean;
-  type?: 'text' | 'email';
+  type?: 'text' | 'email' | 'tel';
+  /** A text area, for notes; shown with its line breaks. */
+  multiline?: boolean;
+  /** Shown as a link when viewing, e.g. `tel:555-0134`. */
+  href?: string;
   required?: boolean;
   /** Shown under the input in edit mode. */
   hint?: string;
@@ -103,12 +108,23 @@ type Confirming = 'cancel' | 'reset' | 'disable' | 'remove' | 'reject' | 'remove
                 </button>
               }
             </div>
+          } @else if (f.multiline) {
+            <label class="field">
+              {{ f.label }}
+              <textarea
+                class="field-input h-auto resize-none py-2.5 text-[15px] leading-normal font-normal"
+                rows="3"
+                [value]="draft()[f.key] ?? ''"
+                (input)="setDraft(f.key, $event)"
+              ></textarea>
+            </label>
           } @else {
             <label class="field">
               {{ f.label }}
               <input
                 class="field-input"
                 [type]="f.type ?? 'text'"
+                [attr.inputmode]="f.type === 'tel' ? 'tel' : null"
                 [value]="draft()[f.key] ?? ''"
                 (input)="setDraft(f.key, $event)"
               />
@@ -128,7 +144,13 @@ type Confirming = 'cancel' | 'reset' | 'disable' | 'remove' | 'reject' | 'remove
           @for (f of viewFields(); track f.key) {
             <div class="card-row flex-col items-start gap-0.5">
               <dt class="label-caps">{{ f.label }}</dt>
-              <dd class="text-[15px] font-medium break-all">{{ f.value }}</dd>
+              <dd class="text-[15px] font-medium" [class]="f.multiline ? 'whitespace-pre-line' : 'break-all'">
+                @if (f.href) {
+                  <a class="underline underline-offset-2" [href]="f.href">{{ f.value }}</a>
+                } @else {
+                  {{ f.value }}
+                }
+              </dd>
             </div>
           }
         </dl>
@@ -307,7 +329,7 @@ export class PersonDetails {
   }
 
   protected setDraft(key: string, e: Event): void {
-    const value = (e.target as HTMLInputElement).value;
+    const value = (e.target as HTMLInputElement | HTMLTextAreaElement).value;
     this.draft.update((d) => ({ ...d, [key]: value }));
   }
 
@@ -334,6 +356,7 @@ export class PersonDetails {
       if (f.type === 'email' && value && !/^\S+@\S+\.\S+$/.test(value)) {
         return this.validationError.set('Enter a valid email.');
       }
+      if (f.type === 'tel' && !isValidPhone(value)) return this.validationError.set('Enter a valid phone number.');
       values[f.key] = value;
     }
     this.validationError.set('');

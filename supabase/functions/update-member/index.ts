@@ -1,4 +1,4 @@
-// A member's own details (name, email, title); anyone's for club staff; invites to their teams for team staff.
+// A member's own details (name, email, title, phone); anyone's for club staff; invites to their teams for team staff.
 // The email is also the sign-in username, so changing it moves their derived sign-in address.
 import {
   HttpError,
@@ -24,6 +24,11 @@ serve(async (req, body) => {
   const email = text(body, 'email');
   const title = typeof body['title'] === 'string' ? (body['title'] as string).trim() : undefined;
   if (!/^\S+@\S+\.\S+$/.test(email)) throw new HttpError(400, 'Enter a valid email.');
+  // Optional; left out keeps the current one. As isValidPhone() in shared/util.
+  const phone = typeof body['phone'] === 'string' ? (body['phone'] as string).trim() : undefined;
+  if (phone && (phone.length > 30 || !/^[0-9+().\-\s]+$/.test(phone) || (phone.match(/\d/g) ?? []).length < 7)) {
+    throw new HttpError(400, 'Enter a valid phone number.');
+  }
 
   const target = await loadMember(admin, clubId, { id });
   if (!target) throw new HttpError(404, 'Member not found.');
@@ -34,7 +39,13 @@ serve(async (req, body) => {
 
   const saved = await admin
     .from('members')
-    .update({ name, email, username: email, ...(target.kind === 'club' && title !== undefined ? { title } : {}) })
+    .update({
+      name,
+      email,
+      username: email,
+      ...(target.kind === 'club' && title !== undefined ? { title } : {}),
+      ...(phone !== undefined ? { phone } : {}),
+    })
     .eq('id', id);
   if (saved.error?.code === '23505') throw new HttpError(409, `${email} already has an account at this club.`);
   check(saved, 'Update member');

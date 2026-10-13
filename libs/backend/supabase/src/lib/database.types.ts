@@ -110,9 +110,11 @@ export type Database = {
       };
       events: {
         Row: {
+          arrive_by: string | null;
           cancelled: boolean;
           club_id: string;
           date: string | null;
+          end_time: string | null;
           home: boolean | null;
           id: string;
           location: string;
@@ -121,6 +123,7 @@ export type Database = {
           score_them: number | null;
           score_us: number | null;
           season_id: string;
+          series_id: string | null;
           tbd: boolean;
           team: string;
           time: string | null;
@@ -129,9 +132,11 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
+          arrive_by?: string | null;
           cancelled?: boolean;
           club_id: string;
           date?: string | null;
+          end_time?: string | null;
           home?: boolean | null;
           id?: string;
           location?: string;
@@ -140,6 +145,7 @@ export type Database = {
           score_them?: number | null;
           score_us?: number | null;
           season_id: string;
+          series_id?: string | null;
           tbd?: boolean;
           team: string;
           time?: string | null;
@@ -147,9 +153,11 @@ export type Database = {
           type: string;
         };
         Update: {
+          arrive_by?: string | null;
           cancelled?: boolean;
           club_id?: string;
           date?: string | null;
+          end_time?: string | null;
           home?: boolean | null;
           id?: string;
           location?: string;
@@ -158,6 +166,7 @@ export type Database = {
           score_them?: number | null;
           score_us?: number | null;
           season_id?: string;
+          series_id?: string | null;
           tbd?: boolean;
           team?: string;
           time?: string | null;
@@ -197,6 +206,7 @@ export type Database = {
           invited: boolean;
           kind: string;
           name: string;
+          phone: string;
           title: string | null;
           user_id: string | null;
           username: string | null;
@@ -210,6 +220,7 @@ export type Database = {
           invited?: boolean;
           kind: string;
           name: string;
+          phone?: string;
           title?: string | null;
           user_id?: string | null;
           username?: string | null;
@@ -222,6 +233,7 @@ export type Database = {
           invited?: boolean;
           kind?: string;
           name?: string;
+          phone?: string;
           title?: string | null;
           user_id?: string | null;
           username?: string | null;
@@ -350,6 +362,50 @@ export type Database = {
             columns: ['club_id', 'team_id'];
             isOneToOne: false;
             referencedRelation: 'teams';
+            referencedColumns: ['club_id', 'id'];
+          },
+        ];
+      };
+      player_care: {
+        Row: {
+          club_id: string;
+          emergency_contact: string;
+          medical_notes: string;
+          profile_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          club_id: string;
+          emergency_contact?: string;
+          medical_notes?: string;
+          profile_id: string;
+        };
+        Update: {
+          club_id?: string;
+          emergency_contact?: string;
+          medical_notes?: string;
+          profile_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'player_care_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: false;
+            referencedRelation: 'club_public';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'player_care_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: false;
+            referencedRelation: 'clubs';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'player_care_club_id_profile_id_fkey';
+            columns: ['club_id', 'profile_id'];
+            isOneToOne: false;
+            referencedRelation: 'player_profiles';
             referencedColumns: ['club_id', 'id'];
           },
         ];
@@ -918,6 +974,7 @@ export type Database = {
           invited: boolean;
           kind: string;
           name: string;
+          phone: string;
           title: string | null;
           user_id: string | null;
           username: string | null;
@@ -940,6 +997,7 @@ export type Database = {
       can_rsvp: { Args: { p_attendee: string; p_event: string }; Returns: boolean };
       can_rsvp_for: { Args: { p_attendee: string }; Returns: boolean };
       can_see_contact: { Args: { p_member: string }; Returns: boolean };
+      can_see_player_care: { Args: { p_profile: string }; Returns: boolean };
       can_see_rsvp_note: { Args: { p_attendee: string; p_event: string }; Returns: boolean };
       club_announcements: { Args: { p_club: string }; Returns: string };
       current_season_id: { Args: { p_club: string }; Returns: string };
@@ -1025,6 +1083,7 @@ export type Database = {
         Returns: {
           email: string;
           id: string;
+          phone: string;
         }[];
       };
       member_teams: { Args: { p_member: string }; Returns: string[] };
@@ -1064,6 +1123,49 @@ export type Database = {
       remove_player: { Args: { p_profile: string }; Returns: undefined };
       request_player_link: { Args: { p_jersey: string; p_name: string; p_team: string }; Returns: string };
       rsvp_profile_fits: { Args: { p_event: string; p_profile: string }; Returns: boolean };
+      save_event_series: {
+        Args: {
+          p_arrive_by?: string;
+          p_date: string;
+          p_end_time?: string;
+          p_event: string;
+          p_home?: boolean;
+          p_location: string;
+          p_notes: string;
+          p_opponent?: string;
+          p_team: string;
+          p_time: string;
+          p_title?: string;
+          p_type: string;
+        };
+        Returns: {
+          arrive_by: string | null;
+          cancelled: boolean;
+          club_id: string;
+          date: string | null;
+          end_time: string | null;
+          home: boolean | null;
+          id: string;
+          location: string;
+          notes: string;
+          opponent: string | null;
+          score_them: number | null;
+          score_us: number | null;
+          season_id: string;
+          series_id: string | null;
+          tbd: boolean;
+          team: string;
+          time: string | null;
+          title: string | null;
+          type: string;
+        }[];
+        SetofOptions: {
+          from: '*';
+          to: 'events';
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
       season_name_for: { Args: { p_date: string }; Returns: string };
       set_member_teams: { Args: { p_member: string; p_teams: string[] }; Returns: undefined };
       set_player_parents: { Args: { p_parents: string[]; p_profile: string }; Returns: undefined };

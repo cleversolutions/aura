@@ -7,6 +7,7 @@ import {
   ClubStaffMember,
   ClubEventDraft,
   PlatformAdmin,
+  PlayerCare,
   PlayerProfile,
   RsvpMap,
   RsvpStatus,
@@ -166,12 +167,16 @@ export interface UpdateMemberInput {
   email: string;
   /** Job title; club staff only. */
   title?: string;
+  /** Optional ('' clears it); left out to keep the current one. */
+  phone?: string;
 }
 
 export interface UpdateProfileInput {
   id: string;
   name: string;
   jersey: string;
+  /** Left out to keep what is recorded. */
+  care?: PlayerCare;
 }
 
 export interface LinkPlayerInput {
@@ -257,6 +262,10 @@ export abstract class DirectoryRepository {
    * the club joins another team, instead of being invited again.
    */
   abstract setMemberTeams(userId: UserId, teams: TeamId[]): Promise<User>;
+  /**
+   * The player's parents, the player, club staff and the team's staff (`canSeePlayerCare`), who are
+   * also the only ones who read and write the player's care details.
+   */
   abstract updateProfile(input: UpdateProfileInput): Promise<PlayerProfile>;
   /** A parent asks to link a player; the player is pending until the team's staff approve. */
   abstract requestPlayerLink(input: LinkPlayerInput): Promise<PlayerProfile>;
@@ -294,6 +303,19 @@ export abstract class ScheduleRepository {
   abstract setCancelled(eventId: string, cancelled: boolean): Promise<ClubEvent>;
   /** Deletes an event entered by mistake, with its RSVPs. */
   abstract deleteEvent(eventId: string): Promise<void>;
+  /**
+   * Creates the draft every week, on the same weekday and time, from its date until `until`
+   * (inclusive; at most `MAX_WEEKS` events). The events share a new `seriesId`.
+   */
+  abstract createWeekly(draft: ClubEventDraft, until: string): Promise<ClubEvent[]>;
+  /**
+   * Applies an edit of a repeating event to it and every later event of its series: the same
+   * fields, with dates moved by as many days as this one's. Each week keeps its score, cancellation
+   * and RSVPs. Returns the changed events.
+   */
+  abstract saveSeries(draft: ClubEventDraft & { id: string }): Promise<ClubEvent[]>;
+  /** Deletes a repeating event and every later event of its series, with their RSVPs. Returns their ids. */
+  abstract deleteSeries(eventId: string): Promise<string[]>;
   /**
    * Records the RSVP of attendees `canRsvp` allows; `status: null` clears it (undecided). A note is
    * kept unless `note` is given ('' clears it). Cancelled events take no new answers.

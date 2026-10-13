@@ -60,17 +60,29 @@ import {
   canReadThread,
   canRsvp,
   canSeeContact,
+  canSeePlayerCare,
   canSeeRsvpNote,
   currentSeason,
+  daysBetween,
   effectiveMembers,
+  isValidPhone,
   isoDate,
+  shiftDate,
   temporaryPassword,
+  weeklyDates,
 } from '@aura/shared/util';
 import { DEMO_PLATFORM_ADMIN, MockClub, createEmptyClubData } from './clubs';
 import { MockDb } from './mock-db';
 import { MockData } from './seed';
 
 const PAST_SEASON = 'That season has ended. Its teams, rosters and events are read-only.';
+
+/** As the events check constraints do: an end after the start, and arriving no later than it. */
+function eventTimesProblem(d: ClubEventDraft): string | null {
+  if (d.endTime && (!d.time || d.endTime <= d.time)) return 'The end time must be after the start time.';
+  if (d.arriveBy && (!d.time || d.arriveBy > d.time)) return 'The arrive-by time can’t be after the start time.';
+  return null;
+}
 
 /** The current season's teams, as team_members only ever hold them. */
 function currentTeamIds(data: MockData): Set<TeamId> {
@@ -187,7 +199,10 @@ function toClub({ id, slug, name, logoUrl, ink, paper, icons }: ClubAccount): Cl
 export class MockDirectoryRepository extends DirectoryRepository {
   private readonly db = inject(MockDb);
 
-  /** The directory as the signed-in member may see it: emails only where `canSeeContact`. */
+  /**
+   * The directory as the signed-in member may see it: emails and phones only where `canSeeContact`,
+   * players' care details only where `canSeePlayerCare`.
+   */
   private snapshot(): Directory {
     const { seasons, teams, users, profiles, settings } = this.db.data;
     const me = this.me();
@@ -199,12 +214,20 @@ export class MockDirectoryRepository extends DirectoryRepository {
       users: users.map((u) => {
         const user = this.withAdmin(u);
         if (me && canSeeContact(me, user, settings, profiles)) return user;
-        const { email: _hidden, ...rest } = user;
+        const { email: _email, phone: _phone, ...rest } = user;
         return rest;
       }),
-      profiles: profiles.filter((p) => current.has(p.team)),
+      profiles: profiles.filter((p) => current.has(p.team)).map((p) => this.visibleProfile(p)),
       settings,
     };
+  }
+
+  /** As the player_care policies allow: only the player's family and staff read their care details. */
+  private visibleProfile(p: PlayerProfile): PlayerProfile {
+    const me = this.me();
+    if (me && canSeePlayerCare(me, p)) return p;
+    const { care: _hidden, ...rest } = p;
+    return rest;
   }
 
   /** The user as the backend returns them: marked when they are the club admin. */
@@ -387,7 +410,13 @@ export class MockDirectoryRepository extends DirectoryRepository {
       }
       if (spec.players) {
         for (const p of data.profiles.filter((x) => x.team === spec.from && !x.pending)) {
-          data.profiles.push({ ...p, id: this.db.nextId('p'), team: id, parentIds: [...p.parentIds] });
+          data.profiles.push({
+            ...p,
+            id: this.db.nextId('p'),
+            team: id,
+            parentIds: [...p.parentIds],
+            ...(p.care ? { care: { ...p.care } } : {}),
+          });
           for (const u of data.users) {
             if ((u.id === p.userId && u.kind === 'player') || (u.kind === 'parent' && p.parentIds.includes(u.id))) {
               join(u.id, id);
@@ -406,7 +435,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
     for (const m of data.pastMembers) {
       if (members[m.team] && data.users.some((u) => u.id === m.userId)) members[m.team].push(m.userId);
     }
-    const profiles = data.profiles.filter((p) => ids.includes(p.team) && !p.pending);
+    const profiles = data.profiles.filter((p) => ids.includes(p.team) && !p.pending).map((p) => this.visibleProfile(p));
     return this.db.respond({ members, profiles });
   }
 
@@ -498,7 +527,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
     return this.db.respond(undefined);
   }
 
-  updateMember({ id, name, email, title }: UpdateMemberInput): Promise<User> {
+  updateMember({ id, name, email, title, phone }: UpdateMemberInput): Promise<User> {
     const club = this.db.club;
     const me = this.me();
     const user = club.data.users.find((u) => u.id === id);
@@ -506,11 +535,14 @@ export class MockDirectoryRepository extends DirectoryRepository {
     if (!me || (me.id !== id && me.kind !== 'club' && !canManageInvite(me, user))) {
       return this.db.fail('Only club staff can edit other people’s details.');
     }
+    if (phone !== undefined && !isValidPhone(phone)) return this.db.fail('Enter a valid phone number.');
     const username = email.trim();
     const taken = club.credentials.some((c) => c.userId !== id && c.username.toLowerCase() === username.toLowerCase());
     if (taken) return this.db.fail(`${username} already has an account at this club.`);
     Object.assign(user, { name: name.trim(), email: username });
     if (user.kind === 'club' && title !== undefined) user.title = title.trim();
+    if (phone?.trim()) user.phone = phone.trim();
+    else if (phone !== undefined) delete user.phone;
     const cred = club.credentials.find((c) => c.userId === id);
     if (cred) cred.username = username;
     if (id === club.adminUserId) Object.assign(club.account, { adminName: user.name, adminEmail: username });
@@ -525,6 +557,16 @@ export class MockDirectoryRepository extends DirectoryRepository {
     const actsFor = !!me && (profile.parentIds.includes(me.id) || profile.userId === me.id);
     if (!actsFor && !this.managesTeam(profile.team)) return this.db.fail('You don’t have permission to do that.');
     Object.assign(profile, { name: input.name, jersey: input.jersey });
+    if (input.care) {
+      const care = {
+        emergencyContact: input.care.emergencyContact.trim(),
+        medicalNotes: input.care.medicalNotes.trim(),
+      };
+      if (care.emergencyContact.length > 200 || care.medicalNotes.length > 1000) {
+        return this.db.fail('Keep the emergency contact under 200 characters and the medical notes under 1000.');
+      }
+      profile.care = care;
+    }
     return this.db.respond(profile);
   }
 
@@ -720,6 +762,8 @@ export class MockScheduleRepository extends ScheduleRepository {
     }
     const season = this.seasonFor(draft.team);
     if (this.isPast(season) || this.isPast(existing?.season)) return this.db.fail(PAST_SEASON);
+    const problem = eventTimesProblem(draft);
+    if (problem) return this.db.fail(problem);
     if (existing) {
       Object.assign(existing, draft, { season });
       return this.db.respond(existing);
@@ -751,6 +795,92 @@ export class MockScheduleRepository extends ScheduleRepository {
     data.events = data.events.filter((e) => e.id !== eventId);
     delete data.rsvps[eventId];
     return this.db.respond(undefined);
+  }
+
+  createWeekly(draft: ClubEventDraft, until: string): Promise<ClubEvent[]> {
+    const me = this.db.me();
+    if (!me || !canEditEvent(draft, me))
+      return this.db.fail('Only club staff and the team’s staff can change this event.');
+    const season = this.seasonFor(draft.team);
+    if (this.isPast(season)) return this.db.fail(PAST_SEASON);
+    const problem = eventTimesProblem(draft);
+    if (problem) return this.db.fail(problem);
+    if (draft.tbd || !draft.date || !draft.time) return this.db.fail('Pick a date and time for a weekly event.');
+    const seriesId = this.db.nextId('r');
+    const { id: _id, ...fields } = draft;
+    const created = weeklyDates(draft.date, until).map((date): ClubEvent => ({
+      ...fields,
+      id: this.db.nextId('e'),
+      date,
+      season,
+      seriesId,
+    }));
+    if (!created.length) return this.db.fail('Repeat until a date after the first event.');
+    this.db.data.events.push(...created);
+    return this.db.respond(created);
+  }
+
+  /** As save_event_series does, row by row under the events policies and the past-season guard. */
+  saveSeries(draft: ClubEventDraft & { id: string }): Promise<ClubEvent[]> {
+    const event = this.editable(draft.id);
+    if (typeof event === 'string') return this.db.fail(event);
+    if (!event.seriesId || !event.date) return this.db.fail('This event does not repeat.');
+    if (draft.tbd || !draft.date || !draft.time) return this.db.fail('Pick a date and time for the series.');
+    const problem = eventTimesProblem(draft);
+    if (problem) return this.db.fail(problem);
+    const me = this.db.me();
+    if (!me || !canEditEvent(draft, me))
+      return this.db.fail('Only club staff and the team’s staff can change this event.');
+    const season = this.seasonFor(draft.team);
+    if (this.isPast(season)) return this.db.fail(PAST_SEASON);
+    const shift = daysBetween(event.date, draft.date);
+    const from = event.date;
+    const weeks = this.db.data.events.filter(
+      (e) => e.seriesId === event.seriesId && (e.id === event.id || (!!e.date && e.date >= from)),
+    );
+    // Like the update statement: all weeks or none.
+    if (weeks.some((e) => !canEditEvent(e, me) || this.isPast(e.season))) {
+      return this.db.fail('Only club staff and the team’s staff can change this event.');
+    }
+    for (const e of weeks) {
+      Object.assign(e, {
+        type: draft.type,
+        team: draft.team,
+        title: draft.title,
+        opponent: draft.opponent,
+        home: draft.home,
+        date: shiftDate(e.date ?? from, shift),
+        time: draft.time,
+        endTime: draft.endTime,
+        arriveBy: draft.arriveBy,
+        tbd: undefined,
+        location: draft.location,
+        notes: draft.notes,
+        season,
+      });
+    }
+    return this.db.respond(weeks);
+  }
+
+  deleteSeries(eventId: string): Promise<string[]> {
+    const event = this.editable(eventId);
+    if (typeof event === 'string') return this.db.fail(event);
+    if (!event.seriesId) return this.db.fail('This event does not repeat.');
+    const me = this.db.me();
+    const data = this.db.data;
+    const ids = data.events
+      .filter(
+        (e) =>
+          e.seriesId === event.seriesId &&
+          (e.id === event.id || !e.date || (!!event.date && e.date >= event.date)) &&
+          !!me &&
+          canEditEvent(e, me) &&
+          !this.isPast(e.season),
+      )
+      .map((e) => e.id);
+    data.events = data.events.filter((e) => !ids.includes(e.id));
+    for (const id of ids) delete data.rsvps[id];
+    return this.db.respond(ids);
   }
 
   setRsvp(eventId: string, attendeeIds: string[], status: RsvpStatus | null, note?: string): Promise<void> {

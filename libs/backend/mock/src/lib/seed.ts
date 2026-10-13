@@ -150,8 +150,12 @@ export function createSeed(now: Date): MockData {
   addUser('Sam Okoro', 'club', [], { id: 'sam', title: 'Club Director' });
   addUser('Lee Fontaine', 'club', [], { id: 'lee', title: 'Registrar' });
   // The same username exists at the Panthers as a different person: accounts are per club.
-  addUser('Jordan Smith', 'parent', ['U12G', 'U18B'], { id: 'jordan', email: 'jordan.smith@email.com' });
-  addUser('Dana Reyes', 'staff', ['U12G', 'U14B'], { id: 'dana' });
+  addUser('Jordan Smith', 'parent', ['U12G', 'U18B'], {
+    id: 'jordan',
+    email: 'jordan.smith@email.com',
+    phone: '555-0101',
+  });
+  addUser('Dana Reyes', 'staff', ['U12G', 'U14B'], { id: 'dana', phone: '555-0134' });
   addUser('Mike Tran', 'staff', ['U18B'], { id: 'mike' });
   for (const [team, names] of Object.entries(TEAM_STAFF)) names.forEach((n) => addUser(n, 'staff', [team]));
 
@@ -181,6 +185,10 @@ export function createSeed(now: Date): MockData {
         userId,
       });
     }
+  });
+
+  Object.assign(profiles.find((p) => p.id === 'maya') ?? {}, {
+    care: { emergencyContact: 'Pat Smith (grandparent) · 555-0177', medicalNotes: 'Mild asthma: inhaler in her bag.' },
   });
 
   const day = (offset: number) => isoDate(addDays(now, offset));
@@ -286,6 +294,8 @@ export function createSeed(now: Date): MockData {
       team: 'U12G',
       date: day(1),
       time: '18:00',
+      endTime: '19:30',
+      arriveBy: '17:45',
       location: 'Northview Middle School Gym',
       notes: 'Bring light and dark jerseys.',
     },
@@ -300,15 +310,18 @@ export function createSeed(now: Date): MockData {
       location: 'Spartan Centre · Court 1',
       notes: 'Warm-up starts 6:45 PM. White jerseys.',
     },
-    {
-      id: 'e10',
+    // A weekly practice (G23): three weeks of one series.
+    ...[2, 9, 16].map((offset, i): ClubEvent => ({
+      id: i ? `e10-${i + 1}` : 'e10',
       type: 'practice',
       team: 'U14B',
-      date: day(2),
+      date: day(offset),
       time: '17:30',
+      endTime: '19:00',
       location: 'Spartan Centre · Court 2',
       notes: '',
-    },
+      seriesId: 'r1',
+    })),
     {
       id: 'e11',
       type: 'game',

@@ -32,12 +32,17 @@ export type ClubRow = Row<'clubs'>;
 export const MEMBER_SELECT = 'id, name, kind, title, invited, disabled, team_members(team_id)';
 export type MemberRow = Pick<Row<'members'>, 'id' | 'name' | 'kind' | 'title' | 'invited' | 'disabled'> & {
   email?: string | null;
+  phone?: string | null;
   team_members?: { team_id: string }[];
 };
 export type ContactRow = Functions['member_contacts']['Returns'][number];
-export type ProfileRow = Row<'player_profiles'> & { player_parents?: { member_id: string }[] };
-/** Profile columns with their parents. */
-export const PROFILE_SELECT = '*, player_parents(member_id)';
+export type ProfileRow = Row<'player_profiles'> & {
+  player_parents?: { member_id: string }[];
+  /** Empty when none is recorded, or the viewer may not see it (player_care policies). */
+  player_care?: { emergency_contact: string; medical_notes: string }[];
+};
+/** Profile columns with their parents and, where the viewer may see them, care details. */
+export const PROFILE_SELECT = '*, player_parents(member_id), player_care(emergency_contact, medical_notes)';
 export type EventRow = Row<'events'>;
 /** The events_season trigger sets season_id (the team's season, or the current one). */
 export type EventInsert = Omit<Tables['events']['Insert'], 'season_id'>;
@@ -110,6 +115,7 @@ export function toUser(row: MemberRow, adminId: string | null = null): User {
     teams: (row.team_members ?? []).map((t) => t.team_id).sort(),
     title: row.title ?? undefined,
     email: row.email ?? undefined,
+    phone: row.phone || undefined,
     invited: row.invited || undefined,
     disabled: row.disabled || undefined,
     clubAdmin: (!!adminId && row.id === adminId) || undefined,
@@ -117,6 +123,7 @@ export function toUser(row: MemberRow, adminId: string | null = null): User {
 }
 
 export function toProfile(row: ProfileRow): PlayerProfile {
+  const care = row.player_care?.[0];
   return {
     id: row.id,
     name: row.name,
@@ -125,6 +132,7 @@ export function toProfile(row: ProfileRow): PlayerProfile {
     parentIds: (row.player_parents ?? []).map((p) => p.member_id).sort(),
     userId: row.user_member_id,
     ...(row.pending ? { pending: true } : {}),
+    ...(care ? { care: { emergencyContact: care.emergency_contact, medicalNotes: care.medical_notes } } : {}),
   };
 }
 
@@ -158,7 +166,7 @@ export function toTeam(row: TeamRow): Team {
 }
 
 /**
- * `contacts` are the emails the signed-in member may see (member_contacts()). Teams cover every
+ * `contacts` are the emails and phones the signed-in member may see (member_contacts()). Teams cover every
  * season; profiles are the current season's (team memberships always are).
  */
 export function toDirectory(
@@ -170,14 +178,19 @@ export function toDirectory(
   profiles: ProfileRow[],
   settings: ClubSettingsRow | null,
 ): Directory {
-  const emails = new Map(contacts.map((c) => [c.id, c.email]));
+  const byId = new Map(contacts.map((c) => [c.id, c]));
   const current = seasons.find((s) => !s.ended_at)?.id;
   const currentTeams = new Set(teams.filter((t) => t.season_id === current).map((t) => t.id));
   return {
     club: toClub(club),
     seasons: seasons.map(toSeason),
     teams: teams.map(toTeam),
-    users: members.map((m) => toUser({ ...m, email: emails.get(m.id) ?? null }, club.admin_member_id)),
+    users: members.map((m) =>
+      toUser(
+        { ...m, email: byId.get(m.id)?.email ?? null, phone: byId.get(m.id)?.phone ?? null },
+        club.admin_member_id,
+      ),
+    ),
     profiles: profiles.filter((p) => currentTeams.has(p.team_id)).map(toProfile),
     settings: toSettings(settings),
   };
@@ -194,11 +207,14 @@ export function toEvent(row: EventRow): ClubEvent {
     home: row.home ?? undefined,
     date: row.date ?? undefined,
     time: row.time?.slice(0, 5),
+    endTime: row.end_time?.slice(0, 5),
+    arriveBy: row.arrive_by?.slice(0, 5),
     tbd: row.tbd || undefined,
     location: row.location,
     notes: row.notes,
     score: row.score_us != null && row.score_them != null ? { us: row.score_us, them: row.score_them } : undefined,
     cancelled: row.cancelled || undefined,
+    seriesId: row.series_id ?? undefined,
   });
 }
 
@@ -213,12 +229,15 @@ export function fromEventDraft(draft: ClubEventDraft, clubId: string): EventInse
     home: draft.home ?? null,
     date: draft.date || null,
     time: draft.time || null,
+    end_time: draft.endTime || null,
+    arrive_by: draft.arriveBy || null,
     tbd: !!draft.tbd,
     location: draft.location,
     notes: draft.notes,
     score_us: draft.score?.us ?? null,
     score_them: draft.score?.them ?? null,
     cancelled: !!draft.cancelled,
+    series_id: draft.seriesId ?? null,
   };
 }
 

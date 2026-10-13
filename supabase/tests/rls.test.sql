@@ -1,10 +1,11 @@
 -- Row-level security: club isolation, thread membership, RSVPs, event editing, anonymous access,
--- disabled and removed members, contact details, roster corrections, teams and seasons.
+-- disabled and removed members, contact details, roster corrections, event series and care details,
+-- teams and seasons.
 -- Run with `npm run db:test` (supabase test db). Everything happens in one rolled-back transaction.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(168);
+select plan(186);
 
 -- ---------------------------------------------------------------------------------------------
 -- Fixture: two clubs, each with a Jordan Smith who shares a username but is a different person.
@@ -718,6 +719,111 @@ select is_empty(
 );
 
 -- ---------------------------------------------------------------------------------------------
+-- Richer events (G32, G23) and contacts (G22): end and arrive-by times, weekly series, phone
+-- numbers, and players' emergency contacts and medical notes
+-- ---------------------------------------------------------------------------------------------
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000001');
+select throws_ok(
+  $$insert into public.events (club_id, type, team, location, date, time, end_time)
+    values ('c0000000-0000-0000-0000-000000000001', 'practice', 'U12G', 'Gym', '2030-01-08', '18:00', '17:00')$$,
+  '23514', null, 'an event ends after it starts'
+);
+select throws_ok(
+  $$insert into public.events (club_id, type, team, location, date, time, arrive_by)
+    values ('c0000000-0000-0000-0000-000000000001', 'practice', 'U12G', 'Gym', '2030-01-08', '18:00', '18:15')$$,
+  '23514', null, '... and players arrive no later than the start'
+);
+
+-- Dana's weekly U12G practice: three weeks, the last one cancelled.
+select pg_temp.login('a0000000-0000-0000-0000-000000000002');
+insert into fx values ('series', gen_random_uuid());
+insert into public.events (club_id, type, team, location, date, time, end_time, series_id, cancelled)
+select 'c0000000-0000-0000-0000-000000000001', 'practice', 'U12G', 'Northview', d::date, '18:00', '19:30',
+  (select id from fx where name = 'series'), d = '2030-01-22'
+from unnest(array['2030-01-08', '2030-01-15', '2030-01-22']) d;
+insert into fx select 'week2', id from public.events where date = '2030-01-15' and series_id = (select id from fx where name = 'series');
+
+select pg_temp.login('a0000000-0000-0000-0000-000000000003');
+select is_empty(
+  $$select * from public.save_event_series((select id from fx where name = 'week2'), 'practice', 'U12G', '2030-01-16', '18:30', 'Eastside', '')$$,
+  'other teams'' staff cannot change a series'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000002');
+select is(
+  (select count(*)::integer from public.save_event_series(
+    (select id from fx where name = 'week2'), 'practice', 'U12G', '2030-01-16', '18:30', 'Eastside', '', p_end_time => '20:00'
+  )),
+  2, 'the team''s staff change a series from one week on'
+);
+select set_eq(
+  $$select date::text || ' ' || time::text || ' ' || coalesce(end_time::text, '-') || ' ' || location || ' ' || cancelled::text
+    from public.events where series_id = (select id from fx where name = 'series')$$,
+  array[
+    '2030-01-08 18:00:00 19:30:00 Northview false',
+    '2030-01-16 18:30:00 20:00:00 Eastside false',
+    '2030-01-23 18:30:00 20:00:00 Eastside true'
+  ],
+  '... moving each later week by the same days, keeping earlier weeks and each week''s cancellation'
+);
+
+-- Phone numbers: never read from members directly; through member_contacts() by the contacts rule.
+reset role;
+update public.members set phone = '555-0134' where id = 'a0000000-0000-0000-0000-000000000002';
+update public.members set phone = '555-0177' where id = 'a0000000-0000-0000-0000-000000000007';
+select pg_temp.login('a0000000-0000-0000-0000-000000000004');
+select throws_ok($$select phone from public.members limit 1$$, '42501', null, 'phone numbers are not readable directly');
+select is(
+  (select phone from public.member_contacts() where id = 'a0000000-0000-0000-0000-000000000002'),
+  '555-0134', 'families read their teams'' staff''s phone numbers'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000003');
+select is_empty(
+  $$select phone from public.member_contacts() where id = 'a0000000-0000-0000-0000-000000000007'$$,
+  '... and staff do not read other teams'' families'''
+);
+
+-- Care details: Maya's (Jordan and Dana are her parents, Dana coaches U12G) and Eli's (Jordan's,
+-- signing in himself).
+select pg_temp.login('a0000000-0000-0000-0000-000000000004');
+select lives_ok(
+  $$insert into public.player_care (club_id, profile_id, emergency_contact, medical_notes) values
+    ('c0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'Grandma · 555-0100', 'Asthma'),
+    ('c0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000003', 'Jordan · 555-0101', '')$$,
+  'parents record their players'' care details'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000006');
+select set_eq(
+  $$select profile_id from public.player_care$$, array['f0000000-0000-0000-0000-000000000003'::uuid],
+  'players read their own'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000007');
+select is_empty($$select 1 from public.player_care$$, 'other parents on the team read none');
+select pg_temp.login('a0000000-0000-0000-0000-000000000003');
+select set_eq(
+  $$select profile_id from public.player_care$$, array['f0000000-0000-0000-0000-000000000003'::uuid],
+  'team staff read their own team''s players'' only'
+);
+select throws_ok(
+  $$insert into public.player_care (club_id, profile_id) values ('c0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002')$$,
+  '42501', null, '... and write no other team''s'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000001');
+update public.player_care set medical_notes = 'Asthma: inhaler in her bag' where profile_id = 'f0000000-0000-0000-0000-000000000001';
+select is(
+  (select medical_notes from public.player_care where profile_id = 'f0000000-0000-0000-0000-000000000001'),
+  'Asthma: inhaler in her bag', 'club staff read and edit every player''s'
+);
+reset role;
+insert into public.club_settings (club_id, contacts) values ('c0000000-0000-0000-0000-000000000001', 'everyone');
+select pg_temp.login('a0000000-0000-0000-0000-000000000007');
+select is_empty($$select 1 from public.player_care$$, 'letting everyone see contacts shows nobody else''s care details');
+reset role;
+delete from public.club_settings where club_id = 'c0000000-0000-0000-0000-000000000001';
+select pg_temp.login('a0000000-0000-0000-0000-000000000012');
+select is_empty($$select 1 from public.player_care$$, 'other clubs read none');
+
+-- ---------------------------------------------------------------------------------------------
 -- Teams and seasons: new teams' ids, starting a season, past seasons read-only, deleting teams
 -- ---------------------------------------------------------------------------------------------
 
@@ -816,6 +922,11 @@ select is(
   (select count(*)::integer from public.player_profiles where team_id = (select id from season_fx where name = 'u13g')),
   '... and the old season keeps its own'
 );
+select is(
+  (select c.medical_notes from public.player_care c join public.player_profiles p on p.id = c.profile_id
+    where p.team_id = (select id from season_fx where name = 'u13g') and p.name = 'Maya Smith'),
+  'Asthma: inhaler in her bag', 'carried players keep their care details'
+);
 
 -- Past seasons are read-only, for club staff too.
 select throws_ok(
@@ -835,6 +946,10 @@ select throws_ok(
 );
 select throws_ok(
   $$select public.remove_player('f0000000-0000-0000-0000-000000000002')$$, 'P0001', null, '... nor its players'
+);
+select throws_ok(
+  $$update public.player_care set medical_notes = '' where profile_id = 'f0000000-0000-0000-0000-000000000001'$$,
+  'P0001', null, '... nor their care details'
 );
 select throws_ok(
   $$insert into public.messages (club_id, thread_id, from_member_id, text)

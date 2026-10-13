@@ -3,13 +3,14 @@ import {
   AnnouncementsPosting,
   ClubSettings,
   ContactsVisibility,
+  PlayerCare,
   PlayerProfile,
   TeamId,
   UserId,
   UserKind,
 } from '@aura/shared/models';
 import { Check, Chips, Choice, Segmented, Sheet } from '@aura/shared/ui';
-import { TEAM_AGES, TEAM_DIVISIONS, suggestedTeamName } from '@aura/shared/util';
+import { TEAM_AGES, TEAM_DIVISIONS, isValidPhone, suggestedTeamName } from '@aura/shared/util';
 
 /** Who joins a team: everyone but club staff. */
 export type InviteKind = Exclude<UserKind, 'club'>;
@@ -205,9 +206,10 @@ export class InviteForm {
 export interface PlayerProfileValue {
   name: string;
   jersey: string;
+  care: PlayerCare;
 }
 
-/** Edit a linked player's name and jersey. */
+/** Edit a linked player's name, jersey, emergency contact and medical notes. */
 @Component({
   selector: 'aura-player-profile-form',
   imports: [Sheet],
@@ -226,6 +228,28 @@ export interface PlayerProfileValue {
         <div class="label-caps">TEAM / AGE GROUP</div>
         <div class="mt-0.5 text-base font-medium">{{ teamName() }}</div>
       </div>
+      <label class="field">
+        EMERGENCY CONTACT
+        <input
+          class="field-input"
+          placeholder="Name and phone"
+          [value]="emergencyContact()"
+          (input)="emergencyContact.set(value($event))"
+        />
+      </label>
+      <label class="field">
+        MEDICAL NOTES
+        <textarea
+          class="field-input h-auto resize-none py-2.5 text-[15px] leading-normal font-normal"
+          rows="3"
+          placeholder="Allergies, conditions, medication"
+          [value]="medicalNotes()"
+          (input)="medicalNotes.set(value($event))"
+        ></textarea>
+      </label>
+      <p class="-mt-1.5 text-[13px] leading-snug">
+        Only you, the player’s other parents, the team’s staff and club staff see these.
+      </p>
       @if (!player().userId) {
         <p class="-mt-1 text-[13px] leading-snug">
           Older players can RSVP and chat from their own sign-in. Ask the team staff to give them one; you keep access.
@@ -249,6 +273,8 @@ export class PlayerProfileForm {
 
   protected readonly name = linkedSignal(() => this.player().name);
   protected readonly jersey = linkedSignal(() => this.player().jersey);
+  protected readonly emergencyContact = linkedSignal(() => this.player().care?.emergencyContact ?? '');
+  protected readonly medicalNotes = linkedSignal(() => this.player().care?.medicalNotes ?? '');
   private readonly validationError = signal('');
   protected readonly shownError = computed(() => this.validationError() || this.error());
 
@@ -259,7 +285,11 @@ export class PlayerProfileForm {
   protected submit(): void {
     if (!this.name().trim()) return this.validationError.set('Enter a name.');
     this.validationError.set('');
-    this.submitted.emit({ name: this.name().trim(), jersey: this.jersey().trim() });
+    this.submitted.emit({
+      name: this.name().trim(),
+      jersey: this.jersey().trim(),
+      care: { emergencyContact: this.emergencyContact().trim(), medicalNotes: this.medicalNotes().trim() },
+    });
   }
 }
 
@@ -527,11 +557,13 @@ export class TeamForm {
 export interface MemberFormValue {
   name: string;
   email: string;
+  /** Optional; '' when none. */
+  phone?: string;
   /** Only when `showTitle`. */
   title?: string;
 }
 
-/** Edit a member's name, sign-in email and (club staff) title. */
+/** Edit a member's name, sign-in email, phone and (club staff) title. */
 @Component({
   selector: 'aura-member-form',
   imports: [Sheet],
@@ -547,6 +579,18 @@ export interface MemberFormValue {
         <input class="field-input" type="email" [value]="email()" (input)="email.set(value($event))" />
       </label>
       <p class="-mt-1.5 text-[13px] leading-snug">This is also the username for signing in to the club.</p>
+      <label class="field">
+        PHONE
+        <input
+          class="field-input"
+          type="tel"
+          inputmode="tel"
+          placeholder="Optional"
+          [value]="phone()"
+          (input)="phone.set(value($event))"
+        />
+      </label>
+      <p class="-mt-1.5 text-[13px] leading-snug">Seen by whoever can see your email.</p>
       @if (showTitle()) {
         <label class="field">
           TITLE
@@ -578,6 +622,7 @@ export class MemberForm {
   protected readonly name = linkedSignal(() => this.member().name);
   protected readonly email = linkedSignal(() => this.member().email);
   protected readonly title = linkedSignal(() => this.member().title ?? '');
+  protected readonly phone = linkedSignal(() => this.member().phone ?? '');
   private readonly validationError = signal('');
   protected readonly shownError = computed(() => this.validationError() || this.error());
 
@@ -588,10 +633,12 @@ export class MemberForm {
   protected submit(): void {
     const name = this.name().trim();
     const email = this.email().trim();
+    const phone = this.phone().trim();
     if (!name) return this.validationError.set('Enter a name.');
     if (!/^\S+@\S+\.\S+$/.test(email)) return this.validationError.set('Enter a valid email.');
+    if (!isValidPhone(phone)) return this.validationError.set('Enter a valid phone number.');
     this.validationError.set('');
-    this.submitted.emit({ name, email, ...(this.showTitle() ? { title: this.title().trim() } : {}) });
+    this.submitted.emit({ name, email, phone, ...(this.showTitle() ? { title: this.title().trim() } : {}) });
   }
 }
 
