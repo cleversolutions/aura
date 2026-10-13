@@ -603,7 +603,7 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       await auth.signOut();
     });
 
-    it('lets any staff set any staff member’s title', async () => {
+    it('lets team staff set any team staff member’s title, but not club staff’s', async () => {
       const { auth, directory } = setup();
       const dana = await memberId(SPARTANS_SLUG, 'dana@spartans.example');
       const { data } = await service.from('members').select('title').eq('id', dana).single();
@@ -622,10 +622,12 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
         title: 'Assistant Coach',
       });
       expect((await directory.setMemberTitle(dana, '')).title).toBeUndefined();
+      const sam = await memberId(SPARTANS_SLUG, 'sam@spartans.example');
+      await expect(directory.setMemberTitle(sam, 'President')).rejects.toThrow('Only club staff');
       await auth.signOut();
 
       await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'jordan.smith@email.com', password: 'password' });
-      await expect(directory.setMemberTitle(dana, 'Head Coach')).rejects.toThrow('Only staff');
+      await expect(directory.setMemberTitle(dana, 'Head Coach')).rejects.toThrow('Only club staff');
       await auth.signOut();
     });
 

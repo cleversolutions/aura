@@ -664,7 +664,7 @@ export class RosterPage {
               label: 'TITLE',
               value: user.title ?? '',
               editable: this.club.canEditTitle(user),
-              hint: 'Optional, e.g. Head Coach, Assistant Coach or Team Manager. Any staff can change it.',
+              hint: 'Optional, e.g. Head Coach, Assistant Coach or Team Manager.',
             },
           ]
         : []),
