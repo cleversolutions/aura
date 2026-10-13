@@ -142,6 +142,20 @@ Feature code only sees the ports in `@aura/backend/api`; `app.config.ts` binds t
   (column grants): emails come from `member_contacts()`, which applies `can_see_contact`. By default club staff see
   everyone's, team staff their teams' people, and parents and players their teams' staff, the club staff and their
   own players'; the `contacts` setting lets everyone see everyone's. Only staff see the INVITED list unless it does.
+- **Teams and seasons.** Every club has one current season (`seasons.ended_at` null); a new club gets its first,
+  named for the school year (`2026–27`). Teams belong to a season and have generated ids (never derived from the
+  name, so they can be renamed; older teams keep ids like `U11B`), a free-text name unique within the season, and an
+  optional age and division. Events belong to their team's season, or to the current one if club-wide. A team needs
+  no staff: club staff manage it meanwhile. `delete_team` deletes a mistake (no players, no events) with its
+  channels. `start_season` (club staff) ends the current season and carries the chosen teams over, renamed, with
+  or without their staff and approved players (copied with their parents; those parents and the players' own
+  sign-ins join the new team). It moves every `team_members` row of the old season into `past_team_members`, so
+  team membership, and every rule built on it (`member_teams`, `can_manage_team`, `can_see_contact`, thread
+  membership, the edge functions, `permissions.ts`), always means this season. Triggers make past seasons read-only
+  for signed-in members (teams, rosters, profiles, events, RSVPs, and messages in past teams' threads); the service
+  role's cascades still work. The app loads every season's teams but only this season's profiles; `loadSeason`
+  fetches a past season's rosters, which Roster and Schedule show read-only behind a season picker. Chat hides past
+  teams' threads.
 - **Roster corrections** go through SQL functions that check `can_manage_team`: `approve_player` and
   `remove_player` (parents' link requests, and taking a player off the roster with their RSVPs), `move_player`
   (for staff of both teams; the player's parents and own sign-in join the new team, and parents leave the old one

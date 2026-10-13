@@ -109,8 +109,20 @@ export async function seedDemoClub(
   );
   const clubId = club.id as string;
 
-  // Teams first: their trigger creates the default #announcements and #general channels.
-  must(await db.from('teams').insert(data.teams.map((t) => ({ club_id: clubId, id: t.id, name: t.name }))), 'Teams');
+  // Teams first: their trigger creates the default #announcements and #general channels. The club's
+  // first season comes from the clubs trigger, and teams and events join it (one season in the demo).
+  must(
+    await db.from('teams').insert(
+      data.teams.map((t) => ({
+        club_id: clubId,
+        id: t.id,
+        name: t.name,
+        age: t.age ?? null,
+        division: t.division ?? null,
+      })),
+    ),
+    'Teams',
+  );
 
   const memberIds = new Map(data.users.map((u) => [u.id, crypto.randomUUID()]));
   const member = (id: string | null | undefined) => (id ? (memberIds.get(id) ?? null) : null);

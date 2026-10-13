@@ -18,6 +18,8 @@ import {
   SaveTeamInput,
   SaveTeamResult,
   ScheduleRepository,
+  SeasonRoster,
+  StartSeasonInput,
   UpdateMemberInput,
   AddPlayerInput,
   AddPlayerResult,
@@ -36,6 +38,7 @@ import {
   PlayerProfile,
   RsvpStatus,
   Score,
+  SeasonId,
   TeamId,
   Thread,
   ThreadMembership,
@@ -54,11 +57,28 @@ import {
   canResetPassword,
   canReadThread,
   canSeeContact,
+  currentSeason,
   effectiveMembers,
+  isoDate,
   temporaryPassword,
 } from '@aura/shared/util';
 import { DEMO_PLATFORM_ADMIN, MockClub, createEmptyClubData } from './clubs';
 import { MockDb } from './mock-db';
+import { MockData } from './seed';
+
+const PAST_SEASON = 'That season has ended. Its teams, rosters and events are read-only.';
+
+/** The current season's teams, as team_members only ever hold them. */
+function currentTeamIds(data: MockData): Set<TeamId> {
+  const season = currentSeason(data.seasons)?.id;
+  return new Set(data.teams.filter((t) => t.season === season).map((t) => t.id));
+}
+
+/** A team of an ended season (the database's is_past_team). Club-wide ids are never past. */
+function isPastTeam(data: MockData, team: string): boolean {
+  const season = data.teams.find((t) => t.id === team)?.season;
+  return !!season && !!data.seasons.find((s) => s.id === season)?.endedAt;
+}
 
 const REPLIES = ['Sounds good, thanks!', 'Got it.', 'Works for us.', 'See you there.', 'Thanks for the heads up.'];
 
@@ -165,10 +185,12 @@ export class MockDirectoryRepository extends DirectoryRepository {
 
   /** The directory as the signed-in member may see it: emails only where `canSeeContact`. */
   private snapshot(): Directory {
-    const { teams, users, profiles, settings } = this.db.data;
+    const { seasons, teams, users, profiles, settings } = this.db.data;
     const me = this.me();
+    const current = currentTeamIds(this.db.data);
     return {
       club: toClub(this.db.club.account),
+      seasons,
       teams,
       users: users.map((u) => {
         const user = this.withAdmin(u);
@@ -176,7 +198,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
         const { email: _hidden, ...rest } = user;
         return rest;
       }),
-      profiles,
+      profiles: profiles.filter((p) => current.has(p.team)),
       settings,
     };
   }
@@ -235,48 +257,153 @@ export class MockDirectoryRepository extends DirectoryRepository {
 
   saveTeam(input: SaveTeamInput): Promise<SaveTeamResult> {
     const data = this.db.data;
-    let teamId = input.id;
-    if (!teamId) {
-      const name = input.name ?? '';
-      const [age, division] = name.split(' ');
-      teamId = age + (division?.[0] ?? '');
-      if (data.teams.some((t) => t.id === teamId)) return Promise.reject(new Error(`${name} already exists.`));
-      data.teams.push({ id: teamId, name });
-      for (const [suffix, channel] of [
-        ['ann', '#announcements'],
-        ['gen', '#general'],
-      ]) {
-        data.threads.push({
-          id: `${teamId}-${suffix}`,
-          name: channel,
-          scope: teamId,
-          teams: [teamId],
-          include: { ...ALL_GROUPS },
-          members: [],
-          creatorId: null,
-          isDefault: true,
-          announceOnly: suffix === 'ann',
-          messages: [],
-          unread: 0,
-        });
-      }
+    if (this.me()?.kind !== 'club') return this.db.fail('Only club staff can create and edit teams.');
+    const name = input.name.trim();
+    if (!name) return this.db.fail('Name the team.');
+    const current = currentTeamIds(data);
+    if (input.id && !current.has(input.id))
+      return this.db.fail(isPastTeam(data, input.id) ? PAST_SEASON : 'Team not found.');
+    const taken = data.teams.some(
+      (t) => t.id !== input.id && current.has(t.id) && t.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (taken) return this.db.fail(`${name} already exists this season.`);
+    const details = {
+      name,
+      ...(input.age ? { age: input.age } : {}),
+      ...(input.division ? { division: input.division } : {}),
+    };
+    let id = input.id;
+    if (id) {
+      data.teams = data.teams.map((t) => (t.id === id ? { id: t.id, season: t.season, ...details } : t));
+    } else {
+      id = this.db.nextId('t');
+      this.createTeam(id, details);
     }
-    const id = teamId;
+    const teamId = id;
     data.users = data.users.map((u) => {
       if (u.kind !== 'staff') return u;
       const want = input.staffIds.includes(u.id);
-      const has = u.teams.includes(id);
-      if (want && !has) return { ...u, teams: [...u.teams, id] };
-      if (!want && has) return { ...u, teams: u.teams.filter((t) => t !== id) };
+      const has = u.teams.includes(teamId);
+      if (want && !has) return { ...u, teams: [...u.teams, teamId] };
+      if (!want && has) return { ...u, teams: u.teams.filter((t) => t !== teamId) };
       return u;
     });
     let invite: MemberInvite | null = null;
     if (input.newStaff) {
-      const result = this.invite({ team: id, kind: 'staff', ...input.newStaff });
+      const result = this.invite({ team: teamId, kind: 'staff', ...input.newStaff });
       if (result instanceof Error) return this.db.fail(result.message);
       invite = result;
     }
     return this.db.respond({ directory: this.snapshot(), invite });
+  }
+
+  /** A team in the current season, with its default channels (the teams_default_threads trigger). */
+  private createTeam(id: TeamId, details: { name: string; age?: string; division?: string }): void {
+    const data = this.db.data;
+    const season = currentSeason(data.seasons)?.id ?? '';
+    data.teams.push({ id, season, ...details });
+    for (const [suffix, channel] of [
+      ['ann', '#announcements'],
+      ['gen', '#general'],
+    ]) {
+      data.threads.push({
+        id: `${id}-${suffix}`,
+        name: channel,
+        scope: id,
+        teams: [id],
+        include: { ...ALL_GROUPS },
+        members: [],
+        creatorId: null,
+        isDefault: true,
+        announceOnly: suffix === 'ann',
+        messages: [],
+        unread: 0,
+      });
+    }
+  }
+
+  /** As delete_team() does: only a team with no players and no events. */
+  deleteTeam(teamId: TeamId): Promise<Directory> {
+    const data = this.db.data;
+    if (this.me()?.kind !== 'club') return this.db.fail('Only club staff can delete teams.');
+    if (!data.teams.some((t) => t.id === teamId)) return this.db.fail('Team not found.');
+    if (isPastTeam(data, teamId)) return this.db.fail(PAST_SEASON);
+    if (data.profiles.some((p) => p.team === teamId && !p.pending) || data.events.some((e) => e.team === teamId)) {
+      return this.db.fail(
+        'Only a team with no players and no events can be deleted. Move its players and events first, or leave it out of the next season.',
+      );
+    }
+    data.teams = data.teams.filter((t) => t.id !== teamId);
+    data.profiles = data.profiles.filter((p) => p.team !== teamId);
+    data.threads = data.threads
+      .filter((t) => t.scope !== teamId)
+      .map((t) => (t.teams.includes(teamId) ? { ...t, teams: t.teams.filter((x) => x !== teamId) } : t));
+    for (const u of data.users) u.teams = u.teams.filter((t) => t !== teamId);
+    return this.db.respond(this.snapshot());
+  }
+
+  /** As start_season() does. */
+  startSeason({ name, teams }: StartSeasonInput): Promise<Directory> {
+    const data = this.db.data;
+    if (this.me()?.kind !== 'club') return this.db.fail('Only club staff can start a season.');
+    const seasonName = name.trim();
+    if (!seasonName) return this.db.fail('Name the new season.');
+    if (data.seasons.some((s) => s.name.toLowerCase() === seasonName.toLowerCase())) {
+      return this.db.fail(`There is already a season called ${seasonName}.`);
+    }
+    const current = currentTeamIds(data);
+    if (teams.some((t) => !current.has(t.from))) return this.db.fail('Only this season’s teams carry over.');
+    if (teams.some((t) => !t.name.trim())) return this.db.fail('Name every team you carry over.');
+    if (new Set(teams.map((t) => t.name.trim().toLowerCase())).size < teams.length) {
+      return this.db.fail('Give each team a different name.');
+    }
+
+    // The old season's rosters become history.
+    const old = data.users.flatMap((u) => u.teams.map((team) => ({ team, userId: u.id })));
+    data.pastMembers.push(...old);
+    for (const u of data.users) u.teams = [];
+    const today = isoDate(this.db.now());
+    data.seasons = data.seasons.map((s) => (s.endedAt ? s : { ...s, endedAt: today }));
+    data.seasons.push({ id: this.db.nextId('s'), name: seasonName, startedAt: today });
+
+    const join = (userId: UserId, team: TeamId) => {
+      const u = data.users.find((x) => x.id === userId);
+      if (u && !u.teams.includes(team)) u.teams = [...u.teams, team].sort();
+    };
+    for (const spec of teams) {
+      const id = this.db.nextId('t');
+      this.createTeam(id, {
+        name: spec.name.trim(),
+        ...(spec.age ? { age: spec.age } : {}),
+        ...(spec.division ? { division: spec.division } : {}),
+      });
+      const was = old.filter((m) => m.team === spec.from).map((m) => m.userId);
+      if (spec.staff) {
+        for (const userId of was) if (data.users.find((u) => u.id === userId)?.kind === 'staff') join(userId, id);
+      }
+      if (spec.players) {
+        for (const p of data.profiles.filter((x) => x.team === spec.from && !x.pending)) {
+          data.profiles.push({ ...p, id: this.db.nextId('p'), team: id, parentIds: [...p.parentIds] });
+          for (const u of data.users) {
+            if ((u.id === p.userId && u.kind === 'player') || (u.kind === 'parent' && p.parentIds.includes(u.id))) {
+              join(u.id, id);
+            }
+          }
+        }
+      }
+    }
+    return this.db.respond(this.snapshot());
+  }
+
+  loadSeason(seasonId: SeasonId): Promise<SeasonRoster> {
+    const data = this.db.data;
+    const ids = data.teams.filter((t) => t.season === seasonId).map((t) => t.id);
+    const members: SeasonRoster['members'] = Object.fromEntries(ids.map((id) => [id, [] as UserId[]]));
+    for (const m of data.pastMembers) {
+      if (members[m.team] && data.users.some((u) => u.id === m.userId)) members[m.team].push(m.userId);
+    }
+    const profiles = data.profiles.filter((p) => ids.includes(p.team) && !p.pending);
+    return this.db.respond({ members, profiles });
   }
 
   private me(): User | undefined {
@@ -352,6 +479,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
     const club = this.db.club;
     const data = club.data;
     data.users = data.users.filter((u) => u.id !== id);
+    data.pastMembers = data.pastMembers.filter((m) => m.userId !== id);
     club.credentials = club.credentials.filter((c) => c.userId !== id);
     for (const p of data.profiles) {
       p.parentIds = p.parentIds.filter((x) => x !== id);
@@ -389,6 +517,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
     const profile = this.db.data.profiles.find((p) => p.id === input.id);
     if (!profile) return this.db.fail('Player not found.');
     const me = this.me();
+    if (isPastTeam(this.db.data, profile.team)) return this.db.fail(PAST_SEASON);
     const actsFor = !!me && (profile.parentIds.includes(me.id) || profile.userId === me.id);
     if (!actsFor && !this.managesTeam(profile.team)) return this.db.fail('You don’t have permission to do that.');
     Object.assign(profile, { name: input.name, jersey: input.jersey });
@@ -399,7 +528,8 @@ export class MockDirectoryRepository extends DirectoryRepository {
     const user = this.db.data.users.find((u) => u.id === id);
     if (!user) return this.db.fail('Member not found.');
     const me = this.me();
-    const wanted = [...new Set(teams)].filter((t) => this.db.data.teams.some((x) => x.id === t));
+    const current = currentTeamIds(this.db.data);
+    const wanted = [...new Set(teams)].filter((t) => current.has(t));
     const changed = [
       ...wanted.filter((t) => !user.teams.includes(t)),
       ...user.teams.filter((t) => !wanted.includes(t)),
@@ -467,6 +597,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   requestPlayerLink(input: LinkPlayerInput): Promise<PlayerProfile> {
+    if (!currentTeamIds(this.db.data).has(input.team)) return this.db.fail('Team not found.');
     const profile: PlayerProfile = {
       id: this.db.nextId('p'),
       name: input.name,
@@ -480,10 +611,10 @@ export class MockDirectoryRepository extends DirectoryRepository {
     return this.db.respond(profile);
   }
 
-  /** Club staff, or staff of `team`. */
+  /** Club staff, or staff of `team`, in the current season (past seasons are read-only). */
   private managesTeam(team: string): boolean {
     const me = this.me();
-    return !!me && canManageTeam(me, team);
+    return !!me && canManageTeam(me, team) && !isPastTeam(this.db.data, team);
   }
 
   /** Members of this club only, as the real backend's foreign keys require. */
@@ -541,14 +672,27 @@ export class MockScheduleRepository extends ScheduleRepository {
     return this.db.respond(this.db.data.rsvps);
   }
 
+  /** Whether the event belongs to an ended season (read-only). */
+  private isPast(season: string | undefined): boolean {
+    return !!this.db.data.seasons.find((s) => s.id === season)?.endedAt;
+  }
+
+  /** As the events_season trigger does: the team's season, or the current one for club-wide events. */
+  private seasonFor(team: string): string {
+    const data = this.db.data;
+    return data.teams.find((t) => t.id === team)?.season ?? currentSeason(data.seasons)?.id ?? '';
+  }
+
   saveEvent(draft: ClubEventDraft): Promise<ClubEvent> {
     const events = this.db.data.events;
     const existing = draft.id ? events.find((e) => e.id === draft.id) : undefined;
+    const season = this.seasonFor(draft.team);
+    if (this.isPast(season) || this.isPast(existing?.season)) return this.db.fail(PAST_SEASON);
     if (existing) {
-      Object.assign(existing, draft);
+      Object.assign(existing, draft, { season });
       return this.db.respond(existing);
     }
-    const created: ClubEvent = { ...draft, id: this.db.nextId('e') };
+    const created: ClubEvent = { ...draft, id: this.db.nextId('e'), season };
     events.push(created);
     return this.db.respond(created);
   }
@@ -556,11 +700,14 @@ export class MockScheduleRepository extends ScheduleRepository {
   saveScore(eventId: string, score: Score): Promise<ClubEvent> {
     const event = this.db.data.events.find((e) => e.id === eventId);
     if (!event) return Promise.reject(new Error('Event not found.'));
+    if (this.isPast(event.season)) return this.db.fail(PAST_SEASON);
     event.score = score;
     return this.db.respond(event);
   }
 
   setRsvp(eventId: string, attendeeIds: string[], status: RsvpStatus | null): Promise<void> {
+    const event = this.db.data.events.find((e) => e.id === eventId);
+    if (this.isPast(event?.season)) return this.db.fail(PAST_SEASON);
     const forEvent = (this.db.data.rsvps[eventId] ??= {});
     for (const id of attendeeIds) {
       if (status) forEvent[id] = status;
@@ -585,9 +732,9 @@ export class MockChatRepository extends ChatRepository {
     return this.db.respond(this.db.data.threads);
   }
 
-  /** Whether `user` may post in `t`, as the messages policy decides. */
+  /** Whether `user` may post in `t`, as the messages policy decides. Past seasons' team chats are read-only. */
   private canPost(t: Thread, user: User | undefined): boolean {
-    if (!user) return false;
+    if (!user || isPastTeam(this.db.data, t.scope)) return false;
     return canPostInThread(t, user, this.isMember(t, user), this.db.data.settings);
   }
 
@@ -616,6 +763,7 @@ export class MockChatRepository extends ChatRepository {
 
   updateMembership(threadId: string, membership: Omit<ThreadMembership, 'creatorId'>): Promise<Thread> {
     const t = this.thread(threadId);
+    if (isPastTeam(this.db.data, t.scope)) return this.db.fail('That season has ended. Its team chats are read-only.');
     Object.assign(t, membership);
     return this.db.respond(t);
   }
@@ -636,6 +784,7 @@ export class MockChatRepository extends ChatRepository {
     const t = this.thread(threadId);
     const m = this.message(t, messageId);
     const me = this.db.me();
+    if (isPastTeam(this.db.data, t.scope)) return this.db.fail('That season has ended. Its team chats are read-only.');
     if (!me || !canEditMessage(m, me)) return this.db.fail('You can only edit your own messages.');
     if (!text.trim()) return this.db.fail('Write a message.');
     Object.assign(m, { text: text.trim(), editedAt: this.db.now().toISOString() });
@@ -646,6 +795,7 @@ export class MockChatRepository extends ChatRepository {
     const t = this.thread(threadId);
     const m = this.message(t, messageId);
     const me = this.db.me();
+    if (isPastTeam(this.db.data, t.scope)) return this.db.fail('That season has ended. Its team chats are read-only.');
     const reads = !!me && canReadThread(t, me, this.isMember(t, me));
     if (!me || !canDeleteMessage(m, t, me) || (m.from !== me.id && !reads)) {
       return this.db.fail('Only the sender or staff can delete this message.');
@@ -734,7 +884,7 @@ export class MockPlatformRepository extends PlatformRepository {
     const account: ClubAccount = { ...fields, id: this.db.nextId('c'), createdAt: this.db.now().toISOString() };
     this.db.clubs.push({
       account,
-      data: createEmptyClubData(admin),
+      data: createEmptyClubData(admin, this.db.now()),
       credentials: [
         { userId: admin.id, username: input.adminEmail, password: temporaryPassword, mustChangePassword: true },
       ],

@@ -12,7 +12,7 @@ import {
   ScheduleToolbar,
 } from '@aura/schedule/ui';
 import { ClubEvent, ClubEventDraft, EventTeam, RsvpStatus } from '@aura/shared/models';
-import { AppHeader, Choice } from '@aura/shared/ui';
+import { AppHeader, Chips, Choice } from '@aura/shared/ui';
 import {
   RSVP_LABEL,
   Submission,
@@ -22,6 +22,7 @@ import {
   firstName,
   formatEventWhen,
   formatResult,
+  teamShortName,
 } from '@aura/shared/util';
 
 /**
@@ -30,7 +31,7 @@ import {
  */
 @Component({
   selector: 'aura-schedule-page',
-  imports: [AppHeader, ScheduleToolbar, EventCard, EventDetail, EventForm],
+  imports: [AppHeader, Chips, ScheduleToolbar, EventCard, EventDetail, EventForm],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
@@ -39,6 +40,21 @@ import {
     <div class="flex min-h-0 flex-1">
       <main class="min-h-0 min-w-0 flex-1 overflow-y-auto">
         <div class="flex flex-col gap-3 px-3.5 pt-3.5 pb-6 wide:p-6">
+          @if (seasonTabs().length > 1) {
+            <aura-chips
+              class="-mx-3.5 px-3.5 wide:mx-0 wide:px-0"
+              aria-label="Season"
+              [scroll]="true"
+              [options]="seasonTabs()"
+              [value]="store.pastSeason() ?? ''"
+              (valueChange)="store.showSeason($event || null)"
+            />
+          }
+          @if (shownPastSeason(); as past) {
+            <p class="rounded-md border-2 border-dashed border-ink px-3 py-2.5 text-[13px] leading-snug">
+              {{ past.name }} has ended. Its schedule and results are kept, read-only.
+            </p>
+          }
           <aura-schedule-toolbar
             [segment]="store.segment()"
             [query]="store.query()"
@@ -112,17 +128,37 @@ export class SchedulePage {
 
   protected readonly openEvent = computed(() => this.store.events().find((e) => e.id === this.openId()) ?? null);
 
+  /** '' is the current season. */
+  protected readonly seasonTabs = computed<Choice<string>[]>(() => [
+    { value: '', label: (this.club.season()?.name ?? 'This season').toUpperCase() },
+    ...this.club.pastSeasons().map((s) => ({ value: s.id, label: s.name.toUpperCase() })),
+  ]);
+  protected readonly shownPastSeason = computed(
+    () => this.club.pastSeasons().find((s) => s.id === this.store.pastSeason()) ?? null,
+  );
+
+  /** Upcoming and open for RSVPs: a past season's events never are. */
+  private upcoming(e: ClubEvent): boolean {
+    return this.store.isUpcoming(e) && !this.store.isPastSeason(e);
+  }
+
+  private teamShort(e: ClubEvent): string {
+    if (e.team === 'ALL') return 'CLUB';
+    const team = this.club.team(e.team);
+    return team ? teamShortName(team) : e.team;
+  }
+
   protected readonly cards = computed<EventCardVm[]>(() =>
     this.store.listed().map((e) => {
       const attendees = this.store.attendeesFor(e);
       const statuses = attendees.map((a) => this.store.statusOf(e.id, a.id));
-      const upcoming = this.store.isUpcoming(e);
+      const upcoming = this.upcoming(e);
       const many = attendees.length > 1;
       return {
         id: e.id,
         icon: EVENT_ICON[e.type],
         title: eventTitle(e),
-        teamShort: e.team === 'ALL' ? 'CLUB' : e.team,
+        teamShort: this.teamShort(e),
         when: formatEventWhen(e) + (e.type === 'game' ? ` · ${e.home ? 'Home' : 'Away'}` : ''),
         location: e.location,
         selected: this.viewport.wide() && e.id === this.openId(),
@@ -152,7 +188,7 @@ export class SchedulePage {
   protected readonly detail = computed<EventDetailVm | null>(() => {
     const e = this.openEvent();
     if (!e) return null;
-    const upcoming = this.store.isUpcoming(e);
+    const upcoming = this.upcoming(e);
     const canEdit = this.store.canEdit(e);
     const isParent = this.club.persona() === 'parent';
     const attendees = this.store.attendeesFor(e);

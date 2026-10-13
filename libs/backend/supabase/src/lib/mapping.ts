@@ -11,6 +11,7 @@ import {
   PlayerProfile,
   RsvpMap,
   RsvpStatus,
+  Season,
   Team,
   Thread,
   User,
@@ -38,12 +39,25 @@ export type ProfileRow = Row<'player_profiles'> & { player_parents?: { member_id
 /** Profile columns with their parents. */
 export const PROFILE_SELECT = '*, player_parents(member_id)';
 export type EventRow = Row<'events'>;
-export type EventInsert = Tables['events']['Insert'];
+/** The events_season trigger sets season_id (the team's season, or the current one). */
+export type EventInsert = Omit<Tables['events']['Insert'], 'season_id'>;
 export type ThreadListRow = Functions['list_my_threads']['Returns'][number];
 export type MessageRow = Row<'messages'>;
 export type PlatformClubRow = Functions['platform_clubs']['Returns'][number];
 export type PlatformClubStaffRow = Functions['platform_club_staff']['Returns'][number];
 export type ClubSettingsRow = Row<'club_settings'>;
+export type SeasonRow = Pick<Row<'seasons'>, 'id' | 'name' | 'started_at' | 'ended_at'>;
+export type TeamRow = Pick<Row<'teams'>, 'id' | 'name' | 'season_id' | 'age' | 'division'>;
+export const TEAM_SELECT = 'id, name, season_id, age, division';
+export const SEASON_SELECT = 'id, name, started_at, ended_at';
+
+/**
+ * For inserts whose season_id a trigger sets (teams_season, events_season): the generated types
+ * require the column, but the database fills it in.
+ */
+export function seasonFromTrigger<T extends object>(row: T): T & { season_id: string } {
+  return row as T & { season_id: string };
+}
 
 /** Optional fields are left out rather than set to undefined, matching the mock's objects. */
 function defined<T extends object>(value: T): T {
@@ -124,21 +138,47 @@ export function toSettings(row: Pick<ClubSettingsRow, 'announcements' | 'contact
     : { ...DEFAULT_CLUB_SETTINGS };
 }
 
-/** `contacts` are the emails the signed-in member may see (member_contacts()). */
+export function toSeason(row: SeasonRow): Season {
+  return defined<Season>({
+    id: row.id,
+    name: row.name,
+    startedAt: row.started_at,
+    endedAt: row.ended_at ?? undefined,
+  });
+}
+
+export function toTeam(row: TeamRow): Team {
+  return defined<Team>({
+    id: row.id,
+    name: row.name,
+    season: row.season_id,
+    age: row.age ?? undefined,
+    division: row.division ?? undefined,
+  });
+}
+
+/**
+ * `contacts` are the emails the signed-in member may see (member_contacts()). Teams cover every
+ * season; profiles are the current season's (team memberships always are).
+ */
 export function toDirectory(
   club: ClubRow,
-  teams: Team[],
+  seasons: SeasonRow[],
+  teams: TeamRow[],
   members: MemberRow[],
   contacts: ContactRow[],
   profiles: ProfileRow[],
   settings: ClubSettingsRow | null,
 ): Directory {
   const emails = new Map(contacts.map((c) => [c.id, c.email]));
+  const current = seasons.find((s) => !s.ended_at)?.id;
+  const currentTeams = new Set(teams.filter((t) => t.season_id === current).map((t) => t.id));
   return {
     club: toClub(club),
-    teams,
+    seasons: seasons.map(toSeason),
+    teams: teams.map(toTeam),
     users: members.map((m) => toUser({ ...m, email: emails.get(m.id) ?? null }, club.admin_member_id)),
-    profiles: profiles.map(toProfile),
+    profiles: profiles.filter((p) => currentTeams.has(p.team_id)).map(toProfile),
     settings: toSettings(settings),
   };
 }
@@ -148,6 +188,7 @@ export function toEvent(row: EventRow): ClubEvent {
     id: row.id,
     type: row.type as ClubEvent['type'],
     team: row.team,
+    season: row.season_id,
     title: row.title ?? undefined,
     opponent: row.opponent ?? undefined,
     home: row.home ?? undefined,
@@ -227,12 +268,6 @@ export function messagesByThread(rows: MessageRow[]): Map<string, ChatMessage[]>
   return out;
 }
 
-/** The team id for a new team name, as the mock does: `U13 Girls` -> `U13G`. */
-export function teamIdFor(name: string): string {
-  const [age, division] = name.trim().split(/\s+/);
-  return (age ?? '') + (division?.[0] ?? '');
-}
-
 /** A User as the edge functions return it. */
 export function toUserResult(body: unknown): User {
   return defined(body as User);
@@ -249,6 +284,8 @@ export function dbError(error: PostgrestError, fallback = 'Something went wrong.
   if (error.code === '42501') return new Error('You don’t have permission to do that.');
   if (error.code === '23505') return new Error('That already exists.');
   if (error.code === 'PGRST116') return new Error('Not found, or you don’t have access to it.');
+  // Raised by our own functions and triggers, worded for people.
+  if (error.code === 'P0001' || error.code === '22023') return new Error(error.message);
   console.error(error);
   return new Error(fallback);
 }

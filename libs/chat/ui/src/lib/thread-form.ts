@@ -237,7 +237,7 @@ export class ThreadForm {
   }
 
   protected kindLabel(u: User): string {
-    const teams = u.teams.join(', ');
+    const teams = u.teams.map((t) => this.teamName(t)).join(', ');
     switch (u.kind) {
       case 'club':
         return `Club Staff · ${u.title ?? ''}`;

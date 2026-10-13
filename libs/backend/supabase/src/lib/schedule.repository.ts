@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { ScheduleRepository } from '@aura/backend/api';
 import { ClubEvent, ClubEventDraft, RsvpMap, RsvpStatus, Score } from '@aura/shared/models';
-import { dbError, fromEventDraft, toEvent, toRsvpMap } from './mapping';
+import { dbError, fromEventDraft, seasonFromTrigger, toEvent, toRsvpMap } from './mapping';
 import { PreviewData } from './preview';
 import { SupabaseClients } from './supabase-clients';
 
@@ -32,7 +32,7 @@ export class SupabaseScheduleRepository extends ScheduleRepository {
     const row = fromEventDraft(draft, club.id);
     const { data, error } = draft.id
       ? await client.from('events').update(row).eq('id', draft.id).select().single()
-      : await client.from('events').insert(row).select().single();
+      : await client.from('events').insert(seasonFromTrigger(row)).select().single();
     if (error) throw dbError(error, 'Could not save the event.');
     return toEvent(data);
   }

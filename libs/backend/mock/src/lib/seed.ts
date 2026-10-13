@@ -4,16 +4,24 @@ import {
   ClubSettings,
   PlayerProfile,
   RsvpMap,
+  Season,
   Team,
+  TeamId,
   Thread,
   User,
+  UserId,
   UserKind,
 } from '@aura/shared/models';
-import { ALL_GROUPS, DEFAULT_CLUB_SETTINGS, addDays, isoDate } from '@aura/shared/util';
+import { ALL_GROUPS, DEFAULT_CLUB_SETTINGS, addDays, isoDate, seasonNameFor } from '@aura/shared/util';
 
 /** One club's data. Branding and sign-in details live on the club record (see clubs.ts). */
 export interface MockData {
+  /** Oldest first; the last has no end. */
+  seasons: Season[];
+  /** Every season's teams. */
   teams: Team[];
+  /** Who was on past seasons' teams. `User.teams` are the current season's, as team_members are. */
+  pastMembers: { team: TeamId; userId: UserId }[];
   users: User[];
   profiles: PlayerProfile[];
   events: ClubEvent[];
@@ -103,6 +111,20 @@ const TEAM_STAFF: Record<string, string[]> = {
   U18B: ['Andre Lewis'],
 };
 
+/** The id of every mock club's first season. */
+export const FIRST_SEASON = 's1';
+
+/** A club's first season, as the database names it. */
+export function firstSeason(now: Date): Season {
+  return { id: FIRST_SEASON, name: seasonNameFor(now), startedAt: isoDate(addDays(now, -60)) };
+}
+
+/** A team of the first season named the old way (`U10 Boys`), with its age and division. */
+export function seedTeam(id: TeamId, name: string): Team {
+  const [age, division] = name.split(' ');
+  return { id, name, season: FIRST_SEASON, age, division };
+}
+
 /** Demo data for the Spartans club, also used as preview sample data. Dates are relative to `now` so the schedule stays current. */
 export function createSeed(now: Date): MockData {
   const teams: Team[] = [
@@ -111,7 +133,7 @@ export function createSeed(now: Date): MockData {
     ['U14B', 'U14 Boys'],
     ['U16G', 'U16 Girls'],
     ['U18B', 'U18 Boys'],
-  ].map(([id, name]) => ({ id, name }));
+  ].map(([id, name]) => seedTeam(id, name));
 
   const users: User[] = [];
   const profiles: PlayerProfile[] = [];
@@ -390,10 +412,12 @@ export function createSeed(now: Date): MockData {
   for (const u of users) u.email ??= u.id === 'eli' ? 'eli.smith@email.com' : `${u.id}@spartans.example`;
 
   return {
+    seasons: [firstSeason(now)],
     teams,
+    pastMembers: [],
     users,
     profiles,
-    events,
+    events: events.map((e) => ({ ...e, season: FIRST_SEASON })),
     rsvps,
     threads,
     muted: [],

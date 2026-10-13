@@ -92,28 +92,52 @@ or the "club created" screen). Each person then chooses their own.
   - reusing the temporary password shows "Choose a password different from the temporary one.";
   - a valid password lands on the schedule with "Password saved. Welcome to Riverside Rockets!"
 
-**US-2.2 Know what to do first** ❌ G27
+**US-2.2 Know what to do first** ✅ (G27)
 
 - Given a new club with no teams
 - When Casey opens Roster
-- Then they're guided to create a team. Today the page is blank, and team creation is only under More.
+- Then GET STARTED · 0 OF 3 lists: create a team, invite a coach, add players. Only CREATE TEAM has a button,
+  which opens the team form under More.
+- When the team exists, INVITE COACH (the invite form, set to Team Staff) and ADD PLAYER appear.
+- The checklist goes once the club has a team, a coach and an approved player. Other people never see it.
 
 **US-2.3 Create a team with a new coach** ✅
 
-- When Casey opens More → + CREATE TEAM, picks U11 and BOYS, and fills in "invite new staff" with Evan Moore and
-  his email
+- When Casey opens More → + CREATE TEAM, picks U11 and BOYS (which fill in the name "U11 Boys"), and fills in
+  "invite new staff" with Evan Moore and his email
 - Then the team "U11 Boys" is created with #announcements and #general.
 - And the invite-ready sheet shows the club link, Evan's username and a temporary password, each with a copy
   button, plus COPY INVITE MESSAGE.
 
-**US-2.4 Create a team before a coach is found** ❌ G15
+**US-2.4 Create a team before a coach is found** ✅ (G15)
 
 - When Casey creates a team without assigning staff
-- Then the team is created. Today: "Assign at least one team staff member."
+- Then the team is created: "… created. #announcements and #general are ready. Club staff manage it until it has
+  staff."
 
-**US-2.5 Teams the age and division pickers can't express** ❌ G17
+**US-2.5 Teams the age and division pickers can't express** ✅ (G17)
 
-- For example: U11 Boys Red and U11 Boys Blue, a U8 team, a mixed team, adults.
+- When Casey picks U11 and BOYS, then types the name "U11 Boys Red", and creates "U11 Boys Blue" the same way
+- Then both teams exist; the age (U6–U19, Adult) and division (Boys, Girls, Mixed) are optional, and a typed name
+  is kept.
+- A second "u11 boys red" this season is refused: "u11 boys red already exists this season."
+- Team ids are generated, never derived from the name, so MANAGE TEAM can rename a team.
+- A team created by mistake, with no players and no events, can be deleted (DELETE TEAM, confirmed), with its
+  channels. Any other team is refused.
+
+**US-2.6 Start a new season** ✅ (G18)
+
+- Given the club's first season, `2026–27` (named for the school year when the club was created)
+- When Casey opens More → SEASON → START NEW SEASON
+- Then the new season is named `2027–28`, and each team is listed a year older ("U11 Boys Red" → "U12 Boys Red"),
+  ticked, with STAFF and PLAYERS ticked.
+- When Casey unticks a team, unticks PLAYERS on another (to rebuild it), and confirms START SEASON
+- Then the new season has the ticked teams. Their staff, approved players (copied, with their parents) and those
+  players' parents and own sign-ins are on them; everyone else stays in the club on no team.
+- And `2026–27` is read-only: its teams, rosters, events, RSVPs and team chats cannot change, even for club staff.
+- Roster and Schedule show a season picker. The past season's rosters (staff, players, parents) and schedule
+  (results) are shown read-only. Its team chats are kept but no longer listed.
+- Move single players between the new teams afterwards (US-3.9).
 
 ---
 
@@ -207,9 +231,10 @@ or the "club created" screen). Each person then chooses their own.
 - And her messages stay, from "Former member".
 - Nobody can disable or remove themselves or the club admin, and only club staff can do either.
 
-**US-3.13 A coach steps down before a replacement is found** ❌ G14
+**US-3.13 A coach steps down before a replacement is found** ✅ (G14)
 
-- Today the last coach can't be unticked: "Assign at least one team staff member."
+- When Casey opens More → the team → MANAGE TEAM, unticks the last coach, and saves
+- Then the team has no staff ("No staff assigned"), and club staff manage it meanwhile.
 
 **US-3.14 Approve or reject a parent's link request** ✅ (G3)
 

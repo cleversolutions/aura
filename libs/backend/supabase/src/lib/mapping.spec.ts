@@ -5,12 +5,13 @@ import {
   fromEventDraft,
   functionError,
   messagesByThread,
-  teamIdFor,
   toClub,
   toEvent,
   toMessage,
   toRsvpMap,
   toSettings,
+  toDirectory,
+  toTeam,
   toThread,
   toUser,
 } from './mapping';
@@ -30,6 +31,7 @@ const eventRow: EventRow = {
   notes: '',
   score_us: 42,
   score_them: 38,
+  season_id: 's1',
 };
 
 describe('mapping', () => {
@@ -103,6 +105,7 @@ describe('mapping', () => {
       id: 'e1',
       type: 'game',
       team: 'U12G',
+      season: 's1',
       opponent: 'Westdale Wolves',
       home: true,
       date: '2026-10-03',
@@ -187,15 +190,57 @@ describe('mapping', () => {
     });
   });
 
-  it('derives team ids from names like the mock', () => {
-    expect(teamIdFor('U13 Girls')).toBe('U13G');
-    expect(teamIdFor(' U9  Boys ')).toBe('U9B');
+  it('maps teams with their season, and keeps profiles to the current season', () => {
+    expect(toTeam({ id: 't1', name: 'U11 Boys Red', season_id: 's2', age: 'U11', division: null })).toEqual({
+      id: 't1',
+      name: 'U11 Boys Red',
+      season: 's2',
+      age: 'U11',
+    });
+    const club = { id: 'c1', slug: 'k3v9qp', name: 'Spartans', admin_member_id: null } as Parameters<
+      typeof toDirectory
+    >[0];
+    const profile = {
+      id: 'p1',
+      club_id: 'c1',
+      name: 'Eli',
+      jersey: '7',
+      pending: false,
+      user_member_id: null,
+      player_parents: [],
+    };
+    const dir = toDirectory(
+      club,
+      [
+        { id: 's1', name: '2025–26', started_at: '2025-09-01', ended_at: '2026-08-01' },
+        { id: 's2', name: '2026–27', started_at: '2026-08-01', ended_at: null },
+      ],
+      [
+        { id: 'U10B', name: 'U10 Boys', season_id: 's1', age: 'U10', division: 'Boys' },
+        { id: 't1', name: 'U11 Boys', season_id: 's2', age: 'U11', division: 'Boys' },
+      ],
+      [],
+      [],
+      [
+        { ...profile, team_id: 'U10B' },
+        { ...profile, id: 'p2', team_id: 't1' },
+      ] as Parameters<typeof toDirectory>[5],
+      null,
+    );
+    expect(dir.seasons).toEqual([
+      { id: 's1', name: '2025–26', startedAt: '2025-09-01', endedAt: '2026-08-01' },
+      { id: 's2', name: '2026–27', startedAt: '2026-08-01' },
+    ]);
+    expect(dir.teams.map((t) => t.id)).toEqual(['U10B', 't1']);
+    expect(dir.profiles.map((p) => p.id)).toEqual(['p2']);
   });
 
   it('turns errors into messages for people', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const denied = new PostgrestError({ code: '42501', message: 'rls', details: '', hint: '' });
     expect(dbError(denied).message).toMatch(/permission/);
+    const ours = new PostgrestError({ code: 'P0001', message: 'That season has ended.', details: '', hint: '' });
+    expect(dbError(ours).message).toBe('That season has ended.');
     const response = new Response(JSON.stringify({ error: 'That link is already taken.' }), { status: 409 });
     expect((await functionError(new FunctionsHttpError(response))).message).toBe('That link is already taken.');
     expect((await functionError(new Error('boom'))).message).toBe('Something went wrong. Try again.');

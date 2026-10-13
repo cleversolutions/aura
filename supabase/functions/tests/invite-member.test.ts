@@ -169,6 +169,29 @@ Deno.test('invite-member', async (t) => {
         403,
       );
     });
+
+    await t.step('past seasons take no new members', async () => {
+      const { error } = await clubAdmin.rpc('start_season', {
+        p_name: 'Next season',
+        p_teams: [{ from: 'U14B', name: 'U15 Boys', staff: true, players: true }],
+      });
+      if (error) throw error;
+      const res = await invoke(clubAdmin, 'invite-member', {
+        team: 'U12G',
+        kind: 'parent',
+        name: 'Late Parent',
+        email: 'late@test.example',
+      });
+      assertEquals(res.status, 409, JSON.stringify(res.data));
+      // The coach was on U12G only, which was not carried over: they no longer manage anyone.
+      const coachInvite = await invoke(coach, 'invite-member', {
+        team: 'U12G',
+        kind: 'parent',
+        name: 'Late Parent',
+        email: 'late2@test.example',
+      });
+      assertEquals(coachInvite.status, 403);
+    });
   } finally {
     await cleanup();
   }

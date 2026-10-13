@@ -20,6 +20,21 @@ async function setup(initialUserId = 'jordan', replyDelayMs = 0) {
 describe('ChatStore', () => {
   afterEach(() => vi.useRealTimers());
 
+  it('keeps past seasons’ team threads out of the lists', async () => {
+    const store = await setup('sam');
+    const club = TestBed.inject(ClubStore);
+    await club.startSeason({
+      name: 'Next',
+      teams: [{ from: 'U12G', name: 'U13 Girls', staff: true, players: true }],
+    });
+    await store.load();
+    const ids = store.withMembers().map((t) => t.thread.id);
+    expect(ids).not.toContain('U12G-gen');
+    expect(ids).toContain('club-ann');
+    const u13 = club.teams()[0].id;
+    expect(store.teamChannels().map((t) => t.thread.scope)).toEqual([u13, u13]);
+  });
+
   it('lists only threads I am a member of', async () => {
     const store = await setup();
     const names = store.myThreads().map((t) => t.thread.id);

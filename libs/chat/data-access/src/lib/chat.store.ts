@@ -40,9 +40,22 @@ export const ChatStore = signalStore(
   { providedIn: 'root' },
   withState(initialState),
   withComputed((store, club = inject(ClubStore)) => {
+    /** Past seasons' team threads are kept, read-only, but not listed. */
+    const pastTeams = computed(() => {
+      const season = club.season()?.id;
+      return new Set(
+        club
+          .allTeams()
+          .filter((t) => t.season !== season)
+          .map((t) => t.id),
+      );
+    });
     const withMembers = computed<ThreadWithMembers[]>(() => {
       const users = club.users();
-      return store.threads().map((thread) => ({ thread, members: effectiveMembers(thread, users) }));
+      return store
+        .threads()
+        .filter((thread) => !pastTeams().has(thread.scope))
+        .map((thread) => ({ thread, members: effectiveMembers(thread, users) }));
     });
     const myThreads = computed(() => {
       const id = club.meId();
