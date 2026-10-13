@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
 import { Avatar, Check, Chips, Choice, Sheet } from '@aura/shared/ui';
+import { TeamRole } from '@aura/shared/models';
 import { isValidPhone } from '@aura/shared/util';
 
 export interface DetailFieldVm {
@@ -52,10 +53,12 @@ export interface PersonDetailsVm {
   canManagePlayer?: boolean;
   /** Give the player their own sign-in (they have none yet). */
   canGiveSignIn?: boolean;
+  /** Make a parent team staff, or team staff a parent, on `teams` (e.g. `U12 Girls`; '' for none yet). */
+  roleChange?: { to: TeamRole; teams: string };
 }
 
 /** An action that asks first. */
-type Confirming = 'cancel' | 'reset' | 'disable' | 'remove' | 'reject' | 'removePlayer' | 'signIn';
+type Confirming = 'cancel' | 'reset' | 'disable' | 'remove' | 'reject' | 'removePlayer' | 'signIn' | 'role';
 
 /**
  * Someone on the roster: their details, and an EDIT button that turns the sheet into a form when
@@ -207,6 +210,11 @@ type Confirming = 'cancel' | 'reset' | 'disable' | 'remove' | 'reject' | 'remove
               <button type="button" class="btn-outline h-11" (click)="confirming.set('cancel')">CANCEL INVITE</button>
             </div>
           }
+          @if (v.roleChange; as change) {
+            <button type="button" class="btn-outline h-11" (click)="confirming.set('role')">
+              {{ change.to === 'staff' ? 'MAKE TEAM STAFF' : 'MAKE PARENT' }}
+            </button>
+          }
           @if (!v.invited && v.canResetPassword) {
             <button type="button" class="btn-outline h-11" (click)="confirming.set('reset')">RESET PASSWORD</button>
           }
@@ -255,6 +263,8 @@ export class PersonDetails {
   readonly removePlayer = output<void>();
   /** The player's email, for their own sign-in. */
   readonly giveSignIn = output<string>();
+  /** Their new role, `roleChange.to`. */
+  readonly roleChange = output<TeamRole>();
   readonly closed = output<void>();
 
   /** Back to viewing whenever the person's details change (e.g. after saving). */
@@ -272,10 +282,15 @@ export class PersonDetails {
     reject: 'REJECT',
     removePlayer: 'REMOVE',
     signIn: 'CREATE SIGN-IN',
+    role: 'CHANGE ROLE',
   };
   protected readonly confirmText = computed<Record<Confirming, string>>(() => {
-    const name = this.vm().name;
+    const { name, roleChange } = this.vm();
     return {
+      role:
+        roleChange?.to === 'staff'
+          ? `Make ${name} team staff${roleChange.teams ? ` of ${roleChange.teams}` : ''}? They’ll manage its roster, schedule and chats, and stay linked to any players of their own.`
+          : `Make ${name} a parent instead of team staff? They stop managing ${roleChange?.teams || 'their teams'} and lose their title, and stay linked to any players of their own.`,
       cancel: `Cancel ${name}’s invite? Their temporary password stops working.`,
       reset: `Give ${name} a new temporary password? Their current password stops working, and they choose a new one when they sign in.`,
       disable: `Disable ${name}? They can’t sign in or take part until they’re enabled again. Nothing is deleted.`,
@@ -303,6 +318,11 @@ export class PersonDetails {
   protected readonly editableFields = computed(() => this.vm().fields.filter((f) => f.editable));
 
   protected confirm(action: Confirming): void {
+    if (action === 'role') {
+      const to = this.vm().roleChange?.to;
+      if (to) this.roleChange.emit(to);
+      return;
+    }
     if (action === 'signIn') {
       const email = this.signInEmail().trim();
       if (!/^\S+@\S+\.\S+$/.test(email)) return this.validationError.set('Enter the player’s email.');

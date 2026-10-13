@@ -8,6 +8,7 @@ import {
   PlayerProfile,
   Team,
   TeamId,
+  TeamRole,
   Thread,
   ThreadMembership,
   User,
@@ -170,6 +171,19 @@ export function hasTitle(user: Pick<User, 'kind'>): boolean {
  */
 export function canEditTitle(me: User, user: User): boolean {
   return hasTitle(me) && hasTitle(user);
+}
+
+/**
+ * Who moves a member between parent and team staff, keeping their sign-in, teams and players: club
+ * staff, either way; team staff make a parent team staff when every team the parent is on is
+ * theirs. Never themselves. Mirrors changesRole() in supabase/functions/_shared/admin.ts.
+ */
+export function canChangeRole(me: User, user: User, to: TeamRole): boolean {
+  if (user.id === me.id || user.kind === to || (user.kind !== 'parent' && user.kind !== 'staff')) return false;
+  if (me.kind === 'club') return true;
+  return (
+    me.kind === 'staff' && to === 'staff' && user.teams.length > 0 && user.teams.every((t) => me.teams.includes(t))
+  );
 }
 
 /** Titles are free text up to this many characters. Mirrors TITLE_MAX in supabase/functions/_shared/admin.ts. */

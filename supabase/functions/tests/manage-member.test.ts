@@ -57,6 +57,46 @@ Deno.test('manage-member', async (t) => {
       assertEquals((await manage(parent.client, coach.user.id, 'disable')).status, 403);
     });
 
+    await t.step('team staff make a parent on their team team staff; club staff make them a parent again', async () => {
+      const joe = await join('joe@test.example', 'parent');
+      const role = (client: typeof clubAdmin, id: string, kind: string) =>
+        invoke(client, 'manage-member', { id, action: 'role', kind });
+      const inviteAsJoe = (email: string) =>
+        invoke(joe.client, 'invite-member', { team: 'U12G', kind: 'parent', name: 'Kid’s parent', email });
+      assertEquals((await inviteAsJoe('a@test.example')).status, 403);
+
+      // Not parents, not other teams' parents, and team staff never make anyone a parent.
+      assertEquals((await role(parent.client, joe.user.id, 'staff')).status, 403);
+      assertEquals((await role(coach.client, otherParent.user.id, 'staff')).status, 403);
+      assertEquals((await role(coach.client, joe.user.id, 'club')).status, 400);
+
+      const made = await role(coach.client, joe.user.id, 'staff');
+      assertEquals(made.status, 200, JSON.stringify(made.data));
+      assertEquals([made.data['kind'], made.data['teams']], ['staff', ['U12G']]);
+      // Same sign-in, now with team staff's powers.
+      assertEquals((await inviteAsJoe('b@test.example')).status, 200);
+      await invoke(coach.client, 'update-member', { id: joe.user.id, title: 'Head Coach' });
+      assertEquals((await role(coach.client, joe.user.id, 'parent')).status, 403);
+      assertEquals((await role(joe.client, joe.user.id, 'parent')).status, 403);
+
+      const back = await role(clubAdmin, joe.user.id, 'parent');
+      assertEquals(back.status, 200, JSON.stringify(back.data));
+      assertEquals([back.data['kind'], back.data['title']], ['parent', undefined]);
+      assertEquals((await inviteAsJoe('c@test.example')).status, 403);
+
+      // Invites too, and never club staff.
+      const invited = (
+        await invoke(coach.client, 'invite-member', {
+          team: 'U12G',
+          kind: 'parent',
+          name: 'Al',
+          email: 'al@test.example',
+        })
+      ).data as Invite;
+      assertEquals((await role(coach.client, invited.user.id, 'staff')).data['kind'], 'staff');
+      assertEquals((await role(clubAdmin, registrar.user.id, 'parent')).status, 403);
+    });
+
     await t.step('club staff disable a member: no sign-in and no access; enabling restores both', async () => {
       const before = await coach.client.from('members').select('id');
       assert((before.data ?? []).length > 0);

@@ -8,6 +8,9 @@
 //   row-level security gives them no access.
 // - delete: club staff. Their messages stay, shown as from a former member; they are unlinked from
 //   players, threads and teams, and their RSVPs and sign-in are deleted.
+// - role: makes a parent team staff (`kind: 'staff'`), or team staff a parent again (`kind: 'parent'`),
+//   keeping their sign-in, teams and players; invites too. Club staff either way; team staff make
+//   parents on their own teams staff (changesRole). A parent again loses their title.
 // Nobody disables or removes themselves or the club admin.
 import {
   HttpError,
@@ -15,6 +18,7 @@ import {
   adminClient,
   caller,
   callerMember,
+  changesRole,
   check,
   loadMember,
   managesMember,
@@ -25,7 +29,7 @@ import {
   toUser,
 } from '../_shared/admin.ts';
 
-const ACTIONS = ['reset-password', 'disable', 'enable', 'delete'];
+const ACTIONS = ['reset-password', 'disable', 'enable', 'delete', 'role'];
 /** Long enough to mean "until re-enabled". */
 const BANNED = '876000h';
 
@@ -41,7 +45,9 @@ serve(async (req, body) => {
   const admin = adminClient();
   const user = await caller(req, admin);
   const action = text(body, 'action');
-  if (!ACTIONS.includes(action)) throw new HttpError(400, 'Reset a password, or disable, enable or remove a member.');
+  if (!ACTIONS.includes(action)) {
+    throw new HttpError(400, 'Reset a password, change a role, or disable, enable or remove a member.');
+  }
 
   // The platform admin resets the club admin's password.
   if (user.app_metadata?.['role'] === 'platform_admin') {
@@ -56,6 +62,18 @@ serve(async (req, body) => {
   const { clubId, me } = await callerMember(admin, user);
   const target = await loadMember(admin, clubId, { id: text(body, 'id') });
   if (!target) throw new HttpError(404, 'Member not found.');
+
+  if (action === 'role') {
+    const kind = text(body, 'kind');
+    if (kind !== 'staff' && kind !== 'parent') throw new HttpError(400, 'Make them team staff or a parent.');
+    if (!changesRole(me, target, kind)) {
+      throw new HttpError(403, 'Only club staff, and team staff for parents on their own teams, change roles.');
+    }
+    const title = kind === 'parent' ? null : target.title;
+    check(await admin.from('members').update({ kind, title }).eq('id', target.id), 'Change role');
+    return toUser({ ...target, kind, title }, await clubAdminId(admin, clubId));
+  }
+
   if (target.invited) throw new HttpError(409, `${target.name} hasn’t joined yet. Resend or cancel their invite.`);
 
   if (action === 'reset-password') {

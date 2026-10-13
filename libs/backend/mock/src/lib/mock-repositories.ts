@@ -41,6 +41,7 @@ import {
   Score,
   SeasonId,
   TeamId,
+  TeamRole,
   Thread,
   ThreadMembership,
   User,
@@ -52,6 +53,7 @@ import {
   canEditEvent,
   canEditMessage,
   canChangeMemberTeam,
+  canChangeRole,
   canEditTitle,
   canManageInvite,
   canManageTeam,
@@ -522,6 +524,20 @@ export class MockDirectoryRepository extends DirectoryRepository {
     if (user instanceof Error) return this.db.fail(user.message);
     if (disabled) user.disabled = true;
     else delete user.disabled;
+    return this.db.respond(this.withAdmin(user));
+  }
+
+  /** Invites too: someone invited as a parent who is really the coach. */
+  setMemberRole(id: UserId, kind: TeamRole): Promise<User> {
+    if (this.db.archived) return this.db.fail(ARCHIVED);
+    const user = this.db.data.users.find((u) => u.id === id);
+    if (!user) return this.db.fail('Member not found.');
+    const me = this.me();
+    if (!me || !canChangeRole(me, user, kind)) {
+      return this.db.fail('Only club staff, and team staff for parents on their own teams, change roles.');
+    }
+    user.kind = kind;
+    if (kind === 'parent') delete user.title;
     return this.db.respond(this.withAdmin(user));
   }
 

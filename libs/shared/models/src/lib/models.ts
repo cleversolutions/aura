@@ -95,6 +95,8 @@ export interface Team {
 }
 
 export type UserKind = 'club' | 'staff' | 'parent' | 'player';
+/** The roles a member can be moved between after joining: a parent made team staff, and back. */
+export type TeamRole = Extract<UserKind, 'staff' | 'parent'>;
 
 /** How the signed-in user experiences the app. */
 export type Persona = 'parent' | 'player' | 'teamStaff' | 'clubStaff';
