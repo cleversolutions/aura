@@ -388,9 +388,9 @@ export const ClubStore = signalStore(
         patchState(store, (s) => ({ profiles: s.profiles.map((p) => (p.id === updated.id ? updated : p)) }));
       },
       /** Also rejects a link request. */
+      /** Their parents and own sign-in may leave the team (or the club), so the whole directory is refreshed. */
       async removePlayer(profileId: string): Promise<void> {
-        await directory.removePlayer(profileId);
-        patchState(store, (s) => ({ profiles: s.profiles.filter((p) => p.id !== profileId) }));
+        patchState(store, fromDirectory(await directory.removePlayer(profileId)));
       },
       /** Their parents and own sign-in move with them, so the whole directory is refreshed. */
       async movePlayer(profileId: string, team: TeamId): Promise<void> {

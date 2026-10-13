@@ -256,10 +256,14 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
     return this.profile(profileId);
   }
 
-  async removePlayer(profileId: string): Promise<void> {
+  /** manage-member, which also removes a player's own sign-in left on no team. */
+  async removePlayer(profileId: string): Promise<Directory> {
     if (this.clients.previewing) return this.preview.directory.removePlayer(profileId);
-    const { error } = await this.clients.active().client.rpc('remove_player', { p_profile: profileId });
-    if (error) throw dbError(error, 'Could not remove the player.');
+    const { error } = await this.clients
+      .active()
+      .client.functions.invoke('manage-member', { body: { action: 'remove-player', profile: profileId } });
+    if (error) throw await functionError(error);
+    return this.load();
   }
 
   async movePlayer(profileId: string, team: TeamId): Promise<Directory> {

@@ -11,12 +11,17 @@
 // - role: makes a parent team staff (`kind: 'staff'`), or team staff a parent again (`kind: 'parent'`),
 //   keeping their sign-in, teams and players; invites too. Club staff either way; team staff make
 //   parents on their own teams staff (changesRole). A parent again loses their title.
+// - remove-player (`profile` instead of `id`): takes a player off the roster (remove_player(), which
+//   checks the caller may), with their RSVPs. Their parents, and their own sign-in, leave the team
+//   unless another of their players is on it; a player's sign-in left on no team is removed from
+//   the club, with its sign-in, as `delete` does.
 // Nobody disables or removes themselves or the club admin.
 import {
   HttpError,
   MemberRow,
   adminClient,
   caller,
+  callerClient,
   callerMember,
   changesRole,
   check,
@@ -25,11 +30,12 @@ import {
   removesMember,
   serve,
   setTemporaryPassword,
+  sqlError,
   text,
   toUser,
 } from '../_shared/admin.ts';
 
-const ACTIONS = ['reset-password', 'disable', 'enable', 'delete', 'role'];
+const ACTIONS = ['reset-password', 'disable', 'enable', 'delete', 'role', 'remove-player'];
 /** Long enough to mean "until re-enabled". */
 const BANNED = '876000h';
 
@@ -60,6 +66,17 @@ serve(async (req, body) => {
   }
 
   const { clubId, me } = await callerMember(admin, user);
+
+  if (action === 'remove-player') {
+    const profile = text(body, 'profile');
+    if (!/^[0-9a-f-]{36}$/i.test(profile)) throw new HttpError(404, 'Player not found.');
+    const { data, error } = await callerClient(req).rpc('remove_player', { p_profile: profile });
+    if (error) throw sqlError(error);
+    const signIn = data ? await loadMember(admin, clubId, { id: data as string }) : null;
+    if (signIn) await remove(admin, clubId, signIn);
+    return { removed: profile, signInRemoved: !!signIn };
+  }
+
   const target = await loadMember(admin, clubId, { id: text(body, 'id') });
   if (!target) throw new HttpError(404, 'Member not found.');
 

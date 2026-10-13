@@ -1131,7 +1131,7 @@ export type Database = {
           team_count: number;
         }[];
       };
-      remove_player: { Args: { p_profile: string }; Returns: undefined };
+      remove_player: { Args: { p_profile: string }; Returns: string };
       request_player_link: { Args: { p_jersey: string; p_name: string; p_team: string }; Returns: string };
       rsvp_profile_fits: { Args: { p_event: string; p_profile: string }; Returns: boolean };
       save_event_series: {

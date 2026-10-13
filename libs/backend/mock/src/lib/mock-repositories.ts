@@ -541,11 +541,16 @@ export class MockDirectoryRepository extends DirectoryRepository {
     return this.db.respond(this.withAdmin(user));
   }
 
-  /** As the database's foreign keys do: unlinks them everywhere and keeps their messages. */
   removeMember(id: UserId): Promise<void> {
     if (this.db.archived) return this.db.fail(ARCHIVED);
     const user = this.member(id, canRemoveMember, 'Only club staff can disable or remove members.');
     if (user instanceof Error) return this.db.fail(user.message);
+    this.deleteMember(id);
+    return this.db.respond(undefined);
+  }
+
+  /** As the database's foreign keys do: unlinks them everywhere and keeps their messages. */
+  private deleteMember(id: UserId): void {
     const club = this.db.club;
     const data = club.data;
     data.users = data.users.filter((u) => u.id !== id);
@@ -561,7 +566,6 @@ export class MockDirectoryRepository extends DirectoryRepository {
       for (const m of t.messages) if (m.from === id) m.from = null;
     }
     for (const forEvent of Object.values(data.rsvps)) delete forEvent[id];
-    return this.db.respond(undefined);
   }
 
   updateMember({ id, name, email, title, phone }: UpdateMemberInput): Promise<User> {
@@ -655,14 +659,27 @@ export class MockDirectoryRepository extends DirectoryRepository {
     return this.db.respond(profile);
   }
 
-  removePlayer(id: string): Promise<void> {
+  /** As remove_player() and manage-member do. */
+  removePlayer(id: string): Promise<Directory> {
     if (this.db.archived) return this.db.fail(ARCHIVED);
     const profile = this.managedProfile(id, 'remove');
     if (profile instanceof Error) return this.db.fail(profile.message);
     const data = this.db.data;
+    const team = profile.team;
     data.profiles = data.profiles.filter((p) => p.id !== id);
     for (const forEvent of Object.values(data.rsvps)) delete forEvent[id];
-    return this.db.respond(undefined);
+    // Whoever is no longer tied to the team by a player on it leaves it.
+    const tied = (u: User) =>
+      data.profiles.some((p) => p.team === team && (p.userId === u.id || p.parentIds.includes(u.id)));
+    for (const u of data.users) {
+      const theirs =
+        (u.kind === 'parent' && profile.parentIds.includes(u.id)) || (u.kind === 'player' && u.id === profile.userId);
+      if (theirs && !tied(u)) u.teams = u.teams.filter((t) => t !== team);
+    }
+    // A player's own sign-in on no team any more goes from the club.
+    const player = data.users.find((u) => u.id === profile.userId && u.kind === 'player');
+    if (player && !player.teams.length) this.deleteMember(player.id);
+    return this.db.respond(this.snapshot());
   }
 
   /** As move_player() does: parents and the player's own sign-in follow them to the new team. */
