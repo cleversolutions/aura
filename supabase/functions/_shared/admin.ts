@@ -15,6 +15,23 @@ export function adminClient(): SupabaseClient {
   });
 }
 
+/**
+ * A client acting as the caller, for SQL functions that check permissions themselves: row-level
+ * security and their checks apply as if the app had called them.
+ */
+export function callerClient(req: Request): SupabaseClient {
+  return createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
+    global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+/** A SQL function's own error as an HTTP one: refused (42501), not found (P0002), or a rule (P0001). */
+export function sqlError(error: { code?: string; message: string }): Error {
+  const status = { '42501': 403, P0002: 404, P0001: 409 }[error.code ?? ''];
+  return status ? new HttpError(status, error.message) : new Error(error.message);
+}
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',

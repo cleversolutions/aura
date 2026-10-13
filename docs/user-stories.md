@@ -203,8 +203,11 @@ or the "club created" screen). Each person then chooses their own.
 
 - When Casey opens Liam → REMOVE FROM ROSTER and confirms REMOVE
 - Then Liam is gone from PLAYERS, with his RSVPs.
-- And Rosa stays in the club ("No player linked yet"); a player's own sign-in stays too (remove it with REMOVE FROM
-  CLUB).
+- And Rosa stays in the club, but leaves U11 Boys and its chats, since she has no other player on it. Evan, a parent
+  who is also staff, keeps his teams.
+- When a player with their own sign-in (Noah) is removed, his sign-in leaves the team too. If U11 Boys was his only
+  team, his sign-in is removed from the club: he can no longer sign in, and his messages stay, from "Former member".
+  If he is on another team, he stays in the club on that team.
 - Only club staff and the team's staff can do it.
 
 **US-3.9 Move a player to another team** ✅ (G9)

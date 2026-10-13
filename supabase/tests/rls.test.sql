@@ -5,7 +5,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(197);
+select plan(203);
 
 -- ---------------------------------------------------------------------------------------------
 -- Fixture: two clubs, each with a Jordan Smith who shares a username but is a different person.
@@ -626,6 +626,39 @@ select lives_ok($$select public.approve_player((select id from fx where name = '
 select is((select pending from public.player_profiles where id = (select id from fx where name = 'request')), false, '... which joins the roster');
 select lives_ok($$select public.remove_player((select id from fx where name = 'request'))$$, 'the team''s staff remove players');
 select is_empty($$select 1 from public.player_profiles where id = (select id from fx where name = 'request')$$, '... who are gone');
+
+-- Removing a player takes their parents and own sign-in off the team, unless another of their
+-- players ties them to it. Rae parents Tess and Uma on U12G; Uma also plays on U18B.
+reset role;
+insert into public.members (id, club_id, name, kind) values
+  ('a0000000-0000-0000-0000-0000000000a1', 'c0000000-0000-0000-0000-000000000001', 'Rae', 'parent'),
+  ('a0000000-0000-0000-0000-0000000000a2', 'c0000000-0000-0000-0000-000000000001', 'Tess', 'player'),
+  ('a0000000-0000-0000-0000-0000000000a3', 'c0000000-0000-0000-0000-000000000001', 'Uma', 'player');
+insert into public.team_members (club_id, member_id, team_id)
+select 'c0000000-0000-0000-0000-000000000001', m::uuid, t
+from (values
+  ('a0000000-0000-0000-0000-0000000000a1', 'U12G'), ('a0000000-0000-0000-0000-0000000000a2', 'U12G'),
+  ('a0000000-0000-0000-0000-0000000000a3', 'U12G'), ('a0000000-0000-0000-0000-0000000000a3', 'U18B')
+) v (m, t);
+select pg_temp.login('a0000000-0000-0000-0000-000000000002');
+insert into fx select 'tess', public.add_player('U12G', 'Tess', '4', array['a0000000-0000-0000-0000-0000000000a1']::uuid[], 'a0000000-0000-0000-0000-0000000000a2');
+insert into fx select 'uma', public.add_player('U12G', 'Uma', '5', array['a0000000-0000-0000-0000-0000000000a1']::uuid[], 'a0000000-0000-0000-0000-0000000000a3');
+select is(
+  public.remove_player((select id from fx where name = 'tess')), 'a0000000-0000-0000-0000-0000000000a2'::uuid,
+  'removing a player whose own sign-in is on no other team returns it, for manage-member to remove'
+);
+select is(public.member_teams('a0000000-0000-0000-0000-0000000000a2'), '{}'::text[], '... after taking it off the team');
+select is(public.member_teams('a0000000-0000-0000-0000-0000000000a1'), array['U12G'], '... their parent stays, with another player on it');
+select is(
+  public.remove_player((select id from fx where name = 'uma')), null::uuid,
+  'a player''s sign-in on another team stays in the club'
+);
+select is(public.member_teams('a0000000-0000-0000-0000-0000000000a3'), array['U18B'], '... leaving only this team');
+select is(public.member_teams('a0000000-0000-0000-0000-0000000000a1'), '{}'::text[], '... as does a parent with no player left on it');
+reset role;
+delete from public.members where id in (
+  'a0000000-0000-0000-0000-0000000000a1', 'a0000000-0000-0000-0000-0000000000a2', 'a0000000-0000-0000-0000-0000000000a3'
+);
 
 -- Ava (Wei's only player) moves from U12G to U18B, and back.
 select throws_ok(

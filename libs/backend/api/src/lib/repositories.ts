@@ -281,9 +281,11 @@ export abstract class DirectoryRepository {
   abstract approvePlayer(profileId: string): Promise<PlayerProfile>;
   /**
    * Club staff, or the team's staff, take a player off the roster (or reject a link request), with
-   * their RSVPs. Their parents, and their own sign-in if they have one, stay in the club.
+   * their RSVPs. Their parents, and their own sign-in if they have one, leave the team unless
+   * another of their players is on it; parents stay in the club, and a player's own sign-in left on
+   * no team is removed from the club. Returns the refreshed directory.
    */
-  abstract removePlayer(profileId: string): Promise<void>;
+  abstract removePlayer(profileId: string): Promise<Directory>;
   /**
    * Moves a player to another team, for whoever manages both. Their parents and own sign-in join
    * the new team; parents leave the old one unless another of their players is on it. Returns the

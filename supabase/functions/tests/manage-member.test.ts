@@ -97,6 +97,34 @@ Deno.test('manage-member', async (t) => {
       assertEquals((await role(clubAdmin, registrar.user.id, 'parent')).status, 403);
     });
 
+    await t.step(
+      'removing a player from the roster removes their own sign-in, and their parent leaves the team',
+      async () => {
+        const kid = await join('kid@test.example', 'player');
+        const mum = await join('mum@test.example', 'parent');
+        const added = await clubAdmin.rpc('add_player', {
+          p_team: 'U12G',
+          p_name: 'Kid',
+          p_jersey: '9',
+          p_parents: [mum.user.id],
+          p_user_member: kid.user.id,
+        });
+        const removePlayer = (client: typeof clubAdmin, profile: string) =>
+          invoke(client, 'manage-member', { action: 'remove-player', profile });
+
+        assertEquals((await removePlayer(parent.client, added.data as string)).status, 403);
+        assertEquals((await removePlayer(coach.client, crypto.randomUUID())).status, 404);
+        const res = await removePlayer(coach.client, added.data as string);
+        assertEquals(res.status, 200, JSON.stringify(res.data));
+        assertEquals(res.data['signInRemoved'], true);
+        const { data: left } = await service.from('members').select('id').in('id', [kid.user.id, mum.user.id]);
+        assertEquals(left, [{ id: mum.user.id }]);
+        const { data: teams } = await service.from('team_members').select('team_id').eq('member_id', mum.user.id);
+        assertEquals(teams, []);
+        await assertRejects(() => signInAs('kid@test.example', kid.temporaryPassword));
+      },
+    );
+
     await t.step('club staff disable a member: no sign-in and no access; enabling restores both', async () => {
       const before = await coach.client.from('members').select('id');
       assert((before.data ?? []).length > 0);
