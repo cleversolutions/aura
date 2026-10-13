@@ -14,7 +14,7 @@ import {
   AddPlayerResult,
   UpdateProfileInput,
 } from '@aura/backend/api';
-import { Club, ClubSettings, PlayerProfile, SeasonId, TeamId, User } from '@aura/shared/models';
+import { Club, ClubSettings, PlayerProfile, SeasonId, TeamId, TeamRole, User } from '@aura/shared/models';
 import {
   MEMBER_SELECT,
   PROFILE_SELECT,
@@ -200,15 +200,20 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
     return this.manageMember(userId, disabled ? 'disable' : 'enable').then(toUserResult);
   }
 
+  setMemberRole(userId: string, kind: TeamRole): Promise<User> {
+    if (this.clients.previewing) return this.preview.directory.setMemberRole(userId, kind);
+    return this.manageMember(userId, 'role', { kind }).then(toUserResult);
+  }
+
   async removeMember(userId: string): Promise<void> {
     if (this.clients.previewing) return this.preview.directory.removeMember(userId);
     await this.manageMember(userId, 'delete');
   }
 
-  private async manageMember(id: string, action: string): Promise<unknown> {
+  private async manageMember(id: string, action: string, extra: Record<string, string> = {}): Promise<unknown> {
     const { data, error } = await this.clients
       .active()
-      .client.functions.invoke('manage-member', { body: { id, action } });
+      .client.functions.invoke('manage-member', { body: { id, action, ...extra } });
     if (error) throw await functionError(error);
     return data;
   }

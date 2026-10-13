@@ -305,6 +305,17 @@ or the "club created" screen). Each person then chooses their own.
   team. Their other details stay with the usual rules (US-3.17): staff of another team see only TITLE under EDIT.
 - Parents and players have no title, and can't change anyone's.
 
+**US-3.21 Make a parent team staff** ✅
+
+- Given Rosa joined as a U11 Boys parent, and has agreed to help coach
+- When Evan (U11 Boys staff) opens Rosa's details on the Roster → MAKE TEAM STAFF and confirms CHANGE ROLE
+- Then Rosa moves to the U11 Boys TEAM STAFF list, keeps her sign-in, and stays Liam's parent. Evan can then give
+  her a title (US-3.20).
+- Team staff can only do this for parents whose teams are all theirs. Club staff can for any parent.
+- Only club staff turn team staff back into parents (MAKE PARENT), which also clears their title.
+- Invites can change role too, for someone invited as a parent who is really a coach. Club staff and players
+  can't be changed, and nobody changes their own role.
+
 **US-3.18 Phone numbers** ✅ (G22)
 
 - When Jenn opens More → EDIT PROFILE, enters her phone number and presses SAVE

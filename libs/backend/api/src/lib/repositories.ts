@@ -16,6 +16,7 @@ import {
   SeasonId,
   Team,
   TeamId,
+  TeamRole,
   Thread,
   ThreadMembership,
   ThreadScope,
@@ -252,6 +253,11 @@ export abstract class DirectoryRepository {
    * enable them again. Not themselves, and not the club admin.
    */
   abstract setMemberDisabled(userId: UserId, disabled: boolean): Promise<User>;
+  /**
+   * Makes a parent team staff, or team staff a parent again, keeping their sign-in, teams and
+   * players (`canChangeRole`). A parent again loses their title.
+   */
+  abstract setMemberRole(userId: UserId, kind: TeamRole): Promise<User>;
   /**
    * Club staff remove a member from the club: their sign-in goes, they are unlinked from players,
    * teams and threads, and their messages stay, from a "Former member". Not themselves, and not
