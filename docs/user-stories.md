@@ -301,8 +301,9 @@ or the "club created" screen). Each person then chooses their own.
   "Team Staff · Head Coach · U11 Boys".
 - Titles are free text (up to 60 characters), e.g. Head Coach, Assistant Coach, Team Manager. Clearing one shows
   "Team Staff" (or "Club Staff") again.
-- Any staff member, club or team, the club admin included, can change any staff member's title, even on another
-  team. Their other details stay with the usual rules (US-3.17): staff of another team see only TITLE under EDIT.
+- Club staff, the club admin included, can change any staff member's title. Team staff can change any team staff
+  member's title, even on another team, but not club staff's. Their other details stay with the usual rules
+  (US-3.17): staff of another team see only TITLE under EDIT.
 - Parents and players have no title, and can't change anyone's.
 
 **US-3.18 Phone numbers** ✅ (G22)

@@ -165,11 +165,13 @@ export function hasTitle(user: Pick<User, 'kind'>): boolean {
 }
 
 /**
- * Who sets a staff member's title: any staff (club or team, the club admin included), for any
- * staff, whatever their teams. Mirrors editsTitle() in supabase/functions/_shared/admin.ts.
+ * Who sets a staff member's title: club staff (the club admin included) for any staff; team staff
+ * for any team staff, whatever their teams, but not club staff. Mirrors editsTitle() in
+ * supabase/functions/_shared/admin.ts.
  */
 export function canEditTitle(me: User, user: User): boolean {
-  return hasTitle(me) && hasTitle(user);
+  if (me.kind === 'club') return hasTitle(user);
+  return me.kind === 'staff' && user.kind === 'staff';
 }
 
 /** Titles are free text up to this many characters. Mirrors TITLE_MAX in supabase/functions/_shared/admin.ts. */

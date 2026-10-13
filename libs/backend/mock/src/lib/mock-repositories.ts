@@ -577,7 +577,8 @@ export class MockDirectoryRepository extends DirectoryRepository {
     const user = this.db.club.data.users.find((u) => u.id === userId);
     if (!user) return this.db.fail('Member not found.');
     const me = this.me();
-    if (!me || !canEditTitle(me, user)) return this.db.fail('Only staff can change staff titles.');
+    if (!me || !canEditTitle(me, user))
+      return this.db.fail('Only club staff, and team staff for team staff, change titles.');
     if (title.trim().length > TITLE_MAX) return this.db.fail(TITLE_TOO_LONG);
     setTitle(user, title);
     return this.db.respond(this.withAdmin(user));

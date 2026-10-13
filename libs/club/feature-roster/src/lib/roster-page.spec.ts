@@ -236,6 +236,13 @@ describe('RosterPage', () => {
       await h.click('SAVE');
       expect(TestBed.inject(ClubStore).user('kim-alvarez')?.title).toBe('Assistant Coach');
       expect(row('Kim Alvarez')?.textContent).toContain('Assistant Coach');
+
+      // Club staff are not team staff's to edit.
+      h.sheet()?.querySelector<HTMLButtonElement>('[aria-label=Close]')?.click();
+      await fixture.whenStable();
+      await h.openPerson('Sam Okoro');
+      expect(h.sheet()?.textContent).toContain('Club Director');
+      expect(h.sheet()?.textContent).not.toContain('EDIT');
     });
 
     it('shows a player’s care details to their family and staff, who edit them', async () => {

@@ -1,6 +1,6 @@
 // A member's own details (name, email, title, phone); anyone's for club staff; invites to their teams for team staff.
 // The email is also the sign-in username, so changing it moves their derived sign-in address.
-// `{ id, title }` alone sets a staff member's title, which any staff may do (editsTitle).
+// `{ id, title }` alone sets a staff member's title: club staff for any staff, team staff for team staff (editsTitle).
 import {
   HttpError,
   LOGIN_DOMAIN,
@@ -80,7 +80,8 @@ function hasTitle(m: MemberRow): boolean {
 async function setTitle(admin: SupabaseClient, clubId: string, me: MemberRow, id: string, title: string) {
   const target = await loadMember(admin, clubId, { id });
   if (!target) throw new HttpError(404, 'Member not found.');
-  if (!editsTitle(me, target)) throw new HttpError(403, 'Only staff can change staff titles.');
+  if (!editsTitle(me, target))
+    throw new HttpError(403, 'Only club staff, and team staff for team staff, change titles.');
   check(
     await admin
       .from('members')

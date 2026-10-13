@@ -235,7 +235,7 @@ export abstract class DirectoryRepository {
    * teams. Rejects an email already in use.
    */
   abstract updateMember(input: UpdateMemberInput): Promise<User>;
-  /** A staff member's title ('' clears it). Any staff, club or team, for any staff (`canEditTitle`). */
+  /** A staff member's title ('' clears it): club staff for any staff, team staff for team staff (`canEditTitle`). */
   abstract setMemberTitle(userId: UserId, title: string): Promise<User>;
   /** Removes someone invited who has not joined yet. Club staff, or staff of one of their teams. */
   abstract cancelInvite(userId: UserId): Promise<void>;

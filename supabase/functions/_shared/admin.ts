@@ -236,10 +236,10 @@ export function managesInvite(me: MemberRow, target: MemberRow): boolean {
 /** Titles are free text up to this many characters. As TITLE_MAX in shared/util. */
 export const TITLE_MAX = 60;
 
-/** Any staff (club or team) set any staff member's title. As canEditTitle() in shared/util. */
+/** Club staff set any staff member's title; team staff any team staff's. As canEditTitle() in shared/util. */
 export function editsTitle(me: MemberRow, target: MemberRow): boolean {
-  const staff = (m: MemberRow) => m.kind === 'club' || m.kind === 'staff';
-  return staff(me) && staff(target);
+  if (me.kind === 'club') return target.kind === 'club' || target.kind === 'staff';
+  return me.kind === 'staff' && target.kind === 'staff';
 }
 
 /**
