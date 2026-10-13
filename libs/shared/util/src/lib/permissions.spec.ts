@@ -1,5 +1,16 @@
 import { Thread, User } from '@aura/shared/models';
-import { ALL_GROUPS, canEditEvent, canManageThread, effectiveMembers, includedViaTeam } from './permissions';
+import {
+  ALL_GROUPS,
+  DEFAULT_CLUB_SETTINGS,
+  canDeleteMessage,
+  canEditEvent,
+  canEditMessage,
+  canManageThread,
+  canPostInThread,
+  canReadThread,
+  effectiveMembers,
+  includedViaTeam,
+} from './permissions';
 
 const users: User[] = [
   { id: 'sam', name: 'Sam Okoro', kind: 'club', teams: [] },
@@ -19,6 +30,7 @@ function thread(o: Partial<Thread> = {}): Thread {
     members: [],
     creatorId: null,
     isDefault: false,
+    announceOnly: false,
     messages: [],
     unread: 0,
     ...o,
@@ -34,6 +46,17 @@ describe('effectiveMembers', () => {
   it('respects excluded groups', () => {
     const t = thread({ teams: ['U12G'], include: { staff: true, parents: false, players: false } });
     expect([...effectiveMembers(t, users)]).toEqual(['dana']);
+  });
+
+  it('puts everyone in the club in the club default channel, whatever its teams', () => {
+    const t = thread({
+      scope: 'club',
+      isDefault: true,
+      teams: [],
+      include: { staff: false, parents: false, players: false },
+    });
+    expect([...effectiveMembers(t, users)].sort()).toEqual(['dana', 'eli', 'jordan', 'sam']);
+    expect([...effectiveMembers({ ...t, isDefault: false }, users)]).toEqual([]);
   });
 
   it('reports the team someone is included through', () => {
@@ -65,5 +88,49 @@ describe('canEditEvent', () => {
     expect(canEditEvent({ team: 'U14B' }, dana)).toBe(true);
     expect(canEditEvent({ team: 'ALL' }, dana)).toBe(false);
     expect(canEditEvent({ team: 'U12G' }, jordan)).toBe(false);
+  });
+});
+
+describe('reading and posting', () => {
+  const everyone = { announcements: 'everyone' as const };
+  const teamAnn = thread({ scope: 'U12G', teams: ['U12G'], isDefault: true, announceOnly: true });
+  const clubAnn = thread({ scope: 'club', isDefault: true, announceOnly: true });
+  const general = thread({ scope: 'U12G', teams: ['U12G'], isDefault: true });
+
+  it('lets club staff read and post in every default channel without being members', () => {
+    expect(canReadThread(general, sam, false)).toBe(true);
+    expect(canPostInThread(general, sam, false, DEFAULT_CLUB_SETTINGS)).toBe(true);
+    expect(canReadThread(thread(), sam, false)).toBe(false);
+    expect(canReadThread(general, dana, false)).toBe(false);
+  });
+
+  it('keeps announcement channels to staff by default', () => {
+    expect(canPostInThread(teamAnn, jordan, true, DEFAULT_CLUB_SETTINGS)).toBe(false);
+    expect(canPostInThread(teamAnn, dana, true, DEFAULT_CLUB_SETTINGS)).toBe(true);
+    expect(canPostInThread(teamAnn, sam, false, DEFAULT_CLUB_SETTINGS)).toBe(true);
+    expect(canPostInThread(clubAnn, dana, true, DEFAULT_CLUB_SETTINGS)).toBe(false);
+    expect(canPostInThread(clubAnn, sam, true, DEFAULT_CLUB_SETTINGS)).toBe(true);
+    expect(canPostInThread(general, jordan, true, DEFAULT_CLUB_SETTINGS)).toBe(true);
+  });
+
+  it('lets everyone in the channel post when the club allows it', () => {
+    expect(canPostInThread(teamAnn, jordan, true, everyone)).toBe(true);
+    expect(canPostInThread(clubAnn, eli, true, everyone)).toBe(true);
+    expect(canPostInThread(teamAnn, eli, false, everyone)).toBe(false);
+  });
+});
+
+describe('editing and deleting messages', () => {
+  const mine = { from: 'jordan' };
+  it('lets senders edit and delete their own messages, and staff delete in their threads', () => {
+    expect(canEditMessage(mine, jordan)).toBe(true);
+    expect(canEditMessage(mine, sam)).toBe(false);
+    expect(canEditMessage({ ...mine, deleted: true }, jordan)).toBe(false);
+    expect(canDeleteMessage(mine, thread({ scope: 'U12G' }), jordan)).toBe(true);
+    expect(canDeleteMessage(mine, thread({ scope: 'U12G' }), dana)).toBe(true);
+    expect(canDeleteMessage(mine, thread({ scope: 'U18B' }), dana)).toBe(false);
+    expect(canDeleteMessage(mine, thread({ scope: 'club' }), dana)).toBe(false);
+    expect(canDeleteMessage(mine, thread({ scope: 'club' }), sam)).toBe(true);
+    expect(canDeleteMessage(mine, thread(), eli)).toBe(false);
   });
 });

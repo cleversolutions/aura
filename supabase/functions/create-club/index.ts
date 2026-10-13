@@ -1,4 +1,4 @@
-// Platform admin: creates a club, its admin member and sign-in, and its announcements thread.
+// Platform admin: creates a club, its admin member and sign-in, and its club-wide announcements channel.
 // Input is NewClubInput (libs/backend/api); returns a ClubAccount. There is no transaction across
 // the database, Storage and Auth, so every step is undone if a later one fails.
 import {
@@ -101,6 +101,9 @@ serve(async (req, body) => {
         scope: 'club',
         teams: [],
         creator_member_id: member.id,
+        // The club's default channel: everyone in the club is in it, and staff post.
+        is_default: true,
+        announce_only: true,
       }),
       'Create announcements thread',
     );

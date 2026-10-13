@@ -30,6 +30,7 @@ import {
   ClubAccount,
   ClubEvent,
   ClubEventDraft,
+  ClubSettings,
   PlatformAdmin,
   PlayerProfile,
   RsvpStatus,
@@ -39,7 +40,16 @@ import {
   User,
   UserId,
 } from '@aura/shared/models';
-import { ALL_GROUPS, canManageInvite, effectiveMembers, temporaryPassword } from '@aura/shared/util';
+import {
+  ALL_GROUPS,
+  canDeleteMessage,
+  canEditMessage,
+  canManageInvite,
+  canPostInThread,
+  canReadThread,
+  effectiveMembers,
+  temporaryPassword,
+} from '@aura/shared/util';
 import { DEMO_PLATFORM_ADMIN, createEmptyClubData } from './clubs';
 import { MockDb } from './mock-db';
 
@@ -144,8 +154,8 @@ export class MockDirectoryRepository extends DirectoryRepository {
   private readonly db = inject(MockDb);
 
   private snapshot(): Directory {
-    const { teams, users, profiles } = this.db.data;
-    return { club: toClub(this.db.club.account), teams, users, profiles };
+    const { teams, users, profiles, settings } = this.db.data;
+    return { club: toClub(this.db.club.account), teams, users, profiles, settings };
   }
 
   findClub(slug: string): Promise<Club | null> {
@@ -200,6 +210,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
           members: [],
           creatorId: null,
           isDefault: true,
+          announceOnly: suffix === 'ann',
           messages: [],
           unread: 0,
         });
@@ -224,8 +235,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   private me(): User | undefined {
-    const meId = this.db.preview?.session.userId ?? this.db.sessions.get(this.db.activeSlug)?.userId;
-    return this.db.data.users.find((u) => u.id === meId);
+    return this.db.me();
   }
 
   /** The invited member `id`, if the signed-in user may manage their invite. */
@@ -345,6 +355,12 @@ export class MockDirectoryRepository extends DirectoryRepository {
     profile.parentIds = this.clubMembers(parentIds);
     return this.db.respond(profile);
   }
+
+  saveSettings(settings: ClubSettings): Promise<ClubSettings> {
+    if (this.me()?.kind !== 'club') return this.db.fail('Only club staff can change club settings.');
+    this.db.data.settings = { ...settings };
+    return this.db.respond(this.db.data.settings);
+  }
 }
 
 @Injectable()
@@ -403,8 +419,31 @@ export class MockChatRepository extends ChatRepository {
     return this.db.respond(this.db.data.threads);
   }
 
+  /** Whether `user` may post in `t`, as the messages policy decides. */
+  private canPost(t: Thread, user: User | undefined): boolean {
+    if (!user) return false;
+    return canPostInThread(t, user, this.isMember(t, user), this.db.data.settings);
+  }
+
+  private isMember(t: Thread, user: User): boolean {
+    return effectiveMembers(t, this.db.data.users).has(user.id);
+  }
+
+  private message(t: Thread, id: string): ChatMessage {
+    const m = t.messages.find((x) => x.id === id);
+    if (!m) throw new Error('Message not found.');
+    return m;
+  }
+
   createThread(input: NewThreadInput): Promise<Thread> {
-    const thread: Thread = { ...input, id: this.db.nextId('t'), isDefault: false, messages: [], unread: 0 };
+    const thread: Thread = {
+      ...input,
+      id: this.db.nextId('t'),
+      isDefault: false,
+      announceOnly: false,
+      messages: [],
+      unread: 0,
+    };
     this.db.data.threads.unshift(thread);
     return this.db.respond(thread);
   }
@@ -417,10 +456,36 @@ export class MockChatRepository extends ChatRepository {
 
   sendMessage(threadId: string, from: UserId, text: string): Promise<ChatMessage> {
     const t = this.thread(threadId);
+    const me = this.db.me();
+    if (!me || me.id !== from || !this.canPost(t, me)) {
+      return this.db.fail('You don’t have permission to do that.');
+    }
     const message: ChatMessage = { id: this.db.nextId('m'), from, text, sentAt: this.db.now().toISOString() };
     t.messages.push(message);
     this.simulateReply(t, from);
     return this.db.respond(message);
+  }
+
+  editMessage(threadId: string, messageId: string, text: string): Promise<ChatMessage> {
+    const t = this.thread(threadId);
+    const m = this.message(t, messageId);
+    const me = this.db.me();
+    if (!me || !canEditMessage(m, me)) return this.db.fail('You can only edit your own messages.');
+    if (!text.trim()) return this.db.fail('Write a message.');
+    Object.assign(m, { text: text.trim(), editedAt: this.db.now().toISOString() });
+    return this.db.respond(m);
+  }
+
+  deleteMessage(threadId: string, messageId: string): Promise<ChatMessage> {
+    const t = this.thread(threadId);
+    const m = this.message(t, messageId);
+    const me = this.db.me();
+    const reads = !!me && canReadThread(t, me, this.isMember(t, me));
+    if (!me || !canDeleteMessage(m, t, me) || (m.from !== me.id && !reads)) {
+      return this.db.fail('Only the sender or staff can delete this message.');
+    }
+    Object.assign(m, { text: '', deleted: true });
+    return this.db.respond(m);
   }
 
   markRead(threadId: string): Promise<void> {
@@ -449,7 +514,15 @@ export class MockChatRepository extends ChatRepository {
   private simulateReply(t: Thread, sender: UserId): void {
     const delay = this.db.options.replyDelayMs;
     if (!delay) return;
-    const others = [...effectiveMembers(t, this.db.data.users)].filter((id) => id !== sender);
+    const users = this.db.data.users;
+    const others = [...effectiveMembers(t, users)].filter(
+      (id) =>
+        id !== sender &&
+        this.canPost(
+          t,
+          users.find((u) => u.id === id),
+        ),
+    );
     if (!others.length) return;
     const from = others[Math.floor(Math.random() * Math.min(others.length, 6))];
     setTimeout(() => {

@@ -35,11 +35,11 @@ describe('InviteForm', () => {
 
   it('describes the threads the person will join for the chosen team and role', async () => {
     const { fixture, el } = await render();
-    expect(el.textContent).toContain('added to U12 Girls and automatically join 3 team-linked threads');
+    expect(el.textContent).toContain('added to U12 Girls and automatically join 3 chat threads');
     click(el, 'U14 Boys');
     click(el, 'Team Staff');
     await fixture.whenStable();
-    expect(el.textContent).toContain('added to U14 Boys and automatically join 2 team-linked threads');
+    expect(el.textContent).toContain('added to U14 Boys and automatically join 2 chat threads');
   });
 
   it('validates, then emits the invite', async () => {

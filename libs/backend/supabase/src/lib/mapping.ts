@@ -6,6 +6,7 @@ import {
   ClubAccount,
   ClubEvent,
   ClubEventDraft,
+  ClubSettings,
   PlayerProfile,
   RsvpMap,
   RsvpStatus,
@@ -14,6 +15,7 @@ import {
   User,
   UserKind,
 } from '@aura/shared/models';
+import { DEFAULT_CLUB_SETTINGS } from '@aura/shared/util';
 import { Database } from './database.types';
 
 /** Database rows <-> @aura/shared/models types. Pure functions; no client access. */
@@ -33,6 +35,7 @@ export type EventInsert = Tables['events']['Insert'];
 export type ThreadListRow = Functions['list_my_threads']['Returns'][number];
 export type MessageRow = Row<'messages'>;
 export type PlatformClubRow = Functions['platform_clubs']['Returns'][number];
+export type ClubSettingsRow = Row<'club_settings'>;
 
 /** Optional fields are left out rather than set to undefined, matching the mock's objects. */
 function defined<T extends object>(value: T): T {
@@ -89,8 +92,19 @@ export function toProfile(row: ProfileRow): PlayerProfile {
   };
 }
 
-export function toDirectory(club: Club, teams: Team[], members: MemberRow[], profiles: ProfileRow[]): Directory {
-  return { club, teams, users: members.map(toUser), profiles: profiles.map(toProfile) };
+/** A club without a settings row has the defaults. */
+export function toSettings(row: Pick<ClubSettingsRow, 'announcements'> | null): ClubSettings {
+  return row ? { announcements: row.announcements as ClubSettings['announcements'] } : { ...DEFAULT_CLUB_SETTINGS };
+}
+
+export function toDirectory(
+  club: Club,
+  teams: Team[],
+  members: MemberRow[],
+  profiles: ProfileRow[],
+  settings: ClubSettingsRow | null,
+): Directory {
+  return { club, teams, users: members.map(toUser), profiles: profiles.map(toProfile), settings: toSettings(settings) };
 }
 
 export function toEvent(row: EventRow): ClubEvent {
@@ -135,8 +149,18 @@ export function toRsvpMap(rows: { event_id: string; attendee_id: string; status:
   return map;
 }
 
-export function toMessage(row: Pick<MessageRow, 'id' | 'from_member_id' | 'text' | 'sent_at'>): ChatMessage {
-  return { id: row.id, from: row.from_member_id, text: row.text, sentAt: new Date(row.sent_at).toISOString() };
+export function toMessage(
+  row: Pick<MessageRow, 'id' | 'from_member_id' | 'text' | 'sent_at'> &
+    Partial<Pick<MessageRow, 'edited_at' | 'deleted_at'>>,
+): ChatMessage {
+  return {
+    id: row.id,
+    from: row.from_member_id,
+    text: row.text,
+    sentAt: new Date(row.sent_at).toISOString(),
+    ...(row.edited_at ? { editedAt: new Date(row.edited_at).toISOString() } : {}),
+    ...(row.deleted_at ? { deleted: true } : {}),
+  };
 }
 
 export function toThread(row: ThreadListRow, messages: ChatMessage[]): Thread {
@@ -149,6 +173,7 @@ export function toThread(row: ThreadListRow, messages: ChatMessage[]): Thread {
     members: row.members ?? [],
     creatorId: row.creator_member_id ?? null,
     isDefault: row.is_default,
+    announceOnly: row.announce_only,
     messages,
     unread: row.unread ?? 0,
   };

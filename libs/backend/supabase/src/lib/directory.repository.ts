@@ -12,7 +12,7 @@ import {
   AddPlayerResult,
   UpdateProfileInput,
 } from '@aura/backend/api';
-import { Club, PlayerProfile, User } from '@aura/shared/models';
+import { Club, ClubSettings, PlayerProfile, User } from '@aura/shared/models';
 import {
   PROFILE_SELECT,
   dbError,
@@ -22,6 +22,7 @@ import {
   toDirectory,
   toMemberInvite,
   toProfile,
+  toSettings,
   toUserResult,
 } from './mapping';
 import { PreviewData } from './preview';
@@ -45,15 +46,16 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
   async load(): Promise<Directory> {
     if (this.clients.previewing) return this.preview.directory.load();
     const { club, client } = this.clients.active();
-    const [clubRow, teams, members, profiles] = await Promise.all([
+    const [clubRow, teams, members, profiles, settings] = await Promise.all([
       client.from('clubs').select().eq('id', club.id).single(),
       client.from('teams').select('id, name').eq('club_id', club.id).order('id'),
       client.from('members').select('*, team_members(team_id)').eq('club_id', club.id).order('name'),
       client.from('player_profiles').select(PROFILE_SELECT).eq('club_id', club.id).order('name'),
+      client.from('club_settings').select().eq('club_id', club.id).maybeSingle(),
     ]);
-    for (const r of [clubRow, teams, members, profiles])
+    for (const r of [clubRow, teams, members, profiles, settings])
       if (r.error) throw dbError(r.error, 'Could not load the club.');
-    return toDirectory(toClub(clubRow.data!), teams.data!, members.data!, profiles.data!);
+    return toDirectory(toClub(clubRow.data!), teams.data!, members.data!, profiles.data!, settings.data);
   }
 
   async inviteMember(input: InviteMemberInput): Promise<MemberInvite> {
@@ -177,6 +179,18 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
       .client.rpc('set_player_parents', { p_profile: profileId, p_parents: parentIds });
     if (error) throw dbError(error, 'Could not save the player’s parents.');
     return this.profile(profileId);
+  }
+
+  async saveSettings(settings: ClubSettings): Promise<ClubSettings> {
+    if (this.clients.previewing) return this.preview.directory.saveSettings(settings);
+    const { club, client } = this.clients.active();
+    const { data, error } = await client
+      .from('club_settings')
+      .upsert({ club_id: club.id, announcements: settings.announcements })
+      .select()
+      .single();
+    if (error) throw dbError(error, 'Could not save the club settings.');
+    return toSettings(data);
   }
 
   private async profile(id: string): Promise<PlayerProfile> {

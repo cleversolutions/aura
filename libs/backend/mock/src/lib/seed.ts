@@ -1,5 +1,15 @@
-import { ChatMessage, ClubEvent, PlayerProfile, RsvpMap, Team, Thread, User, UserKind } from '@aura/shared/models';
-import { ALL_GROUPS, addDays, isoDate } from '@aura/shared/util';
+import {
+  ChatMessage,
+  ClubEvent,
+  ClubSettings,
+  PlayerProfile,
+  RsvpMap,
+  Team,
+  Thread,
+  User,
+  UserKind,
+} from '@aura/shared/models';
+import { ALL_GROUPS, DEFAULT_CLUB_SETTINGS, addDays, isoDate } from '@aura/shared/util';
 
 /** One club's data. Branding and sign-in details live on the club record (see clubs.ts). */
 export interface MockData {
@@ -10,6 +20,7 @@ export interface MockData {
   rsvps: RsvpMap;
   threads: Thread[];
   muted: string[];
+  settings: ClubSettings;
 }
 
 const GIRLS = [
@@ -166,6 +177,7 @@ export function createSeed(now: Date): MockData {
     members: [],
     creatorId: null,
     isDefault: false,
+    announceOnly: false,
     messages: [],
     unread: 0,
     ...o,
@@ -175,8 +187,8 @@ export function createSeed(now: Date): MockData {
   const threads: Thread[] = [
     thread('club-ann', '#club-announcements', 'club', {
       creatorId: 'sam',
-      teams: allTeams,
-      members: ['lee'],
+      isDefault: true,
+      announceOnly: true,
       messages: [
         msg(
           'sam',
@@ -218,7 +230,7 @@ export function createSeed(now: Date): MockData {
   ];
   for (const t of teams) {
     threads.push(
-      thread(`${t.id}-ann`, '#announcements', t.id, { isDefault: true, teams: [t.id] }),
+      thread(`${t.id}-ann`, '#announcements', t.id, { isDefault: true, announceOnly: true, teams: [t.id] }),
       thread(`${t.id}-gen`, '#general', t.id, { isDefault: true, teams: [t.id] }),
     );
   }
@@ -388,5 +400,6 @@ export function createSeed(now: Date): MockData {
     rsvps,
     threads,
     muted: [],
+    settings: { ...DEFAULT_CLUB_SETTINGS },
   };
 }
