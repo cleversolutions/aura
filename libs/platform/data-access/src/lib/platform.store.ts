@@ -9,9 +9,11 @@ interface PlatformState {
   checked: boolean;
   clubs: ClubAccount[];
   clubsLoaded: boolean;
+  /** The club just created and its admin's temporary password, until its page shows them once. */
+  created: { club: ClubAccount; temporaryPassword: string } | null;
 }
 
-const initialState: PlatformState = { admin: null, checked: false, clubs: [], clubsLoaded: false };
+const initialState: PlatformState = { admin: null, checked: false, clubs: [], clubsLoaded: false, created: null };
 
 /** The platform admin's session and the clubs they manage. */
 export const PlatformStore = signalStore(
@@ -38,8 +40,18 @@ export const PlatformStore = signalStore(
     },
     async createClub(input: NewClubInput): Promise<ClubAccount> {
       const club = await platform.createClub(input);
-      patchState(store, (s) => ({ clubs: [...s.clubs, club] }));
+      patchState(store, (s) => ({
+        clubs: [...s.clubs, club],
+        created: { club, temporaryPassword: input.temporaryPassword },
+      }));
       return club;
+    },
+    /** Hands over (once) the just-created club with this id, for its "club created" panel. */
+    takeCreated(id: string): { club: ClubAccount; temporaryPassword: string } | null {
+      const created = store.created();
+      if (created?.club.id !== id) return null;
+      patchState(store, { created: null });
+      return created;
     },
     async updateClub(id: string, input: Omit<ClubInput, 'slug'>): Promise<ClubAccount> {
       const club = await platform.updateClub(id, input);

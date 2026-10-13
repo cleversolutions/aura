@@ -1,7 +1,9 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter, withComponentInputBinding } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { provideTestBackend } from '@aura/backend/mock';
 import { ClubStore } from '@aura/club/data-access';
+import { PlatformStore } from '@aura/platform/data-access';
 import { Toaster } from '@aura/shared/util';
 import { ClubEditPage } from './club-pages';
 
@@ -15,9 +17,19 @@ async function settle(fixture: { whenStable(): Promise<unknown> }) {
 describe('ClubEditPage', () => {
   it('creates a club whose admin must replace the temporary password', async () => {
     TestBed.configureTestingModule({
-      providers: [provideTestBackend({ platformSignedIn: true, initialUserId: null }), provideRouter([])],
+      providers: [
+        provideTestBackend({ platformSignedIn: true, initialUserId: null }),
+        provideRouter(
+          [
+            { path: 'admin/clubs/new', component: ClubEditPage },
+            { path: 'admin/clubs/:clubId', component: ClubEditPage },
+          ],
+          withComponentInputBinding(),
+        ),
+      ],
     });
-    const fixture = TestBed.createComponent(ClubEditPage);
+    const harness = await RouterTestingHarness.create('/admin/clubs/new');
+    const fixture = harness.fixture;
     await settle(fixture);
     const el = fixture.nativeElement as HTMLElement;
     const type = (selector: string, value: string) => {
@@ -47,6 +59,11 @@ describe('ClubEditPage', () => {
       ?.click();
     await settle(fixture);
 
+    // The club's own page shows the panel, so a refresh shows the club, not an empty form.
+    const created = TestBed.inject(PlatformStore)
+      .clubs()
+      .find((c) => c.name === 'Northside Aura');
+    expect(TestBed.inject(Router).url).toBe(`/admin/clubs/${created?.id}`);
     expect(el.textContent).toContain('CLUB CREATED');
     expect(el.textContent).toContain('Share this link with Riley Shaw');
     expect(el.textContent).toContain(password);
@@ -57,5 +74,14 @@ describe('ClubEditPage', () => {
     expect(await club.open(slug)).toMatchObject({ name: 'Northside Aura' });
     await club.signIn('riley@northside.example', password);
     expect(club.mustChangePassword()).toBe(true);
+
+    // Shown once: coming back to the club's page shows its form.
+    await harness.navigateByUrl('/admin/clubs/new');
+    await harness.navigateByUrl(`/admin/clubs/${created?.id}`);
+    await settle(fixture);
+    expect(el.textContent).not.toContain('CLUB CREATED');
+    expect(el.querySelector<HTMLInputElement>('input[placeholder="e.g. Northside Aura"]')?.value).toBe(
+      'Northside Aura',
+    );
   });
 });

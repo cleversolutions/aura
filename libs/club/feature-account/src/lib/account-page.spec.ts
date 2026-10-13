@@ -24,6 +24,12 @@ describe('AccountPage', () => {
     expect(el.textContent).not.toContain('CLUB TEAMS');
   });
 
+  it('counts a single linked player in the singular', async () => {
+    const { el } = await render('wei-chen');
+    expect(el.textContent).toContain('Parent · 1 linked player');
+    expect(el.textContent).not.toContain('1 linked players');
+  });
+
   it('shows club staff every team and team creation', async () => {
     const { el } = await render('sam');
     expect(el.textContent).toContain('CLUB TEAMS');

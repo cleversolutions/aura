@@ -48,7 +48,7 @@ or the "club created" screen). Each person then chooses their own.
 - When Alex enters the admin's name and email and presses CREATE CLUB
 - Then "CLUB CREATED" shows the club link and a temporary password.
 - And the club appears on the CLUBS list.
-- Known issue (G33): the URL stays `/admin/clubs/new` after creating.
+- And the URL is the club's own page (`/admin/clubs/<id>`), so a refresh shows the club rather than an empty form.
 
 **US-1.3 Edit a club** ✅
 
@@ -249,8 +249,7 @@ or the "club created" screen). Each person then chooses their own.
 **US-5.1 Accept an invite** ✅
 
 - When Jenn signs in with the temporary password from US-3.2 and chooses her own password
-- Then she's on the schedule, with "Parent · 1 linked players".
-- Known issue: that should read "1 linked player".
+- Then she's on the schedule, with "Parent · 1 linked player".
 
 **US-5.2 RSVPs are shared between parents** ✅
 
@@ -310,8 +309,9 @@ Notes from running these scenarios by hand:
   - Create a fresh club per run, through `/admin` (UI) or the `create-club` edge function (faster setup). Use a
     random slug.
   - Delete the club and its auth users afterwards.
-  - Never reseed the demo clubs: `npm run db:seed` replaces the Spartans and Panthers, and anything done in them
-    by hand.
+  - Don't reseed the demo clubs: `npm run db:seed` replaces the Spartans and Panthers (it refuses if they were
+    changed by hand, unless forced). `npm run test:supabase` already works this way: see
+    `libs/backend/supabase/src/lib/demo-clubs.ts`.
 - **Order.** The stories build on each other (club → team → invites → players → people accept). Run them as one
   serial flow per club, or seed the earlier steps through the API and test each story on its own.
 - **Several people.** Most stories switch user. Prefer a separate browser context per person, so their sessions

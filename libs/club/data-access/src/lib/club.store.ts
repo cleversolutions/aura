@@ -99,8 +99,10 @@ export const ClubStore = signalStore(
           return `Team Staff · ${m.teams.map(name).join(', ')}`;
         case 'clubStaff':
           return `Club Staff · ${m.title ?? ''}`;
-        default:
-          return `Parent · ${myPlayers().length} linked players`;
+        default: {
+          const n = myPlayers().length;
+          return `Parent · ${n} linked ${n === 1 ? 'player' : 'players'}`;
+        }
       }
     }),
     /** Changes whenever the club, the signed-in person or preview mode changes. Null when signed out. */
