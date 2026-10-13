@@ -807,8 +807,9 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
 
       const dana = await signIn('dana@spartans.example');
       expect(await dana.directory.approvePlayer(keep.id)).not.toHaveProperty('pending');
-      await dana.directory.removePlayer(drop.id);
-      const profiles = (await dana.directory.load()).profiles;
+      const { profiles, users } = await dana.directory.removePlayer(drop.id);
+      // Jordan still has Maya (and now Ann) on U12G, so stays on it.
+      expect(users.find((u) => u.id === me)?.teams).toContain('U12G');
       expect(profiles.find((p) => p.id === keep.id)?.pending).toBeUndefined();
       expect(profiles.some((p) => p.id === drop.id)).toBe(false);
     });
@@ -841,7 +842,7 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       await expect(directory.setMemberTeams(mike, ['U18B', 'U12G'])).rejects.toThrow(/permission/);
     });
 
-    it('gives a player on the roster their own sign-in', async () => {
+    it('gives a player on the roster their own sign-in, which goes when they leave the roster', async () => {
       const { directory } = await signIn('dana@spartans.example');
       const added = await directory.addPlayer({ team: 'U12G', name: 'Di Moss', jersey: '', parentIds: [] });
       const invite = await directory.givePlayerSignIn(added.profile.id, 'di@x.example');
@@ -854,6 +855,11 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       expect(invite.user).toMatchObject({ kind: 'player', teams: ['U12G'], invited: true });
       const profile = (await directory.load()).profiles.find((p) => p.id === added.profile.id);
       expect(profile?.userId).toBe(invite.user.id);
+
+      const after = await directory.removePlayer(added.profile.id);
+      expect(after.users.some((u) => u.id === invite.user.id)).toBe(false);
+      const { data: left } = await service.from('members').select('id').eq('id', invite.user.id);
+      expect(left).toEqual([]);
     });
 
     it('shows emails by the contacts setting, as canSeeContact does', async () => {

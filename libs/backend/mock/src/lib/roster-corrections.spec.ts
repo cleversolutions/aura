@@ -36,14 +36,21 @@ describe('mock backend: roster corrections', () => {
     expect(profiles.some((p) => p.id === b.id)).toBe(false);
   });
 
-  it('removes a player with their RSVPs; their parents and sign-in stay', async () => {
+  it('removes a player with their RSVPs, and their own sign-in when it was on that team only', async () => {
     const directory = setup('mike');
-    await directory.removePlayer('eli');
-    const dir = await directory.load();
+    const dir = await directory.removePlayer('eli');
     expect(dir.profiles.some((p) => p.id === 'eli')).toBe(false);
-    expect(dir.users.some((u) => u.id === 'eli')).toBe(true);
-    expect(dir.users.some((u) => u.id === 'jordan')).toBe(true);
+    expect(dir.users.some((u) => u.id === 'eli')).toBe(false);
+    // Jordan stays in the club, and on U12G with Maya, but leaves U18B.
+    expect(dir.users.find((u) => u.id === 'jordan')?.teams).toEqual(['U12G']);
     await expect(directory.removePlayer('maya')).rejects.toThrow('remove players');
+  });
+
+  it('keeps a removed player’s own sign-in that is on another team, off this one', async () => {
+    const directory = setup('sam');
+    await directory.setMemberTeams('eli', ['U16G', 'U18B']);
+    const dir = await directory.removePlayer('eli');
+    expect(dir.users.find((u) => u.id === 'eli')?.teams).toEqual(['U16G']);
   });
 
   it('moves a player: parents and their own sign-in follow, for staff of both teams', async () => {

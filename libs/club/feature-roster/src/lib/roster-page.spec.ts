@@ -413,7 +413,9 @@ describe('RosterPage', () => {
       await h.click('REMOVE');
       expect(h.sheet()).toBeNull();
       expect(el.textContent).not.toContain('Ava Chen');
-      expect(el.textContent).toContain('Wei ChenNo player linked yet');
+      // Wei had no other player on U12G, so leaves it (and its chats), staying in the club.
+      expect(el.textContent).not.toContain('Wei Chen');
+      expect(TestBed.inject(ClubStore).user('wei-chen')?.teams).toEqual([]);
     });
 
     it('gives a player their own sign-in and hands it over', async () => {
