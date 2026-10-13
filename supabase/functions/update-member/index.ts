@@ -11,6 +11,7 @@ import {
   managesInvite,
   serve,
   text,
+  toUser,
 } from '../_shared/admin.ts';
 import { authEmailFor, normalizeUsername } from '../_shared/auth-identity.ts';
 
@@ -51,13 +52,8 @@ serve(async (req, body) => {
   }
 
   const updated = (await loadMember(admin, clubId, { id }))!;
-  return {
-    id: updated.id,
-    name: updated.name,
-    kind: updated.kind,
-    teams: updated.team_members.map((t) => t.team_id).sort(),
-    ...(updated.title ? { title: updated.title } : {}),
-    ...(updated.email ? { email: updated.email } : {}),
-    ...(updated.invited ? { invited: true } : {}),
+  const club = check(await admin.from('clubs').select('admin_member_id').eq('id', clubId).single(), 'Load club') as {
+    admin_member_id: string | null;
   };
+  return toUser(updated, club.admin_member_id);
 });

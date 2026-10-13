@@ -7,6 +7,7 @@ import {
   ClubEvent,
   ClubEventDraft,
   ClubSettings,
+  ClubStaffMember,
   PlayerProfile,
   RsvpMap,
   RsvpStatus,
@@ -35,6 +36,7 @@ export type EventInsert = Tables['events']['Insert'];
 export type ThreadListRow = Functions['list_my_threads']['Returns'][number];
 export type MessageRow = Row<'messages'>;
 export type PlatformClubRow = Functions['platform_clubs']['Returns'][number];
+export type PlatformClubStaffRow = Functions['platform_club_staff']['Returns'][number];
 export type ClubSettingsRow = Row<'club_settings'>;
 
 /** Optional fields are left out rather than set to undefined, matching the mock's objects. */
@@ -67,7 +69,20 @@ export function toClubAccount(row: PlatformClubRow): ClubAccount {
   };
 }
 
-export function toUser(row: MemberRow): User {
+export function toClubStaffMember(row: PlatformClubStaffRow): ClubStaffMember {
+  return defined<ClubStaffMember>({
+    id: row.id,
+    name: row.name,
+    email: row.username ?? '',
+    title: row.title || undefined,
+    invited: row.invited || undefined,
+    disabled: row.disabled || undefined,
+    admin: row.is_admin,
+  });
+}
+
+/** `adminId` is the club's admin member (clubs.admin_member_id). */
+export function toUser(row: MemberRow, adminId: string | null = null): User {
   return defined<User>({
     id: row.id,
     name: row.name,
@@ -76,6 +91,8 @@ export function toUser(row: MemberRow): User {
     title: row.title ?? undefined,
     email: row.email ?? undefined,
     invited: row.invited || undefined,
+    disabled: row.disabled || undefined,
+    clubAdmin: (!!adminId && row.id === adminId) || undefined,
   });
 }
 
@@ -98,13 +115,19 @@ export function toSettings(row: Pick<ClubSettingsRow, 'announcements'> | null): 
 }
 
 export function toDirectory(
-  club: Club,
+  club: ClubRow,
   teams: Team[],
   members: MemberRow[],
   profiles: ProfileRow[],
   settings: ClubSettingsRow | null,
 ): Directory {
-  return { club, teams, users: members.map(toUser), profiles: profiles.map(toProfile), settings: toSettings(settings) };
+  return {
+    club: toClub(club),
+    teams,
+    users: members.map((m) => toUser(m, club.admin_member_id)),
+    profiles: profiles.map(toProfile),
+    settings: toSettings(settings),
+  };
 }
 
 export function toEvent(row: EventRow): ClubEvent {

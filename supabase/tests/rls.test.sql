@@ -1,9 +1,10 @@
--- Row-level security: club isolation, thread membership, RSVPs, event editing, anonymous access.
+-- Row-level security: club isolation, thread membership, RSVPs, event editing, anonymous access,
+-- disabled and removed members.
 -- Run with `npm run db:test` (supabase test db). Everything happens in one rolled-back transaction.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(91);
+select plan(100);
 
 -- ---------------------------------------------------------------------------------------------
 -- Fixture: two clubs, each with a Jordan Smith who shares a username but is a different person.
@@ -488,6 +489,59 @@ reset role;
 select ok(
   (select text = '' and deleted_at is not null from public.messages where id = (select id from fx where name = 'priya_msg')),
   '... which keeps the message, without its text'
+);
+
+-- ---------------------------------------------------------------------------------------------
+-- Member lifecycle: disabled members have no access; removed members' messages stay
+-- ---------------------------------------------------------------------------------------------
+
+reset role;
+update public.members set disabled = true where id = 'a0000000-0000-0000-0000-000000000007';
+select pg_temp.login('a0000000-0000-0000-0000-000000000007');
+select is((select count(*)::integer from public.members), 0, 'a disabled member reads nobody');
+select is((select count(*)::integer from public.messages), 0, '... and no messages');
+select throws_ok(
+  $$insert into public.messages (club_id, thread_id, from_member_id, text)
+    values ('c0000000-0000-0000-0000-000000000001', (select id from fx where name = 'u12g_general'), 'a0000000-0000-0000-0000-000000000007', 'Still here?')$$,
+  '42501', null, '... and cannot post'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000001');
+select ok(
+  'a0000000-0000-0000-0000-000000000007' not in (select public.thread_member_ids((select id from fx where name = 'u12g_general'))),
+  'disabled members are in no thread'
+);
+reset role;
+update public.members set disabled = false where id = 'a0000000-0000-0000-0000-000000000007';
+select pg_temp.login('a0000000-0000-0000-0000-000000000007');
+select ok((select count(*) from public.members) > 0, 'enabled again, they have access again');
+
+-- Jordan's unread count in U12G #general, before Wei is removed (kept as Jordan's claims).
+select pg_temp.login('a0000000-0000-0000-0000-000000000004');
+reset role;
+create temporary table unread_before as
+select unread from public.list_my_threads() where id = (select id from fx where name = 'u12g_general');
+grant select on unread_before to authenticated;
+delete from public.members where id = 'a0000000-0000-0000-0000-000000000005';
+select is(
+  (select from_member_id from public.messages where id = (select id from fx where name = 'wei_msg')),
+  null, 'a removed member''s messages stay, from a former member'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000004');
+select is(
+  (select unread from public.list_my_threads() where id = (select id from fx where name = 'u12g_general')),
+  (select unread from unread_before), '... and still count as unread'
+);
+
+select pg_temp.login_platform();
+select set_eq(
+  $$select id from public.platform_club_staff('c0000000-0000-0000-0000-000000000001')$$,
+  array['a0000000-0000-0000-0000-000000000001'::uuid],
+  'the platform admin lists a club''s staff'
+);
+select pg_temp.login('a0000000-0000-0000-0000-000000000001');
+select is_empty(
+  $$select id from public.platform_club_staff('c0000000-0000-0000-0000-000000000001')$$,
+  '... which club members cannot'
 );
 
 select * from finish();

@@ -1,7 +1,7 @@
 import { inject } from '@angular/core';
 import { patchState, signalStore, withMethods, withState } from '@ngrx/signals';
-import { AuthRepository, ClubInput, NewClubInput, PlatformRepository } from '@aura/backend/api';
-import { ClubAccount, PlatformAdmin } from '@aura/shared/models';
+import { AuthRepository, ClubInput, MemberInvite, NewClubInput, PlatformRepository } from '@aura/backend/api';
+import { ClubAccount, ClubStaffMember, PlatformAdmin } from '@aura/shared/models';
 
 interface PlatformState {
   admin: PlatformAdmin | null;
@@ -11,9 +11,18 @@ interface PlatformState {
   clubsLoaded: boolean;
   /** The club just created and its admin's temporary password, until its page shows them once. */
   created: { club: ClubAccount; temporaryPassword: string } | null;
+  /** The open club's staff, for choosing its admin. */
+  staff: { clubId: string; members: ClubStaffMember[] } | null;
 }
 
-const initialState: PlatformState = { admin: null, checked: false, clubs: [], clubsLoaded: false, created: null };
+const initialState: PlatformState = {
+  admin: null,
+  checked: false,
+  clubs: [],
+  clubsLoaded: false,
+  created: null,
+  staff: null,
+};
 
 /** The platform admin's session and the clubs they manage. */
 export const PlatformStore = signalStore(
@@ -57,6 +66,28 @@ export const PlatformStore = signalStore(
       const club = await platform.updateClub(id, input);
       patchState(store, (s) => ({ clubs: s.clubs.map((c) => (c.id === id ? club : c)) }));
       return club;
+    },
+    /** The club's staff, the admin among them. */
+    clubStaff(id: string): ClubStaffMember[] {
+      const staff = store.staff();
+      return staff?.clubId === id ? staff.members : [];
+    },
+    async loadClubStaff(id: string): Promise<void> {
+      patchState(store, { staff: { clubId: id, members: await platform.listClubStaff(id) } });
+    },
+    async setClubAdmin(id: string, memberId: string): Promise<void> {
+      const club = await platform.setClubAdmin(id, memberId);
+      patchState(store, (s) => ({
+        clubs: s.clubs.map((c) => (c.id === id ? club : c)),
+        staff:
+          s.staff?.clubId === id
+            ? { clubId: id, members: s.staff.members.map((m) => ({ ...m, admin: m.id === memberId })) }
+            : s.staff,
+      }));
+    },
+    /** Resolves with the club admin's new temporary password. */
+    resetAdminPassword(id: string): Promise<MemberInvite> {
+      return platform.resetAdminPassword(id);
     },
   })),
 );

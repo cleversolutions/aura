@@ -4,6 +4,7 @@ import {
   ClubAccount,
   ClubEvent,
   ClubSettings,
+  ClubStaffMember,
   ClubEventDraft,
   PlatformAdmin,
   PlayerProfile,
@@ -91,12 +92,10 @@ export interface Directory {
   settings: ClubSettings;
 }
 
-export interface InviteMemberInput {
-  team: TeamId;
-  kind: Exclude<UserKind, 'club'>;
-  name: string;
-  email: string;
-}
+/** Someone invited to a team, or (by club staff) to the club staff, who belong to no team. */
+export type InviteMemberInput =
+  | { kind: Exclude<UserKind, 'club'>; team: TeamId; name: string; email: string }
+  | { kind: 'club'; title: string; name: string; email: string };
 
 /**
  * Someone just invited, with the sign-in to hand them. There is no invite email yet: staff share
@@ -185,6 +184,23 @@ export abstract class DirectoryRepository {
   abstract cancelInvite(userId: UserId): Promise<void>;
   /** A new temporary password for someone invited; the previous one stops working. */
   abstract resendInvite(userId: UserId): Promise<MemberInvite>;
+  /**
+   * A new temporary password for a member who has joined (a forgotten password), which they must
+   * replace at their next sign-in. Club staff for anyone; team staff for their teams' parents and
+   * players.
+   */
+  abstract resetPassword(userId: UserId): Promise<MemberInvite>;
+  /**
+   * Club staff disable a member, who then cannot sign in or take part but stays on record, or
+   * enable them again. Not themselves, and not the club admin.
+   */
+  abstract setMemberDisabled(userId: UserId, disabled: boolean): Promise<User>;
+  /**
+   * Club staff remove a member from the club: their sign-in goes, they are unlinked from players,
+   * teams and threads, and their messages stay, from a "Former member". Not themselves, and not
+   * the club admin.
+   */
+  abstract removeMember(userId: UserId): Promise<void>;
   abstract updateProfile(input: UpdateProfileInput): Promise<PlayerProfile>;
   abstract requestPlayerLink(input: LinkPlayerInput): Promise<PlayerProfile>;
   /** Club staff, or the team's staff, add a player to the roster. */
@@ -257,4 +273,10 @@ export abstract class PlatformRepository {
   abstract createClub(input: NewClubInput): Promise<ClubAccount>;
   /** The slug is fixed once created; changing it would break installed apps. */
   abstract updateClub(id: string, input: Omit<ClubInput, 'slug'>): Promise<ClubAccount>;
+  /** The club's staff, the admin among them. */
+  abstract listClubStaff(clubId: string): Promise<ClubStaffMember[]>;
+  /** Makes one of the club's staff, who has joined and is not disabled, its admin. */
+  abstract setClubAdmin(clubId: string, memberId: UserId): Promise<ClubAccount>;
+  /** A new temporary password for the club admin, which they must replace at their next sign-in. */
+  abstract resetAdminPassword(clubId: string): Promise<MemberInvite>;
 }

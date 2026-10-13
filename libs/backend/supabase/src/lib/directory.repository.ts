@@ -55,7 +55,7 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
     ]);
     for (const r of [clubRow, teams, members, profiles, settings])
       if (r.error) throw dbError(r.error, 'Could not load the club.');
-    return toDirectory(toClub(clubRow.data!), teams.data!, members.data!, profiles.data!, settings.data);
+    return toDirectory(clubRow.data!, teams.data!, members.data!, profiles.data!, settings.data);
   }
 
   async inviteMember(input: InviteMemberInput): Promise<MemberInvite> {
@@ -127,6 +127,29 @@ export class SupabaseDirectoryRepository extends DirectoryRepository {
       .client.functions.invoke('manage-invite', { body: { id: userId, action: 'resend' } });
     if (error) throw await functionError(error);
     return toMemberInvite(data);
+  }
+
+  resetPassword(userId: string): Promise<MemberInvite> {
+    if (this.clients.previewing) return this.preview.directory.resetPassword(userId);
+    return this.manageMember(userId, 'reset-password').then(toMemberInvite);
+  }
+
+  setMemberDisabled(userId: string, disabled: boolean): Promise<User> {
+    if (this.clients.previewing) return this.preview.directory.setMemberDisabled(userId, disabled);
+    return this.manageMember(userId, disabled ? 'disable' : 'enable').then(toUserResult);
+  }
+
+  async removeMember(userId: string): Promise<void> {
+    if (this.clients.previewing) return this.preview.directory.removeMember(userId);
+    await this.manageMember(userId, 'delete');
+  }
+
+  private async manageMember(id: string, action: string): Promise<unknown> {
+    const { data, error } = await this.clients
+      .active()
+      .client.functions.invoke('manage-member', { body: { id, action } });
+    if (error) throw await functionError(error);
+    return data;
   }
 
   async updateProfile(input: UpdateProfileInput): Promise<PlayerProfile> {

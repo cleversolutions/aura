@@ -28,6 +28,16 @@ async function render(initialUserId: string, threadId: string) {
 }
 
 describe('ThreadPage', () => {
+  it('keeps a removed member’s messages, from a former member', async () => {
+    const { el, settle } = await render('sam', 'U12G-gen');
+    expect(el.textContent).toContain('Priya Patel');
+    await TestBed.inject(ClubStore).removeMember('priya-patel');
+    await settle();
+    expect(el.textContent).toContain('Former member');
+    expect(el.textContent).toContain('Does anyone have spare size 6 court shoes?');
+    expect(el.textContent).not.toContain('Priya Patel');
+  });
+
   it('hides the composer from parents in announcement channels', async () => {
     const { el } = await render('jordan', 'U12G-ann');
     expect(el.querySelector('aura-message-composer')).toBeNull();

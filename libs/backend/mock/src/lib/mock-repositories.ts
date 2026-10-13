@@ -31,6 +31,7 @@ import {
   ClubEvent,
   ClubEventDraft,
   ClubSettings,
+  ClubStaffMember,
   PlatformAdmin,
   PlayerProfile,
   RsvpStatus,
@@ -46,11 +47,13 @@ import {
   canEditMessage,
   canManageInvite,
   canPostInThread,
+  canRemoveMember,
+  canResetPassword,
   canReadThread,
   effectiveMembers,
   temporaryPassword,
 } from '@aura/shared/util';
-import { DEMO_PLATFORM_ADMIN, createEmptyClubData } from './clubs';
+import { DEMO_PLATFORM_ADMIN, MockClub, createEmptyClubData } from './clubs';
 import { MockDb } from './mock-db';
 
 const REPLIES = ['Sounds good, thanks!', 'Got it.', 'Works for us.', 'See you there.', 'Thanks for the heads up.'];
@@ -78,6 +81,9 @@ export class MockAuthRepository extends AuthRepository {
     const cred = club.credentials.find((c) => c.username.toLowerCase() === name);
     if (!cred || cred.password !== password) {
       return this.db.fail('That username and password don’t match an account at this club.');
+    }
+    if (club.data.users.find((u) => u.id === cred.userId)?.disabled) {
+      return this.db.fail('This account is disabled. Ask your club’s staff.');
     }
     const session: ClubSession = { userId: cred.userId, mustChangePassword: cred.mustChangePassword };
     this.db.sessions.set(clubSlug, session);
@@ -155,7 +161,18 @@ export class MockDirectoryRepository extends DirectoryRepository {
 
   private snapshot(): Directory {
     const { teams, users, profiles, settings } = this.db.data;
-    return { club: toClub(this.db.club.account), teams, users, profiles, settings };
+    return {
+      club: toClub(this.db.club.account),
+      teams,
+      users: users.map((u) => this.withAdmin(u)),
+      profiles,
+      settings,
+    };
+  }
+
+  /** The user as the backend returns them: marked when they are the club admin. */
+  private withAdmin(user: User): User {
+    return user.id === this.db.club.adminUserId ? { ...user, clubAdmin: true } : user;
   }
 
   findClub(slug: string): Promise<Club | null> {
@@ -178,10 +195,27 @@ export class MockDirectoryRepository extends DirectoryRepository {
   }
 
   /** Adds an invited member with a sign-in they must replace, like the real invite-member function. */
-  private invite({ team, kind, name, email }: InviteMemberInput): MemberInvite | Error {
+  private invite(input: InviteMemberInput): MemberInvite | Error {
+    const { kind, name, email } = input;
+    const me = this.me();
+    if (input.kind === 'club' ? me?.kind !== 'club' : !this.managesTeam(input.team)) {
+      return new Error(
+        input.kind === 'club'
+          ? 'Only club staff can invite club staff.'
+          : 'Only club staff and this team’s staff can invite members.',
+      );
+    }
     const taken = this.db.club.credentials.some((c) => c.username.toLowerCase() === email.trim().toLowerCase());
     if (taken) return new Error(`${email} already has an account at this club.`);
-    const user: User = { id: this.db.nextId('u'), name, kind, teams: [team], email, invited: true };
+    const user: User = {
+      id: this.db.nextId('u'),
+      name,
+      kind,
+      teams: input.kind === 'club' ? [] : [input.team],
+      ...(input.kind === 'club' && input.title ? { title: input.title } : {}),
+      email,
+      invited: true,
+    };
     const password = temporaryPassword();
     this.db.data.users.push(user);
     this.db.club.credentials.push({ userId: user.id, username: email, password, mustChangePassword: true });
@@ -269,6 +303,58 @@ export class MockDirectoryRepository extends DirectoryRepository {
     return this.db.respond({ user, username: cred?.username ?? username, temporaryPassword: password });
   }
 
+  /** The member `id` who has joined, if the signed-in user passes `allowed`. */
+  private member(id: UserId, allowed: (me: User, user: User) => boolean, denied: string): User | Error {
+    const user = this.db.data.users.find((u) => u.id === id);
+    if (!user) return new Error('Member not found.');
+    if (user.invited) return new Error(`${user.name} hasn’t joined yet. Resend or cancel their invite.`);
+    const me = this.me();
+    return me && allowed(me, this.withAdmin(user)) ? user : new Error(denied);
+  }
+
+  resetPassword(id: UserId): Promise<MemberInvite> {
+    const user = this.member(
+      id,
+      canResetPassword,
+      'Only club staff, and team staff for their teams’ families, reset passwords.',
+    );
+    if (user instanceof Error) return this.db.fail(user.message);
+    const password = temporaryPassword();
+    const cred = this.db.club.credentials.find((c) => c.userId === id);
+    if (!cred) return this.db.fail(`${user.name} has no sign-in.`);
+    Object.assign(cred, { password, mustChangePassword: true });
+    return this.db.respond({ user: this.withAdmin(user), username: cred.username, temporaryPassword: password });
+  }
+
+  setMemberDisabled(id: UserId, disabled: boolean): Promise<User> {
+    const user = this.member(id, canRemoveMember, 'Only club staff can disable or remove members.');
+    if (user instanceof Error) return this.db.fail(user.message);
+    if (disabled) user.disabled = true;
+    else delete user.disabled;
+    return this.db.respond(this.withAdmin(user));
+  }
+
+  /** As the database's foreign keys do: unlinks them everywhere and keeps their messages. */
+  removeMember(id: UserId): Promise<void> {
+    const user = this.member(id, canRemoveMember, 'Only club staff can disable or remove members.');
+    if (user instanceof Error) return this.db.fail(user.message);
+    const club = this.db.club;
+    const data = club.data;
+    data.users = data.users.filter((u) => u.id !== id);
+    club.credentials = club.credentials.filter((c) => c.userId !== id);
+    for (const p of data.profiles) {
+      p.parentIds = p.parentIds.filter((x) => x !== id);
+      if (p.userId === id) Object.assign(p, { userId: null, login: '' });
+    }
+    for (const t of data.threads) {
+      t.members = t.members.filter((x) => x !== id);
+      if (t.creatorId === id) t.creatorId = null;
+      for (const m of t.messages) if (m.from === id) m.from = null;
+    }
+    for (const forEvent of Object.values(data.rsvps)) delete forEvent[id];
+    return this.db.respond(undefined);
+  }
+
   updateMember({ id, name, email, title }: UpdateMemberInput): Promise<User> {
     const club = this.db.club;
     const me = this.me();
@@ -285,7 +371,7 @@ export class MockDirectoryRepository extends DirectoryRepository {
     const cred = club.credentials.find((c) => c.userId === id);
     if (cred) cred.username = username;
     if (id === club.adminUserId) Object.assign(club.account, { adminName: user.name, adminEmail: username });
-    return this.db.respond(user);
+    return this.db.respond(this.withAdmin(user));
   }
 
   updateProfile(input: UpdateProfileInput): Promise<PlayerProfile> {
@@ -589,5 +675,57 @@ export class MockPlatformRepository extends PlatformRepository {
     const cred = club.credentials.find((c) => c.userId === club.adminUserId);
     if (cred) cred.username = input.adminEmail;
     return this.db.respond(club.account);
+  }
+
+  private club(id: string): MockClub | Error {
+    if (!this.db.platformAdmin) return new Error('Sign in as the platform admin.');
+    return this.db.clubs.find((c) => c.account.id === id) ?? new Error('Club not found.');
+  }
+
+  listClubStaff(clubId: string): Promise<ClubStaffMember[]> {
+    const club = this.club(clubId);
+    if (club instanceof Error) return this.db.fail(club.message);
+    const staff = club.data.users
+      .filter((u) => u.kind === 'club')
+      .map((u): ClubStaffMember => ({
+        id: u.id,
+        name: u.name,
+        email: club.credentials.find((c) => c.userId === u.id)?.username ?? u.email ?? '',
+        ...(u.title ? { title: u.title } : {}),
+        ...(u.invited ? { invited: true } : {}),
+        ...(u.disabled ? { disabled: true } : {}),
+        admin: u.id === club.adminUserId,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return this.db.respond(staff);
+  }
+
+  setClubAdmin(clubId: string, memberId: UserId): Promise<ClubAccount> {
+    const club = this.club(clubId);
+    if (club instanceof Error) return this.db.fail(club.message);
+    const user = club.data.users.find((u) => u.id === memberId && u.kind === 'club');
+    if (!user) return this.db.fail('Choose one of the club’s staff.');
+    if (user.invited || user.disabled) {
+      return this.db.fail(`${user.name} has to have joined, and not be disabled, to be the club admin.`);
+    }
+    club.adminUserId = user.id;
+    const username = club.credentials.find((c) => c.userId === user.id)?.username ?? user.email ?? '';
+    Object.assign(club.account, { adminName: user.name, adminEmail: username });
+    return this.db.respond(club.account);
+  }
+
+  resetAdminPassword(clubId: string): Promise<MemberInvite> {
+    const club = this.club(clubId);
+    if (club instanceof Error) return this.db.fail(club.message);
+    const user = club.data.users.find((u) => u.id === club.adminUserId);
+    const cred = club.credentials.find((c) => c.userId === club.adminUserId);
+    if (!user || !cred) return this.db.fail('This club has no admin.');
+    const password = temporaryPassword();
+    Object.assign(cred, { password, mustChangePassword: true });
+    return this.db.respond({
+      user: { ...user, clubAdmin: true },
+      username: cred.username,
+      temporaryPassword: password,
+    });
   }
 }

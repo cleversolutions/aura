@@ -82,6 +82,13 @@ describe('RosterPage', () => {
           ?.click();
         await fixture.whenStable();
       },
+      /** Opens the row whose name is exactly `name` (player rows also mention parents' names). */
+      openPerson: async (name: string) => {
+        Array.from(el.querySelectorAll<HTMLButtonElement>('[role=listitem] button'))
+          .find((b) => b.querySelector('span span')?.textContent?.trim() === name)
+          ?.click();
+        await fixture.whenStable();
+      },
       sheet: () => el.querySelector('aura-person-details'),
       click: async (text: string) => {
         Array.from(el.querySelectorAll<HTMLButtonElement>('aura-person-details button'))
@@ -165,6 +172,52 @@ describe('RosterPage', () => {
       await h.click('CANCEL INVITE');
       expect(club.users().some((u) => u.name === 'Rae Moss')).toBe(false);
       expect(el.textContent).not.toContain('Rae Moss');
+    });
+
+    it('lets team staff reset a parent’s password, but not disable or remove them', async () => {
+      const { fixture, el } = await render('dana');
+      const h = helpers(fixture, el);
+      await h.openPerson('Jordan Smith');
+      expect(h.sheet()?.textContent).not.toContain('REMOVE FROM CLUB');
+      await h.click('RESET PASSWORD');
+      await h.click('RESET');
+      const ready = el.querySelector('aura-member-invited');
+      expect(ready?.textContent).toContain('PASSWORD RESET');
+      expect(ready?.textContent).toContain('jordan.smith@email.com');
+      await expect(TestBed.inject(ClubStore).signIn('jordan.smith@email.com', 'password')).rejects.toThrow();
+    });
+
+    it('lets club staff disable, enable and remove a member', async () => {
+      const { fixture, el } = await render('sam', 'U12G');
+      const club = TestBed.inject(ClubStore);
+      const h = helpers(fixture, el);
+
+      await h.openPerson('Kim Alvarez');
+      await h.click('DISABLE');
+      expect(h.sheet()?.textContent).toContain('Nothing is deleted.');
+      await h.click('DISABLE');
+      expect(club.user('kim-alvarez')?.disabled).toBe(true);
+      expect(h.sheet()?.textContent).toContain('Team Staff · disabled');
+      expect(el.textContent).toContain('Team Staff · disabled');
+      await h.click('ENABLE');
+      expect(club.user('kim-alvarez')?.disabled).toBeUndefined();
+
+      await h.click('REMOVE FROM CLUB');
+      await h.click('REMOVE');
+      expect(club.user('kim-alvarez')).toBeUndefined();
+      expect(h.sheet()).toBeNull();
+      expect(el.textContent).not.toContain('Kim Alvarez');
+    });
+
+    it('lists the club staff, and never offers to remove the club admin', async () => {
+      const { fixture, el } = await render('lee');
+      expect(el.textContent).toContain('CLUB STAFF');
+      expect(el.textContent).toContain('Club Director · Club admin');
+      const h = helpers(fixture, el);
+      await h.openRow('Sam Okoro');
+      expect(h.sheet()?.textContent).toContain('Club Staff · Club admin');
+      expect(h.sheet()?.textContent).toContain('RESET PASSWORD');
+      expect(h.sheet()?.textContent).not.toContain('REMOVE FROM CLUB');
     });
   });
 

@@ -69,6 +69,7 @@ describe('mapping', () => {
       title: null,
       email: 'jordan.smith@email.com',
       invited: false,
+      disabled: false,
       team_members: [{ team_id: 'U18B' }, { team_id: 'U12G' }],
     });
     expect(user).toEqual({
@@ -78,6 +79,28 @@ describe('mapping', () => {
       teams: ['U12G', 'U18B'],
       email: 'jordan.smith@email.com',
     });
+  });
+
+  it('marks disabled members and the club admin', () => {
+    const row = {
+      id: 'm2',
+      club_id: 'c1',
+      user_id: 'u2',
+      username: 'sam@x.example',
+      name: 'Sam Okoro',
+      kind: 'club',
+      title: 'Director',
+      email: 'sam@x.example',
+      invited: false,
+      disabled: true,
+    };
+    expect(toUser(row, 'm2')).toMatchObject({ disabled: true, clubAdmin: true });
+    expect(toUser({ ...row, disabled: false }, 'm1')).not.toHaveProperty('clubAdmin');
+    expect(toUser({ ...row, disabled: false }, 'm1')).not.toHaveProperty('disabled');
+  });
+
+  it('maps messages from former members', () => {
+    expect(toMessage({ id: 'x', from_member_id: null, text: 'Bye', sent_at: '2026-10-10T10:00:00Z' }).from).toBeNull();
   });
 
   it('maps events both ways', () => {

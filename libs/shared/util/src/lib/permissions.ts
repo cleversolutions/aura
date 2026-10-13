@@ -45,16 +45,18 @@ export function isClubWide(t: Partial<Pick<Thread, 'isDefault' | 'scope'>>): boo
 /**
  * Everyone in a thread. The club's default channel has everyone in the club; otherwise the
  * creator, people added individually, and members of the linked teams whose group is included.
- * Mirrors thread_member_ids() in the migrations.
+ * Disabled members are in no thread. Mirrors thread_member_ids() in the migrations.
  */
 export function effectiveMembers(
   t: ThreadMembership & Partial<Pick<Thread, 'isDefault' | 'scope'>>,
   users: readonly User[],
 ): Set<UserId> {
-  if (isClubWide(t)) return new Set(users.map((u) => u.id));
-  const out = new Set<UserId>(t.members);
-  if (t.creatorId) out.add(t.creatorId);
-  for (const u of users) {
+  const enabled = users.filter((u) => !u.disabled);
+  if (isClubWide(t)) return new Set(enabled.map((u) => u.id));
+  const disabled = new Set(users.filter((u) => u.disabled).map((u) => u.id));
+  const out = new Set<UserId>(t.members.filter((id) => !disabled.has(id)));
+  if (t.creatorId && !disabled.has(t.creatorId)) out.add(t.creatorId);
+  for (const u of enabled) {
     const group = KIND_GROUP[u.kind];
     if (group && t.include[group] && u.teams.some((id) => t.teams.includes(id))) out.add(u.id);
   }
@@ -129,6 +131,29 @@ export function canManageInvite(me: User, user: User): boolean {
   if (!user.invited) return false;
   if (me.kind === 'club') return true;
   return me.kind === 'staff' && user.teams.some((t) => me.teams.includes(t));
+}
+
+/**
+ * Who resets a forgotten password: club staff for anyone, team staff for parents and players on
+ * their teams. Never their own, and only once someone has joined (invites are resent instead).
+ * Mirrors managesMember() in supabase/functions/_shared/admin.ts.
+ */
+export function canResetPassword(me: User, user: User): boolean {
+  if (user.invited || user.id === me.id) return false;
+  if (me.kind === 'club') return true;
+  return (
+    me.kind === 'staff' &&
+    (user.kind === 'parent' || user.kind === 'player') &&
+    user.teams.some((t) => me.teams.includes(t))
+  );
+}
+
+/**
+ * Who disables, re-enables or removes a member: club staff, for anyone who has joined except
+ * themselves and the club admin. Mirrors removesMember() in supabase/functions/_shared/admin.ts.
+ */
+export function canRemoveMember(me: User, user: User): boolean {
+  return me.kind === 'club' && !user.invited && user.id !== me.id && !user.clubAdmin;
 }
 
 export function canEditEvent(e: Pick<ClubEvent, 'team'>, me: User): boolean {

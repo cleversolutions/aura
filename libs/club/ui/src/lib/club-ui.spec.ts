@@ -57,6 +57,31 @@ describe('InviteForm', () => {
     click(el, 'SEND INVITE');
     expect(submitted).toHaveBeenCalledWith({ team: 'U12G', kind: 'parent', name: 'Pat Lee', email: 'pat@example.com' });
   });
+
+  it('offers club staff, with a title and no team, only when allowed', async () => {
+    const { fixture, el } = await render();
+    expect(el.textContent).not.toContain('Club Staff');
+    fixture.componentRef.setInput('canInviteClubStaff', true);
+    fixture.componentRef.setInput('clubStaffThreadCount', 1);
+    await fixture.whenStable();
+    const submitted = vi.fn();
+    fixture.componentInstance.submitted.subscribe(submitted);
+
+    click(el, 'Club Staff');
+    await fixture.whenStable();
+    expect(el.textContent).not.toContain('U14 Boys');
+    expect(el.textContent).toContain('automatically join 1 chat thread,');
+    type(el, 'input[placeholder="First and last name"]', 'Tia Bank');
+    type(el, 'input[type=email]', 'tia@example.com');
+    type(el, 'input[placeholder^="e.g. Registrar"]', 'Treasurer');
+    click(el, 'SEND INVITE');
+    expect(submitted).toHaveBeenCalledWith({
+      kind: 'club',
+      title: 'Treasurer',
+      name: 'Tia Bank',
+      email: 'tia@example.com',
+    });
+  });
 });
 
 describe('TeamForm', () => {
@@ -140,6 +165,25 @@ describe('MemberInvited', () => {
       "You're invited to Spartans on Aura. Open https://aura.example/k3v9qp and sign in as rae@x.example " +
         'with the temporary password KMRT-a7bq-49, then choose your own password.',
     );
+  });
+
+  it('words a password reset as one', async () => {
+    const fixture = TestBed.createComponent(MemberInvited);
+    fixture.componentRef.setInput('vm', {
+      name: 'Rae Moss',
+      clubName: 'Spartans',
+      url: 'https://aura.example/k3v9qp',
+      username: 'rae@x.example',
+      temporaryPassword: 'KMRT-a7bq-49',
+      reset: true,
+    });
+    const copied: CopiedValue[] = [];
+    fixture.componentInstance.copied.subscribe((c) => copied.push(c));
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('PASSWORD RESET');
+    click(el, 'COPY MESSAGE');
+    expect(copied[0].value).toMatch(/^Your password for Spartans on Aura has been reset\. Open /);
   });
 });
 
@@ -227,6 +271,46 @@ describe('PersonDetails', () => {
     await fixture.whenStable();
     click(el, 'CANCEL INVITE');
     expect(events).toEqual(['resend', 'cancel']);
+  });
+
+  it('confirms resetting a password, disabling and removing a member', async () => {
+    const { fixture, el } = await render(vm({ canResetPassword: true, canRemove: true }));
+    const events: string[] = [];
+    const c = fixture.componentInstance;
+    c.resetPassword.subscribe(() => events.push('reset'));
+    c.disable.subscribe(() => events.push('disable'));
+    c.remove.subscribe(() => events.push('remove'));
+
+    click(el, 'RESET PASSWORD');
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Give Rae Moss a new temporary password?');
+    expect(events).toEqual([]);
+    click(el, 'RESET');
+    click(el, 'BACK');
+    await fixture.whenStable();
+    click(el, 'DISABLE');
+    await fixture.whenStable();
+    click(el, 'DISABLE');
+    click(el, 'BACK');
+    await fixture.whenStable();
+    click(el, 'REMOVE FROM CLUB');
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Their messages stay, from “Former member”.');
+    click(el, 'REMOVE');
+    expect(events).toEqual(['reset', 'disable', 'remove']);
+  });
+
+  it('enables a disabled member without asking, and offers none of this for invites', async () => {
+    const { fixture, el } = await render(vm({ canRemove: true, canResetPassword: true, disabled: true }));
+    const enabled = vi.fn();
+    fixture.componentInstance.enable.subscribe(enabled);
+    click(el, 'ENABLE');
+    expect(enabled).toHaveBeenCalled();
+
+    fixture.componentRef.setInput('vm', vm({ canRemove: true, canResetPassword: true, invited: true }));
+    await fixture.whenStable();
+    expect(el.textContent).not.toContain('RESET PASSWORD');
+    expect(el.textContent).not.toContain('REMOVE FROM CLUB');
   });
 });
 
