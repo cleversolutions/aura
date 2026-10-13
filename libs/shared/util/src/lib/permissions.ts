@@ -159,6 +159,24 @@ export function canRemoveMember(me: User, user: User): boolean {
   return me.kind === 'club' && !user.invited && user.id !== me.id && !user.clubAdmin;
 }
 
+/** Club staff and team staff: the members who have a title (free text, e.g. `Head Coach`). */
+export function hasTitle(user: Pick<User, 'kind'>): boolean {
+  return user.kind === 'club' || user.kind === 'staff';
+}
+
+/**
+ * Who sets a staff member's title: club staff (the club admin included) for any staff; team staff
+ * for any team staff, whatever their teams, but not club staff. Mirrors editsTitle() in
+ * supabase/functions/_shared/admin.ts.
+ */
+export function canEditTitle(me: User, user: User): boolean {
+  if (me.kind === 'club') return hasTitle(user);
+  return me.kind === 'staff' && user.kind === 'staff';
+}
+
+/** Titles are free text up to this many characters. Mirrors TITLE_MAX in supabase/functions/_shared/admin.ts. */
+export const TITLE_MAX = 60;
+
 /**
  * Whether `me` sees `user`'s email. Always their own, the club staff's, and their own players'
  * (signing in themselves); with the default setting, club staff see everyone's, team staff their

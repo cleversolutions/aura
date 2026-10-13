@@ -22,7 +22,7 @@ Deno.test('update-member', async (t) => {
         id: coach.user.id,
         name: 'Kim Coach',
         email: 'kim@test.example',
-        title: 'ignored for team staff',
+        title: ' Head Coach ',
       });
       assertEquals(res.status, 200, JSON.stringify(res.data));
       assertEquals(res.data, {
@@ -30,6 +30,7 @@ Deno.test('update-member', async (t) => {
         name: 'Kim Coach',
         kind: 'staff',
         teams: ['U12G'],
+        title: 'Head Coach',
         email: 'kim@test.example',
         invited: true,
       });
@@ -84,6 +85,31 @@ Deno.test('update-member', async (t) => {
       assertEquals((await phone({})).data['phone'], '(555) 010-2030');
       assertEquals((await phone({ phone: 'call me' })).status, 400);
       assertEquals((await phone({ phone: '' })).data['phone'], undefined);
+    });
+
+    await t.step('club staff set any staff member’s title, team staff team staff’s; nobody else does', async () => {
+      await clubAdmin.from('teams').insert({ club_id: club.id, id: 'U14B', name: 'U14 Boys' });
+      const other = (
+        await invoke(clubAdmin, 'invite-member', {
+          team: 'U14B',
+          kind: 'staff',
+          name: 'Lou',
+          email: 'lou@test.example',
+        })
+      ).data as { user: { id: string }; temporaryPassword: string };
+      const lou = await signIn(await authEmailFor(club.id, 'lou@test.example'), other.temporaryPassword);
+      const title = (who: typeof lou, id: string, value: string) => invoke(who, 'update-member', { id, title: value });
+
+      // Team staff of another team, for team staff but not the club admin; then the admin clears it.
+      const set = await title(lou, coach.user.id, 'Assistant Coach');
+      assertEquals(set.status, 200, JSON.stringify(set.data));
+      assertEquals([set.data['name'], set.data['title']], ['Kim Coach', 'Assistant Coach']);
+      assertEquals((await title(lou, adminId, 'Team Manager')).status, 403);
+      assertEquals((await title(clubAdmin, coach.user.id, '  ')).data['title'], undefined);
+
+      assertEquals((await title(parentClient, coach.user.id, 'Head Coach')).status, 403);
+      assertEquals((await title(lou, parent.user.id, 'Head Coach')).status, 403);
+      assertEquals((await title(lou, coach.user.id, 'x'.repeat(61))).status, 400);
     });
 
     await t.step('rejects an email someone at the club already uses', async () => {

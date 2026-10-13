@@ -580,6 +580,34 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });
     });
 
+    it('lets team staff set any team staff member’s title, but not club staff’s', async () => {
+      const { auth, directory } = setup();
+      const dana = await memberId(SPARTANS_SLUG, 'dana@spartans.example');
+      const { data } = await service.from('members').select('title').eq('id', dana).single();
+      cleanups.push(() =>
+        service
+          .from('members')
+          .update({ title: data?.title ?? null })
+          .eq('id', dana),
+      );
+
+      // Mike coaches U18B only, and still titles the U12G/U14B coach.
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'mike@spartans.example', password: 'password' });
+      expect(await directory.setMemberTitle(dana, ' Assistant Coach ')).toMatchObject({
+        id: dana,
+        name: 'Dana Reyes',
+        title: 'Assistant Coach',
+      });
+      expect((await directory.setMemberTitle(dana, '')).title).toBeUndefined();
+      const sam = await memberId(SPARTANS_SLUG, 'sam@spartans.example');
+      await expect(directory.setMemberTitle(sam, 'President')).rejects.toThrow('Only club staff');
+      await auth.signOut();
+
+      await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'jordan.smith@email.com', password: 'password' });
+      await expect(directory.setMemberTitle(dana, 'Head Coach')).rejects.toThrow('Only club staff');
+      await auth.signOut();
+    });
+
     it('lets club staff resend and cancel invites', async () => {
       const { auth, directory } = setup();
       await auth.signIn({ clubSlug: SPARTANS_SLUG, username: 'sam@spartans.example', password: 'password' });

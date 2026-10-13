@@ -213,7 +213,8 @@ import { KIND_GROUP, Submission, Toaster, errorMessage, formatSeasonSpan, teamBa
     @if (editingMe() && club.me(); as me) {
       <aura-member-form
         [member]="{ name: me.name, email: me.email ?? '', phone: me.phone, title: me.title }"
-        [showTitle]="me.kind === 'club'"
+        [showTitle]="me.kind === 'club' || me.kind === 'staff'"
+        [titlePlaceholder]="me.kind === 'club' ? 'e.g. Club Director' : 'e.g. Head Coach'"
         [saving]="save.saving()"
         [error]="save.error()"
         (closed)="editingMe.set(false)"

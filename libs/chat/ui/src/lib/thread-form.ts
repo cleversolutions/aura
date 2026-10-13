@@ -240,9 +240,9 @@ export class ThreadForm {
     const teams = u.teams.map((t) => this.teamName(t)).join(', ');
     switch (u.kind) {
       case 'club':
-        return `Club Staff · ${u.title ?? ''}`;
+        return ['Club Staff', u.title].filter(Boolean).join(' · ');
       case 'staff':
-        return `Team Staff · ${teams}`;
+        return ['Team Staff', u.title, teams].filter(Boolean).join(' · ');
       case 'parent':
         return `Parent · ${teams}`;
       default:

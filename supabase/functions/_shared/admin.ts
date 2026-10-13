@@ -233,6 +233,15 @@ export function managesInvite(me: MemberRow, target: MemberRow): boolean {
   return me.kind === 'staff' && target.team_members.some((t) => mine.has(t.team_id));
 }
 
+/** Titles are free text up to this many characters. As TITLE_MAX in shared/util. */
+export const TITLE_MAX = 60;
+
+/** Club staff set any staff member's title; team staff any team staff's. As canEditTitle() in shared/util. */
+export function editsTitle(me: MemberRow, target: MemberRow): boolean {
+  if (me.kind === 'club') return target.kind === 'club' || target.kind === 'staff';
+  return me.kind === 'staff' && target.kind === 'staff';
+}
+
 /**
  * Who may reset a member's password: club staff for anyone; team staff for parents and players on
  * their teams. Never yourself, and only once they have joined (invites are resent instead).

@@ -165,7 +165,7 @@ export interface UpdateMemberInput {
   id: UserId;
   name: string;
   email: string;
-  /** Job title; club staff only. */
+  /** Job title; staff (club or team) only, ignored for others. */
   title?: string;
   /** Optional ('' clears it); left out to keep the current one. */
   phone?: string;
@@ -235,6 +235,8 @@ export abstract class DirectoryRepository {
    * teams. Rejects an email already in use.
    */
   abstract updateMember(input: UpdateMemberInput): Promise<User>;
+  /** A staff member's title ('' clears it): club staff for any staff, team staff for team staff (`canEditTitle`). */
+  abstract setMemberTitle(userId: UserId, title: string): Promise<User>;
   /** Removes someone invited who has not joined yet. Club staff, or staff of one of their teams. */
   abstract cancelInvite(userId: UserId): Promise<void>;
   /** A new temporary password for someone invited; the previous one stops working. */
