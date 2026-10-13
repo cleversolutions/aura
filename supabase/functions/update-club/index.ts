@@ -2,7 +2,8 @@
 // slug, which never changes. A new admin email is a new username, so the admin's derived sign-in
 // address changes with it.
 //
-// `{ id, adminMemberId }` instead makes another of the club's staff its admin (setClubAdmin).
+// `{ id, adminMemberId }` instead makes another of the club's staff its admin (setClubAdmin), and
+// `{ id, archived }` archives the club (read-only for its members) or restores it (setArchived).
 import {
   ClubRow,
   HttpError,
@@ -25,6 +26,7 @@ serve(async (req, body) => {
 
   const id = text(body, 'id');
   if (body['adminMemberId'] !== undefined) return await setAdmin(admin, id, text(body, 'adminMemberId'));
+  if (body['archived'] !== undefined) return await setArchived(admin, id, body['archived']);
   const adminName = text(body, 'adminName');
   const adminEmail = text(body, 'adminEmail');
   const icons = body['icons'] as { size192?: string; size512?: string } | undefined;
@@ -119,4 +121,28 @@ async function setAdmin(admin: ReturnType<typeof adminClient>, id: string, membe
     'Set admin',
   );
   return clubAccount(club, member);
+}
+
+/** Archives the club, so its members can read but not change it, or restores it. */
+async function setArchived(admin: ReturnType<typeof adminClient>, id: string, archived: unknown) {
+  if (typeof archived !== 'boolean') throw new HttpError(400, 'archived must be true or false.');
+  const existing = /^[0-9a-f-]{36}$/i.test(id)
+    ? (check(await admin.from('clubs').select('archived_at').eq('id', id).maybeSingle(), 'Load club') as {
+        archived_at: string | null;
+      } | null)
+    : null;
+  if (!existing) throw new HttpError(404, 'Club not found.');
+  // Archiving again keeps the original date.
+  const archivedAt = archived ? (existing.archived_at ?? new Date().toISOString()) : null;
+  const club = checkOne<ClubRow>(
+    await admin.from('clubs').update({ archived_at: archivedAt }).eq('id', id).select().single(),
+    'Archive club',
+  );
+  const adminMember = club.admin_member_id
+    ? checkOne<{ name: string; username: string | null }>(
+        await admin.from('members').select('name, username').eq('id', club.admin_member_id).single(),
+        'Load admin',
+      )
+    : { name: '', username: null };
+  return clubAccount(club, adminMember);
 }

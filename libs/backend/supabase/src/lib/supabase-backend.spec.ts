@@ -884,6 +884,34 @@ describe.skipIf(!url)('Supabase backend (local)', () => {
       await auth.signOutPlatform();
       expect(await auth.platformSession()).toBeNull();
     });
+    it('counts members, and archives a club so its members read it but change nothing', async () => {
+      const { auth, platform, directory, schedule } = setup();
+      await auth.signInPlatform(ADMIN_EMAIL, 'password');
+      const panthers = (await platform.listClubs()).find((c) => c.slug === PANTHERS_SLUG)!;
+      expect(panthers.counts).toEqual({ members: 5, invited: 0, teams: 2 });
+      expect(panthers.archivedAt).toBeUndefined();
+
+      cleanups.push(() => service.from('clubs').update({ archived_at: null }).eq('id', panthers.id));
+      const archived = await platform.setArchived(panthers.id, true);
+      expect(archived.archivedAt).toEqual(expect.any(String));
+      expect((await directory.findClub(PANTHERS_SLUG))?.archivedAt).toBe(archived.archivedAt);
+
+      await auth.useClub(PANTHERS_SLUG);
+      await auth.signIn({ clubSlug: PANTHERS_SLUG, username: 'jordan.smith@email.com', password: 'password' });
+      const dir = await directory.load();
+      expect(dir.club.archivedAt).toBe(archived.archivedAt);
+      const sky = dir.profiles.find((p) => p.name === 'Sky Smith')!;
+      const event = (await schedule.listEvents()).find((e) => e.team === sky.team)!;
+      await expect(schedule.setRsvp(event.id, [sky.id], 'going')).rejects.toThrow(
+        'This club is archived. It is read-only.',
+      );
+
+      expect((await platform.setArchived(panthers.id, false)).archivedAt).toBeUndefined();
+      await schedule.setRsvp(event.id, [sky.id], 'going');
+      await schedule.setRsvp(event.id, [sky.id], null);
+      await auth.signOut();
+      await auth.signOutPlatform();
+    });
   });
 
   describe('effective thread membership', () => {

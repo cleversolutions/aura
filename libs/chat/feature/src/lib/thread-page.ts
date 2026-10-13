@@ -122,10 +122,11 @@ export class ThreadPage {
     const open = this.chat.openThread();
     return !!open && this.chat.canPost(open);
   });
-  /** Why there is no composer: an announcement channel, or a thread managed from outside. */
+  /** Why there is no composer: an archived club, an announcement channel, or a thread managed from outside. */
   protected readonly readOnlyNote = computed(() => {
     const open = this.chat.openThread();
     if (!open) return '';
+    if (this.club.archived()) return 'This club is archived. Nothing can be posted.';
     if (this.chat.canRead(open)) {
       return open.thread.scope === 'club'
         ? 'Only club staff post in club announcements.'

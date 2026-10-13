@@ -57,6 +57,7 @@ export type Database = {
       clubs: {
         Row: {
           admin_member_id: string | null;
+          archived_at: string | null;
           created_at: string;
           icon_192_url: string | null;
           icon_512_url: string | null;
@@ -72,6 +73,7 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           admin_member_id?: string | null;
+          archived_at?: string | null;
           created_at?: string;
           icon_192_url?: string | null;
           icon_512_url?: string | null;
@@ -86,6 +88,7 @@ export type Database = {
         };
         Update: {
           admin_member_id?: string | null;
+          archived_at?: string | null;
           created_at?: string;
           icon_192_url?: string | null;
           icon_512_url?: string | null;
@@ -922,6 +925,7 @@ export type Database = {
     Views: {
       club_public: {
         Row: {
+          archived_at: string | null;
           icon_192_url: string | null;
           icon_512_url: string | null;
           id: string | null;
@@ -933,6 +937,7 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
+          archived_at?: string | null;
           icon_192_url?: string | null;
           icon_512_url?: string | null;
           id?: string | null;
@@ -943,6 +948,7 @@ export type Database = {
           slug?: string | null;
         };
         Update: {
+          archived_at?: string | null;
           icon_192_url?: string | null;
           icon_512_url?: string | null;
           id?: string | null;
@@ -1040,6 +1046,7 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      is_club_archived: { Args: { p_club: string }; Returns: boolean };
       is_club_staff: { Args: Record<PropertyKey, never>; Returns: boolean };
       is_past_season: { Args: { p_club: string; p_season: string }; Returns: boolean };
       is_past_team: { Args: { p_club: string; p_team: string }; Returns: boolean };
@@ -1107,17 +1114,21 @@ export type Database = {
         Returns: {
           admin_email: string;
           admin_name: string;
+          archived_at: string;
           created_at: string;
           icon_192_url: string;
           icon_512_url: string;
           id: string;
           ink: string;
+          invited_count: number;
           logo_ink: string;
           logo_paper: string;
           logo_url: string;
+          member_count: number;
           name: string;
           paper: string;
           slug: string;
+          team_count: number;
         }[];
       };
       remove_player: { Args: { p_profile: string }; Returns: undefined };

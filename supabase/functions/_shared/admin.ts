@@ -142,6 +142,7 @@ export interface ClubRow {
   icon_512_url: string | null;
   admin_member_id: string | null;
   created_at: string;
+  archived_at: string | null;
 }
 
 /** The ClubAccount shape from @aura/shared/models. */
@@ -161,6 +162,7 @@ export function clubAccount(row: ClubRow, admin: { name: string; username: strin
     adminName: admin.name,
     adminEmail: admin.username ?? '',
     createdAt: row.created_at,
+    ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
   };
 }
 
@@ -207,12 +209,19 @@ export async function loadMember(
   ) as MemberRow | null;
 }
 
-/** The caller's club and member record. */
+/**
+ * The caller's club and member record. Every club member's request changes the club, so an
+ * archived club (read-only) refuses them all.
+ */
 export async function callerMember(admin: SupabaseClient, user: AuthUser): Promise<{ clubId: string; me: MemberRow }> {
   const clubId = user.app_metadata?.['club_id'] as string | undefined;
   const me = clubId ? await loadMember(admin, clubId, { user_id: user.id }) : null;
   if (!clubId || !me) throw new HttpError(403, 'Sign in to your club first.');
   if (me.disabled) throw new HttpError(403, 'Your account is disabled. Ask your club’s staff.');
+  const club = check(await admin.from('clubs').select('archived_at').eq('id', clubId).single(), 'Load club') as {
+    archived_at: string | null;
+  };
+  if (club.archived_at) throw new HttpError(409, 'This club is archived. It is read-only.');
   return { clubId, me };
 }
 

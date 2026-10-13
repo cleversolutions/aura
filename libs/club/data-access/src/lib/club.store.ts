@@ -90,9 +90,11 @@ function fromDirectory(dir: Directory) {
 export const ClubStore = signalStore(
   { providedIn: 'root' },
   withState(initialState),
-  withComputed(({ users, meId, seasons, allTeams }) => {
+  withComputed(({ club, users, meId, seasons, allTeams }) => {
     const season = computed(() => currentSeason(seasons()));
     return {
+      /** The platform admin archived the club: everyone can read it, nobody can change it. */
+      archived: computed(() => !!club()?.archivedAt),
       me: computed(() => users().find((u) => u.id === meId()) ?? null),
       /** The current season. */
       season,
@@ -162,6 +164,8 @@ export const ClubStore = signalStore(
     ),
   })),
   withMethods((store, auth = inject(AuthRepository), directory = inject(DirectoryRepository)) => {
+    /** Who is signed in, for permission checks on changes; nobody while the club is archived. */
+    const writer = () => (store.archived() ? null : store.me());
     async function applySession(session: ClubSession | null, preview = false): Promise<void> {
       if (!session || session.mustChangePassword) {
         patchState(store, {
@@ -314,34 +318,34 @@ export const ClubStore = signalStore(
         }));
       },
       canResetPassword(user: User): boolean {
-        const me = store.me();
+        const me = writer();
         return !!me && canResetPassword(me, user);
       },
       /** Disable, re-enable or remove them from the club. */
       canRemoveMember(user: User): boolean {
-        const me = store.me();
+        const me = writer();
         return !!me && canRemoveMember(me, user);
       },
       /** Yourself; anyone, for club staff; invites to their teams, for team staff. */
       canEditMember(user: User): boolean {
-        const me = store.me();
+        const me = writer();
         return !!me && (me.id === user.id || me.kind === 'club' || canManageInvite(me, user));
       },
       canManageInvite(user: User): boolean {
-        const me = store.me();
+        const me = writer();
         return !!me && canManageInvite(me, user);
       },
       /**
        * Club staff, or staff of `team`: who adds, approves, moves and removes players and sets their
-       * parents. Only in the current season; past ones are read-only.
+       * parents. Only in the current season; past ones are read-only, as are archived clubs.
        */
       canManageTeam(team: TeamId): boolean {
-        const me = store.me();
+        const me = writer();
         return !!me && canManageTeam(me, team) && store.teams().some((t) => t.id === team);
       },
       /** Who puts `user` on `team` or takes them off it. */
       canChangeMemberTeam(user: User, team: TeamId): boolean {
-        const me = store.me();
+        const me = writer();
         return !!me && canChangeMemberTeam(me, user, team);
       },
       async setMemberTeams(userId: UserId, teams: TeamId[]): Promise<void> {

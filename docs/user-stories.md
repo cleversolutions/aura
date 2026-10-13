@@ -37,7 +37,8 @@ or the "club created" screen). Each person then chooses their own.
 
 - Given the platform admin account exists
 - When Alex opens `/admin` and signs in with email and password
-- Then the CLUBS list shows every club with its logo, colours, admin and link.
+- Then the CLUBS list shows every club with its logo, colours, admin and link, and how many members, open invites
+  and teams (this season's) it has (G24).
 
 **US-1.2 Create a club** ✅
 
@@ -77,7 +78,15 @@ or the "club created" screen). Each person then chooses their own.
 - And Casey stays on the club staff.
 - Club staff who are still invited, or disabled, have no MAKE ADMIN.
 
-**US-1.7 Archive a club** ❌ G24
+**US-1.7 Archive a club** ✅ (G24)
+
+- Given the Riverside Rockets have stopped using the app
+- When Alex opens the club → ARCHIVE → ARCHIVE CLUB and confirms ARCHIVE
+- Then the CLUBS list shows the club under ARCHIVED, with the date it was archived.
+- And its members can still sign in and read the schedule, roster and chat, under a banner saying the club is
+  archived; but there is nothing to RSVP, post, invite or edit, and the database and edge functions refuse any
+  change they try.
+- When Alex presses RESTORE CLUB, the club works as before.
 
 ---
 

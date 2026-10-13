@@ -6,6 +6,7 @@ import {
   functionError,
   messagesByThread,
   toClub,
+  toClubAccount,
   toEvent,
   toMessage,
   toRsvpMap,
@@ -49,6 +50,7 @@ describe('mapping', () => {
       paper: '#ffffff',
       icon_192_url: null,
       icon_512_url: null,
+      archived_at: null,
     };
     expect(toClub(row)).toEqual({
       id: 'c1',
@@ -62,6 +64,32 @@ describe('mapping', () => {
       size192: 'a.png',
       size512: 'b.png',
     });
+    expect(toClub({ ...row, archived_at: '2026-10-11T12:00:00Z' }).archivedAt).toBe('2026-10-11T12:00:00Z');
+  });
+
+  it('maps the platform admin’s clubs with their counts', () => {
+    const account = toClubAccount({
+      id: 'c1',
+      slug: 'k3v9qp',
+      name: 'Spartans',
+      logo_url: 'club-logo.svg',
+      ink: '#000000',
+      paper: '#ffffff',
+      logo_ink: '#000000',
+      logo_paper: '#ffffff',
+      icon_192_url: null,
+      icon_512_url: null,
+      created_at: '2026-08-01T00:00:00Z',
+      archived_at: null,
+      admin_name: 'Sam Okoro',
+      admin_email: 'sam@spartans.example',
+      member_count: 12,
+      invited_count: 3,
+      team_count: 2,
+    });
+    expect(account.archivedAt).toBeUndefined();
+    expect(account.counts).toEqual({ members: 12, invited: 3, teams: 2 });
+    expect(account.adminName).toBe('Sam Okoro');
   });
 
   it('maps members with their teams and leaves out empty optional fields', () => {

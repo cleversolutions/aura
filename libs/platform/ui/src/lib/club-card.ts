@@ -9,18 +9,27 @@ export interface ClubCardVm {
   paper: string;
   /** e.g. `Sam Okoro · sam@spartans.example`. */
   admin: string;
-  /** e.g. `Created Aug 12, 2026`. */
+  /** e.g. `12 members · 3 invited · 2 teams`; empty when not known. */
+  counts: string;
+  /** e.g. `Created Aug 12, 2026`, or `Archived Oct 11, 2026`. */
   created: string;
+  archived: boolean;
 }
 
-/** A club in the platform admin's list: logo on the club's colours, admin and link. */
+/** A club in the platform admin's list: logo on the club's colours, admin, size and link. */
 @Component({
   selector: 'aura-club-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
     @let c = vm();
-    <article class="overflow-hidden rounded-[10px] border-2 border-ink bg-paper">
+    <article class="relative overflow-hidden rounded-[10px] border-2 border-ink bg-paper">
+      @if (c.archived) {
+        <span
+          class="absolute top-2 left-2 rounded bg-ink px-2 py-0.5 font-display text-[13px] font-bold tracking-[0.05em] text-paper"
+          >ARCHIVED</span
+        >
+      }
       <button
         type="button"
         class="flex h-[104px] w-full items-center justify-center border-b-2 border-ink"
@@ -45,6 +54,9 @@ export interface ClubCardVm {
           </span>
         </div>
         <div class="text-[13px]">Admin: {{ c.admin }}</div>
+        @if (c.counts) {
+          <div class="text-[13px] font-medium">{{ c.counts }}</div>
+        }
         <div class="flex h-9 items-center overflow-hidden rounded-md border-[1.5px] border-ink">
           <span class="min-w-0 flex-1 truncate px-2.5 font-mono text-[13px] font-medium">{{ c.url }}</span>
           <button
