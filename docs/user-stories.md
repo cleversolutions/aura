@@ -287,12 +287,12 @@ or the "club created" screen). Each person then chooses their own.
 
 ## 4. Club admin and coach: schedule and chat
 
-**US-4.1 Create a practice for a team** ✅ for the coach, ⚠ for club staff (G7)
+**US-4.1 Create a practice for a team** ✅ (G7)
 
-- When the coach (Evan) presses + EVENT → PRACTICE, sets a date, time and location, and presses CREATE EVENT
+- When the coach (Evan) presses + EVENT → PRACTICE, sets a date, time and location, and presses CREATE · U11 BOYS
 - Then the practice appears under UPCOMING with the U11B badge.
-- Club staff: the form defaults to "Club-wide", so an event they don't assign is silently club-wide. Expected: it
-  defaults to a team, or asks.
+- Club staff: the form starts on the first team, not "Club-wide", and the create button names the team, so an
+  event is never made club-wide by accident.
 
 **US-4.2 Create a game** ✅
 
@@ -308,20 +308,30 @@ or the "club created" screen). Each person then chooses their own.
 - When Evan opens a club-wide game
 - Then there's no EDIT EVENT.
 
-**US-4.5 Cancel or delete an event** ❌ G8
+**US-4.5 Cancel or delete an event** ✅ (G8)
+
+- When the coach opens a practice → EDIT EVENT → CANCEL EVENT, and confirms
+- Then the card stays on the schedule, struck through and marked CANCELLED, with no GOING / OUT buttons; RESTORE
+  EVENT brings it back.
+- When they press DELETE EVENT instead and confirm (an event entered twice)
+- Then it is gone, with its RSVPs.
 
 **US-4.6 Weekly practices** ❌ G23
 
-**US-4.7 See who's coming** ❌ G19
+**US-4.7 See who's coming** ✅ (G19, G31)
 
-- Given parents and players have RSVP'd
-- When the coach opens the event
-- Then they see each player as going, out or undecided, with a count.
-- Today only "YOUR RSVP" is shown.
+- Given parents and players have RSVP'd, some with a note ("Late, 15 min")
+- When the coach looks at the schedule
+- Then each card of their team shows "8 going · 1 out · 3 undecided".
+- When they open the event
+- Then ATTENDANCE lists each player under GOING, OUT or UNDECIDED, with their notes.
+- Notes are seen by the event's staff and the player's family only; other parents see the answers.
 
-**US-4.8 Coach-parent RSVPs separately for themself and their child** ❌ G20
+**US-4.8 Coach-parent RSVPs separately for themself and their child** ✅ (G20)
 
-- Today one tap marks both Evan and Davis going.
+- When Evan opens a U11B practice
+- Then RSVP FOR lists Evan Moore (You) and Davis Moore, both ticked; he unticks himself and confirms OUT for Davis.
+- The one-tap GOING / OUT on the card still answers for both.
 
 **US-4.9 Post a club announcement everyone receives** ✅ (G1)
 
@@ -427,9 +437,11 @@ or the "club created" screen). Each person then chooses their own.
 - Then More shows "Player · U11 Boys" and his player tile "Has own login · noah@…".
 - And he RSVPs for himself.
 
-**US-6.2 A player and their parents RSVP to the same record** ❌ G21
+**US-6.2 A player and their parents RSVP to the same record** ✅ (G21)
 
-- Today a player's own RSVP and their parents' RSVP for them are stored separately and can disagree.
+- When Noah marks himself out for a practice
+- Then his parents see Noah as out, and the coach's attendance counts him once.
+- A player's RSVP is always their player profile's, whoever answers; existing RSVPs were moved to it.
 
 ---
 

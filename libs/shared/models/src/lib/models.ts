@@ -148,16 +148,27 @@ export interface ClubEvent {
   location: string;
   notes: string;
   score?: Score;
+  /** Called off (weather, a clash): kept on the schedule, shown CANCELLED, closed to RSVPs. */
+  cancelled?: boolean;
 }
 
 export type ClubEventDraft = Omit<ClubEvent, 'id'> & { id?: string };
 
 export type RsvpStatus = 'going' | 'out';
 
-/** eventId → attendeeId → status. Missing means undecided. */
-export type RsvpMap = Record<string, Record<string, RsvpStatus>>;
+export interface Rsvp {
+  status: RsvpStatus;
+  /** e.g. `Late, 15 min`. Empty, or left out, when the viewer may not read it (`canSeeRsvpNote`). */
+  note?: string;
+}
 
-/** Someone an RSVP can be recorded for: a player profile (parents) or the user themself. */
+/** eventId → attendeeId → RSVP. Missing means undecided. */
+export type RsvpMap = Record<string, Record<string, Rsvp>>;
+
+/**
+ * Someone an RSVP can be recorded for: a player profile (whether a parent or the player answers),
+ * or a member without one (staff, parents) for themself.
+ */
 export interface Attendee {
   id: string;
   name: string;

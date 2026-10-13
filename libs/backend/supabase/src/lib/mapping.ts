@@ -198,6 +198,7 @@ export function toEvent(row: EventRow): ClubEvent {
     location: row.location,
     notes: row.notes,
     score: row.score_us != null && row.score_them != null ? { us: row.score_us, them: row.score_them } : undefined,
+    cancelled: row.cancelled || undefined,
   });
 }
 
@@ -217,12 +218,15 @@ export function fromEventDraft(draft: ClubEventDraft, clubId: string): EventInse
     notes: draft.notes,
     score_us: draft.score?.us ?? null,
     score_them: draft.score?.them ?? null,
+    cancelled: !!draft.cancelled,
   };
 }
 
-export function toRsvpMap(rows: { event_id: string; attendee_id: string; status: string }[]): RsvpMap {
+export function toRsvpMap(rows: { event_id: string; attendee_id: string; status: string; note: string }[]): RsvpMap {
   const map: RsvpMap = {};
-  for (const r of rows) (map[r.event_id] ??= {})[r.attendee_id] = r.status as RsvpStatus;
+  for (const r of rows) {
+    (map[r.event_id] ??= {})[r.attendee_id] = defined({ status: r.status as RsvpStatus, note: r.note || undefined });
+  }
   return map;
 }
 

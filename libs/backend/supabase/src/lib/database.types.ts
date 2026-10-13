@@ -110,6 +110,7 @@ export type Database = {
       };
       events: {
         Row: {
+          cancelled: boolean;
           club_id: string;
           date: string | null;
           home: boolean | null;
@@ -128,6 +129,7 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
+          cancelled?: boolean;
           club_id: string;
           date?: string | null;
           home?: boolean | null;
@@ -145,6 +147,7 @@ export type Database = {
           type: string;
         };
         Update: {
+          cancelled?: boolean;
           club_id?: string;
           date?: string | null;
           home?: boolean | null;
@@ -464,6 +467,7 @@ export type Database = {
           attendee_id: string;
           club_id: string;
           event_id: string;
+          note: string;
           status: string;
         };
         ComputedFields: never;
@@ -471,12 +475,14 @@ export type Database = {
           attendee_id: string;
           club_id: string;
           event_id: string;
+          note?: string;
           status: string;
         };
         Update: {
           attendee_id?: string;
           club_id?: string;
           event_id?: string;
+          note?: string;
           status?: string;
         };
         Relationships: [
@@ -931,8 +937,10 @@ export type Database = {
       can_moderate_thread: { Args: { p_thread: string }; Returns: boolean };
       can_post_in_thread: { Args: { p_thread: string }; Returns: boolean };
       can_read_thread: { Args: { p_thread: string }; Returns: boolean };
+      can_rsvp: { Args: { p_attendee: string; p_event: string }; Returns: boolean };
       can_rsvp_for: { Args: { p_attendee: string }; Returns: boolean };
       can_see_contact: { Args: { p_member: string }; Returns: boolean };
+      can_see_rsvp_note: { Args: { p_attendee: string; p_event: string }; Returns: boolean };
       club_announcements: { Args: { p_club: string }; Returns: string };
       current_season_id: { Args: { p_club: string }; Returns: string };
       delete_message: {
@@ -1001,6 +1009,15 @@ export type Database = {
           unread: number;
         }[];
       };
+      list_rsvps: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          attendee_id: string;
+          event_id: string;
+          note: string;
+          status: string;
+        }[];
+      };
       managed_profile_team: { Args: { p_action: string; p_profile: string }; Returns: string };
       mark_thread_read: { Args: { p_thread: string }; Returns: undefined };
       member_contacts: {
@@ -1046,9 +1063,14 @@ export type Database = {
       };
       remove_player: { Args: { p_profile: string }; Returns: undefined };
       request_player_link: { Args: { p_jersey: string; p_name: string; p_team: string }; Returns: string };
+      rsvp_profile_fits: { Args: { p_event: string; p_profile: string }; Returns: boolean };
       season_name_for: { Args: { p_date: string }; Returns: string };
       set_member_teams: { Args: { p_member: string; p_teams: string[] }; Returns: undefined };
       set_player_parents: { Args: { p_parents: string[]; p_profile: string }; Returns: undefined };
+      set_rsvps: {
+        Args: { p_attendees: string[]; p_event: string; p_note?: string; p_status: string };
+        Returns: undefined;
+      };
       signed_in_write: { Args: Record<PropertyKey, never>; Returns: boolean };
       start_season: { Args: { p_name: string; p_teams: Json }; Returns: string };
       thread_member_ids: { Args: { p_thread: string }; Returns: string[] };

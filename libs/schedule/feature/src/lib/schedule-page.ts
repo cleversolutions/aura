@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ClubStore } from '@aura/club/data-access';
-import { ScheduleStore } from '@aura/schedule/data-access';
+import { PlayerAttendance, ScheduleStore } from '@aura/schedule/data-access';
 import {
+  AttendanceVm,
   EVENT_ICON,
   EventCard,
   EventCardVm,
@@ -112,6 +113,8 @@ import {
         [error]="save.error()"
         (closed)="editing.set(null)"
         (submitted)="saveEvent($event)"
+        (cancelledChange)="setCancelled(target, $event)"
+        (deleted)="deleteEvent(target)"
       />
     }
   `,
@@ -154,6 +157,7 @@ export class SchedulePage {
       const statuses = attendees.map((a) => this.store.statusOf(e.id, a.id));
       const upcoming = this.upcoming(e);
       const many = attendees.length > 1;
+      const attendance = this.store.attendance(e);
       return {
         id: e.id,
         icon: EVENT_ICON[e.type],
@@ -163,6 +167,7 @@ export class SchedulePage {
         location: e.location,
         selected: this.viewport.wide() && e.id === this.openId(),
         upcoming,
+        cancelled: !!e.cancelled,
         allGoing: attendees.length > 0 && statuses.every((s) => s === 'going'),
         allOut: attendees.length > 0 && statuses.every((s) => s === 'out'),
         statusLine:
@@ -174,6 +179,7 @@ export class SchedulePage {
                 })
                 .join(' · ')
             : null,
+        attendance: attendance?.length && !e.cancelled ? attendanceSummary(attendance) : null,
         pastLeft: e.type === 'game' ? (e.score ? formatResult(e.score) : 'FINAL · SCORE PENDING') : 'COMPLETED',
         pastRight: attendees
           .map((a, i) => {
@@ -191,7 +197,19 @@ export class SchedulePage {
     const upcoming = this.upcoming(e);
     const canEdit = this.store.canEdit(e);
     const isParent = this.club.persona() === 'parent';
-    const attendees = this.store.attendeesFor(e);
+    const meId = this.club.me()?.id;
+    const attendees = this.store.attendeesFor(e).map((a) => {
+      const rsvp = this.store.rsvpOf(e.id, a.id);
+      return {
+        id: a.id,
+        name: a.name,
+        detail: a.id === meId ? 'You' : a.jersey ? `#${a.jersey}` : '',
+        status: rsvp?.status,
+        note: rsvp?.note,
+      };
+    });
+    const pickPlayers = isParent || attendees.length > 1;
+    const attendance = this.store.attendance(e);
     return {
       type: e.type,
       title: eventTitle(e),
@@ -200,29 +218,36 @@ export class SchedulePage {
       homeAway: e.type === 'game' ? (e.home ? 'Home game' : 'Away game') : null,
       location: e.location,
       notes: e.notes,
-      finalScore: !upcoming && !canEdit ? (e.score ?? null) : null,
+      cancelled: !!e.cancelled,
+      finalScore: !upcoming && !canEdit && !e.cancelled ? (e.score ?? null) : null,
       scoreEntry:
-        !upcoming && e.type === 'game' && canEdit
+        !upcoming && e.type === 'game' && canEdit && !e.cancelled
           ? { clubName: this.club.club()?.name ?? 'Us', opponent: e.opponent ?? 'Them', score: e.score ?? null }
           : null,
-      rsvp: upcoming
-        ? {
-            heading: !isParent ? 'YOUR RSVP' : attendees.length > 1 ? 'RSVP FOR WHICH PLAYERS?' : 'RSVP FOR',
-            pickPlayers: isParent,
-            attendees: attendees.map((a) => ({ ...a, status: this.store.statusOf(e.id, a.id) })),
-          }
-        : null,
+      rsvp:
+        upcoming && attendees.length
+          ? {
+              heading: !pickPlayers
+                ? 'YOUR RSVP'
+                : isParent && attendees.length > 1
+                  ? 'RSVP FOR WHICH PLAYERS?'
+                  : 'RSVP FOR',
+              pickPlayers,
+              attendees,
+              note: attendees.find((a) => a.note)?.note ?? '',
+            }
+          : null,
+      attendance: attendance && !e.cancelled ? attendanceVm(attendance) : null,
       canEdit,
     };
   });
 
+  /** Club staff choose any team or the whole club; a new event starts on a team, not club-wide (G7). */
   protected readonly teamOptions = computed<Choice<EventTeam>[]>(() => {
     const ids: EventTeam[] = this.club.isClubStaff() ? [...this.club.myTeams(), 'ALL'] : this.club.myTeams();
     return ids.map((id) => ({ value: id, label: this.club.teamName(id) }));
   });
-  protected readonly defaultTeam = computed<EventTeam>(() =>
-    this.club.isClubStaff() ? 'ALL' : (this.club.myTeams()[0] ?? ''),
-  );
+  protected readonly defaultTeam = computed<EventTeam>(() => this.teamOptions()[0]?.value ?? '');
 
   constructor() {
     // Wide screens always show an event in the side pane: keep it on one that is listed.
@@ -244,13 +269,14 @@ export class SchedulePage {
     this.editing.set(target);
   }
 
-  /** Names for the toast: the selected players' first names, or "You". */
+  /** Names for the toast: "You" for the user (or their own profile), first names for the others. */
   private who(e: ClubEvent, attendeeIds: string[]): string {
-    if (this.club.persona() !== 'parent') return 'You';
+    const me = this.club.me();
+    const own = (id: string) => id === me?.id || this.club.profiles().some((p) => p.id === id && p.userId === me?.id);
     return this.store
       .attendeesFor(e)
       .filter((a) => attendeeIds.includes(a.id))
-      .map((a) => firstName(a.name))
+      .map((a) => (own(a.id) ? 'You' : firstName(a.name)))
       .join(' & ');
   }
 
@@ -273,15 +299,15 @@ export class SchedulePage {
     }
   }
 
-  protected async confirmRsvp({ attendeeIds, status }: RsvpConfirmation): Promise<void> {
+  protected async confirmRsvp({ attendeeIds, status, note }: RsvpConfirmation): Promise<void> {
     const e = this.openEvent();
     if (!e) return;
     if (!attendeeIds.length) {
-      this.toaster.show('Select at least one player.');
+      this.toaster.show('Select at least one person.');
       return;
     }
     try {
-      await this.store.setRsvp(e.id, attendeeIds, status);
+      await this.store.setRsvp(e.id, attendeeIds, status, note);
       this.toaster.show(
         `${this.who(e, attendeeIds)}: ${status ? RSVP_LABEL[status].toLowerCase() : 'undecided'} · ${eventTitle(e)}`,
       );
@@ -315,4 +341,52 @@ export class SchedulePage {
     this.editing.set(null);
     this.closeDetail();
   }
+
+  protected async setCancelled(target: ClubEvent | 'new', cancelled: boolean): Promise<void> {
+    if (target === 'new') return;
+    const ok = await this.save.run(
+      () => this.store.setCancelled(target.id, cancelled),
+      'Could not change the event. Try again.',
+    );
+    if (!ok) return;
+    this.toaster.show(cancelled ? `Cancelled: ${eventTitle(target)}` : `Restored: ${eventTitle(target)}`);
+    this.editing.set(null);
+  }
+
+  protected async deleteEvent(target: ClubEvent | 'new'): Promise<void> {
+    if (target === 'new') return;
+    const ok = await this.save.run(() => this.store.deleteEvent(target.id), 'Could not delete the event. Try again.');
+    if (!ok) return;
+    this.toaster.show(`Deleted: ${eventTitle(target)}`);
+    this.editing.set(null);
+    this.openId.set(null);
+  }
+}
+
+const count = (rows: PlayerAttendance[], status: string | undefined) =>
+  rows.filter((r) => r.rsvp?.status === status).length;
+
+/** e.g. `8 going · 1 out · 3 undecided`. */
+function attendanceSummary(rows: PlayerAttendance[]): string {
+  return `${count(rows, 'going')} going · ${count(rows, 'out')} out · ${count(rows, undefined)} undecided`;
+}
+
+function attendanceVm(rows: PlayerAttendance[]): AttendanceVm {
+  const group = (label: string, status: string | undefined) => ({
+    label,
+    people: rows
+      .filter((r) => r.rsvp?.status === status)
+      .map(({ player, rsvp }) => ({
+        id: player.id,
+        name: player.name,
+        detail: player.jersey ? `#${player.jersey}` : '',
+        note: rsvp?.note,
+      })),
+  });
+  return {
+    summary: attendanceSummary(rows),
+    groups: [group('GOING', 'going'), group('OUT', 'out'), group('UNDECIDED', undefined)].filter(
+      (g) => g.people.length,
+    ),
+  };
 }

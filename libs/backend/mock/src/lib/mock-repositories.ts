@@ -36,6 +36,7 @@ import {
   ClubStaffMember,
   PlatformAdmin,
   PlayerProfile,
+  RsvpMap,
   RsvpStatus,
   Score,
   SeasonId,
@@ -48,6 +49,7 @@ import {
 import {
   ALL_GROUPS,
   canDeleteMessage,
+  canEditEvent,
   canEditMessage,
   canChangeMemberTeam,
   canManageInvite,
@@ -56,7 +58,9 @@ import {
   canRemoveMember,
   canResetPassword,
   canReadThread,
+  canRsvp,
   canSeeContact,
+  canSeeRsvpNote,
   currentSeason,
   effectiveMembers,
   isoDate,
@@ -668,8 +672,21 @@ export class MockScheduleRepository extends ScheduleRepository {
     return this.db.respond(this.db.data.events);
   }
 
-  listRsvps() {
-    return this.db.respond(this.db.data.rsvps);
+  /** As list_rsvps does: notes only where the viewer may read them. */
+  listRsvps(): Promise<RsvpMap> {
+    const data = this.db.data;
+    const me = this.db.me();
+    const map: RsvpMap = {};
+    for (const [eventId, forEvent] of Object.entries(data.rsvps)) {
+      const event = data.events.find((e) => e.id === eventId);
+      map[eventId] = Object.fromEntries(
+        Object.entries(forEvent).map(([id, r]) => [
+          id,
+          event && me && canSeeRsvpNote(event, id, me, data.profiles) ? r : { status: r.status },
+        ]),
+      );
+    }
+    return this.db.respond(map);
   }
 
   /** Whether the event belongs to an ended season (read-only). */
@@ -683,9 +700,24 @@ export class MockScheduleRepository extends ScheduleRepository {
     return data.teams.find((t) => t.id === team)?.season ?? currentSeason(data.seasons)?.id ?? '';
   }
 
+  /** An event the signed-in member may change, as the events policies and guard_past_event allow. */
+  private editable(eventId: string): ClubEvent | string {
+    const event = this.db.data.events.find((e) => e.id === eventId);
+    const me = this.db.me();
+    if (!event) return 'Event not found.';
+    if (!me || !canEditEvent(event, me)) return 'Only club staff and the team’s staff can change this event.';
+    if (this.isPast(event.season)) return PAST_SEASON;
+    return event;
+  }
+
   saveEvent(draft: ClubEventDraft): Promise<ClubEvent> {
     const events = this.db.data.events;
+    const me = this.db.me();
     const existing = draft.id ? events.find((e) => e.id === draft.id) : undefined;
+    if (draft.id && !existing) return this.db.fail('Event not found.');
+    if (!me || !canEditEvent(draft, me) || (existing && !canEditEvent(existing, me))) {
+      return this.db.fail('Only club staff and the team’s staff can change this event.');
+    }
     const season = this.seasonFor(draft.team);
     if (this.isPast(season) || this.isPast(existing?.season)) return this.db.fail(PAST_SEASON);
     if (existing) {
@@ -698,19 +730,42 @@ export class MockScheduleRepository extends ScheduleRepository {
   }
 
   saveScore(eventId: string, score: Score): Promise<ClubEvent> {
-    const event = this.db.data.events.find((e) => e.id === eventId);
-    if (!event) return Promise.reject(new Error('Event not found.'));
-    if (this.isPast(event.season)) return this.db.fail(PAST_SEASON);
+    const event = this.editable(eventId);
+    if (typeof event === 'string') return this.db.fail(event);
     event.score = score;
     return this.db.respond(event);
   }
 
-  setRsvp(eventId: string, attendeeIds: string[], status: RsvpStatus | null): Promise<void> {
-    const event = this.db.data.events.find((e) => e.id === eventId);
-    if (this.isPast(event?.season)) return this.db.fail(PAST_SEASON);
-    const forEvent = (this.db.data.rsvps[eventId] ??= {});
+  setCancelled(eventId: string, cancelled: boolean): Promise<ClubEvent> {
+    const event = this.editable(eventId);
+    if (typeof event === 'string') return this.db.fail(event);
+    if (cancelled) event.cancelled = true;
+    else delete event.cancelled;
+    return this.db.respond(event);
+  }
+
+  deleteEvent(eventId: string): Promise<void> {
+    const event = this.editable(eventId);
+    if (typeof event === 'string') return this.db.fail(event);
+    const data = this.db.data;
+    data.events = data.events.filter((e) => e.id !== eventId);
+    delete data.rsvps[eventId];
+    return this.db.respond(undefined);
+  }
+
+  setRsvp(eventId: string, attendeeIds: string[], status: RsvpStatus | null, note?: string): Promise<void> {
+    const data = this.db.data;
+    const event = data.events.find((e) => e.id === eventId);
+    const me = this.db.me();
+    if (!event) return this.db.fail('Event not found.');
+    if (this.isPast(event.season)) return this.db.fail(PAST_SEASON);
+    if (!me || !attendeeIds.every((id) => canRsvp(event, id, me, data.profiles, data.teams))) {
+      return this.db.fail('You can only RSVP for yourself and your players.');
+    }
+    if (status && event.cancelled) return this.db.fail('This event is cancelled.');
+    const forEvent = (data.rsvps[eventId] ??= {});
     for (const id of attendeeIds) {
-      if (status) forEvent[id] = status;
+      if (status) forEvent[id] = { status, note: note?.trim() ?? forEvent[id]?.note ?? '' };
       else delete forEvent[id];
     }
     return this.db.respond(undefined);
