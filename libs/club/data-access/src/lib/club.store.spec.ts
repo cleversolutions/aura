@@ -232,25 +232,32 @@ describe('ClubStore', () => {
     expect(store.meId()).toBe('dana');
   });
 
-  it('lets any staff set any staff member’s title, and nobody else', async () => {
+  it('lets club staff set any staff member’s title, and team staff set team staff’s', async () => {
     const store = await setup('mike');
-    // Mike coaches U18B only, yet titles the U12G/U14B coach and the club admin.
+    // Mike coaches U18B only, yet titles the U12G/U14B coach; not club staff, nor parents.
     expect(store.canEditMember(store.user('dana')!)).toBe(false);
     expect(store.canEditTitle(store.user('dana')!)).toBe(true);
     await store.setMemberTitle('dana', '  Team Manager ');
     expect(store.user('dana')?.title).toBe('Team Manager');
-    await store.setMemberTitle('sam', 'President');
-    expect(store.user('sam')?.title).toBe('President');
     await store.setMemberTitle('dana', '');
     expect(store.user('dana')?.title).toBeUndefined();
     await expect(store.setMemberTitle('dana', 'x'.repeat(61))).rejects.toThrow('60 characters');
+    expect(store.canEditTitle(store.user('sam')!)).toBe(false);
+    await expect(store.setMemberTitle('sam', 'President')).rejects.toThrow('Only club staff');
     expect(store.canEditTitle(store.user('jordan')!)).toBe(false);
-    await expect(store.setMemberTitle('jordan', 'Head Coach')).rejects.toThrow('Only staff');
+    await expect(store.setMemberTitle('jordan', 'Head Coach')).rejects.toThrow('Only club staff');
+
+    await store.signOut();
+    await store.signIn('sam@spartans.example', 'password');
+    await store.setMemberTitle('lee', 'Treasurer');
+    expect(store.user('lee')?.title).toBe('Treasurer');
+    await store.setMemberTitle('dana', 'Head Coach');
+    expect(store.user('dana')?.title).toBe('Head Coach');
 
     await store.signOut();
     await store.signIn('jordan.smith@email.com', 'password');
     expect(store.canEditTitle(store.user('dana')!)).toBe(false);
-    await expect(store.setMemberTitle('dana', 'Head Coach')).rejects.toThrow('Only staff');
+    await expect(store.setMemberTitle('dana', 'Head Coach')).rejects.toThrow('Only club staff');
   });
 
   it('lets team staff make parents on their own teams team staff, and club staff make them parents again', async () => {
