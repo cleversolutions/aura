@@ -5,25 +5,56 @@ import {
   ClubSession,
   DemoAccount,
   DemoClub,
+  Directory,
   DirectoryRepository,
   InviteMemberInput,
+  AddPlayerInput,
   LinkPlayerInput,
   MemberInvite,
   SaveTeamInput,
+  SeasonRoster,
+  StartSeasonInput,
   UpdateMemberInput,
   UpdateProfileInput,
 } from '@aura/backend/api';
-import { Club, PlayerProfile, Team, User, UserId } from '@aura/shared/models';
-import { canManageInvite, personaOf, teamLabel } from '@aura/shared/util';
+import {
+  Club,
+  ClubSettings,
+  PlayerProfile,
+  Season,
+  SeasonId,
+  Team,
+  TeamId,
+  TeamRole,
+  User,
+  UserId,
+} from '@aura/shared/models';
+import {
+  DEFAULT_CLUB_SETTINGS,
+  canChangeMemberTeam,
+  canChangeRole,
+  canEditTitle,
+  canManageInvite,
+  canSeePlayerCare,
+  canManageTeam,
+  canRemoveMember,
+  canResetPassword,
+  currentSeason,
+  personaOf,
+  teamLabel,
+} from '@aura/shared/util';
 
 interface ClubState {
   /** Slug of the open club; set even when the link turned out not to exist. */
   slug: string | null;
   club: Club | null;
   manifestUrl: string | null;
-  teams: Team[];
+  seasons: Season[];
+  /** Every season's teams; `teams()` are the current season's. */
+  allTeams: Team[];
   users: User[];
   profiles: PlayerProfile[];
+  settings: ClubSettings;
   meId: UserId | null;
   /** Signed in with a temporary password that must be replaced first. */
   mustChangePassword: boolean;
@@ -37,9 +68,11 @@ const initialState: ClubState = {
   slug: null,
   club: null,
   manifestUrl: null,
-  teams: [],
+  seasons: [],
+  allTeams: [],
   users: [],
   profiles: [],
+  settings: DEFAULT_CLUB_SETTINGS,
   meId: null,
   mustChangePassword: false,
   preview: false,
@@ -47,18 +80,47 @@ const initialState: ClubState = {
   loaded: false,
 };
 
-const signedOut = { teams: [], users: [], profiles: [], meId: null, mustChangePassword: false, demoAccounts: [] };
+const signedOut = {
+  seasons: [],
+  allTeams: [],
+  users: [],
+  profiles: [],
+  settings: DEFAULT_CLUB_SETTINGS,
+  meId: null,
+  mustChangePassword: false,
+  demoAccounts: [],
+};
+
+/** The store's share of a directory. People's teams and the profiles are the current season's. */
+function fromDirectory(dir: Directory) {
+  return { seasons: dir.seasons, allTeams: dir.teams, users: dir.users, profiles: dir.profiles };
+}
 
 /**
- * The open club: its branding, its directory (teams, people, player profiles) and who is
+ * The open club: its branding, its directory (seasons, teams, people, player profiles) and who is
  * signed in to it. Each club has its own session; people belong to one club only.
  */
 export const ClubStore = signalStore(
   { providedIn: 'root' },
   withState(initialState),
-  withComputed(({ users, meId }) => ({
-    me: computed(() => users().find((u) => u.id === meId()) ?? null),
-  })),
+  withComputed(({ club, users, meId, seasons, allTeams }) => {
+    const season = computed(() => currentSeason(seasons()));
+    return {
+      /** The platform admin archived the club: everyone can read it, nobody can change it. */
+      archived: computed(() => !!club()?.archivedAt),
+      me: computed(() => users().find((u) => u.id === meId()) ?? null),
+      /** The current season. */
+      season,
+      /** Ended seasons, newest first. Read-only. */
+      pastSeasons: computed(() =>
+        seasons()
+          .filter((s) => !!s.endedAt)
+          .reverse(),
+      ),
+      /** The current season's teams. */
+      teams: computed(() => allTeams().filter((t) => t.season === season()?.id)),
+    };
+  }),
   withComputed(({ me, teams, profiles }) => {
     const persona = computed(() => {
       const m = me();
@@ -74,18 +136,24 @@ export const ClubStore = signalStore(
         if (!m) return [];
         return m.kind === 'club' ? teams().map((t) => t.id) : m.teams;
       }),
-      /** Player profiles the user can act for: their children (parents) or themself (players). */
+      /**
+       * Player profiles the user can act for: their children, whatever their own role (a coach can
+       * be a parent too), or themself as a player.
+       */
       myPlayers: computed(() => {
         const m = me();
         if (!m) return [];
-        if (persona() === 'parent') return profiles().filter((p) => p.parentId === m.id);
-        if (persona() === 'player') return profiles().filter((p) => p.userId === m.id);
-        return [];
+        return profiles().filter((p) => p.parentIds.includes(m.id) || p.userId === m.id);
       }),
     };
   }),
-  withComputed(({ me, persona, teams, myPlayers, slug, meId, preview, mustChangePassword }) => ({
-    /** e.g. `Parent · 2 linked players`, `Team Staff · U12 Girls, U14 Boys`. */
+  withComputed(({ me, persona, teams, myPlayers, slug, meId, preview, mustChangePassword, settings }) => ({
+    /** Who sees the INVITED list: staff, or everyone when the club shows everyone's contacts. */
+    seesInvites: computed(() => {
+      const kind = me()?.kind;
+      return kind === 'club' || kind === 'staff' || settings().contacts === 'everyone';
+    }),
+    /** e.g. `Parent · 2 linked players`, `Team Staff · Head Coach · U12 Girls, U14 Boys`. */
     roleLine: computed(() => {
       const m = me();
       if (!m) return '';
@@ -94,11 +162,13 @@ export const ClubStore = signalStore(
         case 'player':
           return `Player · ${name(m.teams[0] ?? '')}`;
         case 'teamStaff':
-          return `Team Staff · ${m.teams.map(name).join(', ')}`;
+          return ['Team Staff', m.title, m.teams.map(name).join(', ')].filter(Boolean).join(' · ');
         case 'clubStaff':
-          return `Club Staff · ${m.title ?? ''}`;
-        default:
-          return `Parent · ${myPlayers().length} linked players`;
+          return ['Club Staff', m.title].filter(Boolean).join(' · ');
+        default: {
+          const n = myPlayers().length;
+          return `Parent · ${n} linked ${n === 1 ? 'player' : 'players'}`;
+        }
       }
     }),
     /** Changes whenever the club, the signed-in person or preview mode changes. Null when signed out. */
@@ -107,6 +177,8 @@ export const ClubStore = signalStore(
     ),
   })),
   withMethods((store, auth = inject(AuthRepository), directory = inject(DirectoryRepository)) => {
+    /** Who is signed in, for permission checks on changes; nobody while the club is archived. */
+    const writer = () => (store.archived() ? null : store.me());
     async function applySession(session: ClubSession | null, preview = false): Promise<void> {
       if (!session || session.mustChangePassword) {
         patchState(store, {
@@ -120,7 +192,8 @@ export const ClubStore = signalStore(
       }
       const dir = await directory.load();
       patchState(store, {
-        ...dir,
+        ...fromDirectory(dir),
+        settings: dir.settings,
         meId: session.userId,
         mustChangePassword: false,
         preview,
@@ -133,8 +206,12 @@ export const ClubStore = signalStore(
       user(id: UserId | null | undefined): User | undefined {
         return store.users().find((u) => u.id === id);
       },
+      /** Any season's team. */
       teamName(id: string): string {
-        return teamLabel(store.teams(), id);
+        return teamLabel(store.allTeams(), id);
+      },
+      team(id: TeamId): Team | undefined {
+        return store.allTeams().find((t) => t.id === id);
       },
       /** Seeded clubs to offer on the landing page. Empty for real backends. */
       demoClubs(): DemoClub[] {
@@ -202,11 +279,27 @@ export const ClubStore = signalStore(
       /** Resolves with the sign-in for `newStaff`, if any. */
       async saveTeam(input: SaveTeamInput): Promise<MemberInvite | null> {
         const { directory: dir, invite } = await directory.saveTeam(input);
-        patchState(store, { teams: dir.teams, users: dir.users, profiles: dir.profiles });
+        patchState(store, fromDirectory(dir));
         return invite;
+      },
+      /** Club staff: a team of this season with no players and no events. */
+      async deleteTeam(teamId: TeamId): Promise<void> {
+        patchState(store, fromDirectory(await directory.deleteTeam(teamId)));
+      },
+      /** Club staff: ends the current season, which becomes read-only, and starts `input.name`. */
+      async startSeason(input: StartSeasonInput): Promise<void> {
+        patchState(store, fromDirectory(await directory.startSeason(input)));
+      },
+      /** A past season's rosters, read-only. */
+      loadSeason(seasonId: SeasonId): Promise<SeasonRoster> {
+        return directory.loadSeason(seasonId);
       },
       async updateMember(input: UpdateMemberInput): Promise<void> {
         const updated = await directory.updateMember(input);
+        patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
+      },
+      async setMemberTitle(userId: UserId, title: string): Promise<void> {
+        const updated = await directory.setMemberTitle(userId, title);
         patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
       },
       async cancelInvite(userId: UserId): Promise<void> {
@@ -217,23 +310,129 @@ export const ClubStore = signalStore(
       resendInvite(userId: UserId): Promise<MemberInvite> {
         return directory.resendInvite(userId);
       },
+      /** A forgotten password: resolves with a new temporary one to hand them. */
+      resetPassword(userId: UserId): Promise<MemberInvite> {
+        return directory.resetPassword(userId);
+      },
+      async setMemberDisabled(userId: UserId, disabled: boolean): Promise<void> {
+        const updated = await directory.setMemberDisabled(userId, disabled);
+        patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
+      },
+      async setMemberRole(userId: UserId, kind: TeamRole): Promise<void> {
+        const updated = await directory.setMemberRole(userId, kind);
+        patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
+      },
+      /** Their messages stay, from a former member; they are unlinked from their players. */
+      async removeMember(userId: UserId): Promise<void> {
+        await directory.removeMember(userId);
+        patchState(store, (s) => ({
+          users: s.users.filter((u) => u.id !== userId),
+          profiles: s.profiles.map((p) =>
+            p.parentIds.includes(userId) || p.userId === userId
+              ? {
+                  ...p,
+                  parentIds: p.parentIds.filter((id) => id !== userId),
+                  userId: p.userId === userId ? null : p.userId,
+                }
+              : p,
+          ),
+        }));
+      },
+      canResetPassword(user: User): boolean {
+        const me = writer();
+        return !!me && canResetPassword(me, user);
+      },
+      /** Disable, re-enable or remove them from the club. */
+      canRemoveMember(user: User): boolean {
+        const me = writer();
+        return !!me && canRemoveMember(me, user);
+      },
       /** Yourself; anyone, for club staff; invites to their teams, for team staff. */
       canEditMember(user: User): boolean {
-        const me = store.me();
+        const me = writer();
         return !!me && (me.id === user.id || me.kind === 'club' || canManageInvite(me, user));
       },
       canManageInvite(user: User): boolean {
-        const me = store.me();
+        const me = writer();
         return !!me && canManageInvite(me, user);
       },
-      /** The player's parent, the player themself, and club staff edit a player profile. */
+      /** Parent to team staff, or back (`canChangeRole`). */
+      canChangeRole(user: User, to: TeamRole): boolean {
+        const me = writer();
+        return !!me && canChangeRole(me, user, to);
+      },
+      /** Club staff for any staff; team staff for team staff, not club staff. */
+      canEditTitle(user: User): boolean {
+        const me = writer();
+        return !!me && canEditTitle(me, user);
+      },
+      /**
+       * Club staff, or staff of `team`: who adds, approves, moves and removes players and sets their
+       * parents. Only in the current season; past ones are read-only, as are archived clubs.
+       */
+      canManageTeam(team: TeamId): boolean {
+        const me = writer();
+        return !!me && canManageTeam(me, team) && store.teams().some((t) => t.id === team);
+      },
+      /** Who puts `user` on `team` or takes them off it. */
+      canChangeMemberTeam(user: User, team: TeamId): boolean {
+        const me = writer();
+        return !!me && canChangeMemberTeam(me, user, team);
+      },
+      async setMemberTeams(userId: UserId, teams: TeamId[]): Promise<void> {
+        const updated = await directory.setMemberTeams(userId, teams);
+        patchState(store, (s) => ({ users: s.users.map((u) => (u.id === updated.id ? updated : u)) }));
+      },
+      async approvePlayer(profileId: string): Promise<void> {
+        const updated = await directory.approvePlayer(profileId);
+        patchState(store, (s) => ({ profiles: s.profiles.map((p) => (p.id === updated.id ? updated : p)) }));
+      },
+      /** Also rejects a link request. */
+      /** Their parents and own sign-in may leave the team (or the club), so the whole directory is refreshed. */
+      async removePlayer(profileId: string): Promise<void> {
+        patchState(store, fromDirectory(await directory.removePlayer(profileId)));
+      },
+      /** Their parents and own sign-in move with them, so the whole directory is refreshed. */
+      async movePlayer(profileId: string, team: TeamId): Promise<void> {
+        patchState(store, fromDirectory(await directory.movePlayer(profileId, team)));
+      },
+      /** Resolves with the player's new sign-in to hand them. */
+      async givePlayerSignIn(profileId: string, email: string): Promise<MemberInvite> {
+        const invite = await directory.givePlayerSignIn(profileId, email);
+        patchState(store, (s) => ({
+          users: [...s.users, invite.user],
+          profiles: s.profiles.map((p) => (p.id === profileId ? { ...p, userId: invite.user.id } : p)),
+        }));
+        return invite;
+      },
+      /**
+       * The player's parents, the player themself, club staff and the team's staff: the people who
+       * also read and edit the player's care details (`canSeePlayerCare`).
+       */
       canEditProfile(profile: PlayerProfile): boolean {
         const me = store.me();
-        return !!me && (me.kind === 'club' || profile.parentId === me.id || profile.userId === me.id);
+        return !!me && canSeePlayerCare(me, profile);
+      },
+      /** Resolves with the player's sign-in to hand them, when they were given an email. */
+      async addPlayer(input: AddPlayerInput): Promise<MemberInvite | null> {
+        const { profile, invite } = await directory.addPlayer(input);
+        patchState(store, (s) => ({
+          profiles: [...s.profiles, profile],
+          users: invite ? [...s.users, invite.user] : s.users,
+        }));
+        return invite;
+      },
+      async setPlayerParents(profileId: string, parentIds: UserId[]): Promise<void> {
+        const updated = await directory.setPlayerParents(profileId, parentIds);
+        patchState(store, (s) => ({ profiles: s.profiles.map((p) => (p.id === updated.id ? updated : p)) }));
       },
       async updateProfile(input: UpdateProfileInput): Promise<void> {
         const updated = await directory.updateProfile(input);
         patchState(store, (s) => ({ profiles: s.profiles.map((p) => (p.id === updated.id ? updated : p)) }));
+      },
+      /** Club staff only. */
+      async saveSettings(settings: ClubSettings): Promise<void> {
+        patchState(store, { settings: await directory.saveSettings(settings) });
       },
       async requestPlayerLink(input: LinkPlayerInput): Promise<void> {
         const created = await directory.requestPlayerLink(input);

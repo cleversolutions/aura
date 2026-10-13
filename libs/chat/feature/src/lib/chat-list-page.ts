@@ -14,7 +14,7 @@ import {
 import { ClubStore } from '@aura/club/data-access';
 import { Thread, ThreadScope } from '@aura/shared/models';
 import { AppHeader, Choice, Icon } from '@aura/shared/ui';
-import { CLOCK, Submission, Toaster, Viewport, firstName, formatMessageTime } from '@aura/shared/util';
+import { CLOCK, FORMER_MEMBER, Submission, Toaster, Viewport, firstName, formatMessageTime } from '@aura/shared/util';
 
 const badge = (t: Thread) => (t.scope === 'club' ? 'CLUB' : t.scope);
 
@@ -47,14 +47,16 @@ const badge = (t: Thread) => (t.scope === 'club' ? 'CLUB' : t.scope);
         >
           NOTIFICATIONS
         </button>
-        <button
-          pageActions
-          type="button"
-          class="h-10 rounded-md bg-ink px-4 font-display text-[15px] font-bold tracking-[0.05em] text-paper"
-          (click)="startCreating()"
-        >
-          + NEW THREAD
-        </button>
+        @if (!club.archived()) {
+          <button
+            pageActions
+            type="button"
+            class="h-10 rounded-md bg-ink px-4 font-display text-[15px] font-bold tracking-[0.05em] text-paper"
+            (click)="startCreating()"
+          >
+            + NEW THREAD
+          </button>
+        }
       </aura-app-header>
     }
 
@@ -65,14 +67,27 @@ const badge = (t: Thread) => (t.scope === 'club' ? 'CLUB' : t.scope);
           class="relative flex min-h-0 w-full flex-col wide:w-[320px] wide:shrink-0 wide:border-r-2 wide:border-ink full:w-[380px]"
         >
           <main class="min-h-0 flex-1 overflow-y-auto pb-[90px] wide:pb-0">
-            <div class="flex justify-end px-3.5 pt-3 pb-1 wide:hidden">
-              <button type="button" class="btn-small" (click)="startCreating()">NEW THREAD</button>
-            </div>
+            @if (!club.archived()) {
+              <div class="flex justify-end px-3.5 pt-3 pb-1 wide:hidden">
+                <button type="button" class="btn-small" (click)="startCreating()">NEW THREAD</button>
+              </div>
+            }
             <div role="list">
               @for (row of rows(); track row.id) {
                 <aura-thread-list-item [vm]="row" />
               }
             </div>
+
+            @if (teamChannels().length) {
+              <h2 class="border-b-2 border-ink px-3.5 pt-5 pb-1.5 font-display text-[13px] font-bold tracking-[0.08em]">
+                TEAM CHANNELS
+              </h2>
+              <div role="list">
+                @for (row of teamChannels(); track row.id) {
+                  <aura-thread-list-item [vm]="row" />
+                }
+              </div>
+            }
 
             @if (others().length) {
               <h2 class="border-b-2 border-ink px-3.5 pt-5 pb-1.5 font-display text-[13px] font-bold tracking-[0.08em]">
@@ -86,7 +101,7 @@ const badge = (t: Thread) => (t.scope === 'club' ? 'CLUB' : t.scope);
             }
           </main>
 
-          @if (!viewport.wide()) {
+          @if (!viewport.wide() && !club.archived()) {
             <button
               type="button"
               aria-label="New thread"
@@ -147,24 +162,32 @@ export class ChatListPage {
   protected readonly settingsOpen = signal(false);
   protected readonly create = new Submission();
 
-  protected readonly rows = computed<ThreadListItemVm[]>(() => {
+  protected readonly rows = computed<ThreadListItemVm[]>(() =>
+    this.chat.myThreads().map(({ thread }) => this.row(thread)),
+  );
+
+  /** Club staff: every team's default channels, which they read and post in without being members. */
+  protected readonly teamChannels = computed<ThreadListItemVm[]>(() =>
+    this.chat.teamChannels().map(({ thread }) => this.row(thread)),
+  );
+
+  private row(t: Thread): ThreadListItemVm {
     const me = this.club.meId();
-    const now = this.now();
-    return this.chat.myThreads().map(({ thread: t }) => {
-      const last = t.messages.at(-1);
-      const sender = last && (last.from === me ? 'You' : firstName(this.club.user(last.from)?.name ?? '?'));
-      return {
-        id: t.id,
-        link: ['/', this.club.slug() ?? '', 'chat', t.id],
-        name: t.name,
-        badge: badge(t),
-        time: last ? formatMessageTime(last.sentAt, now) : '',
-        snippet: last ? `${sender}: ${last.text}` : 'No messages yet',
-        unread: t.unread,
-        muted: this.chat.isMuted(t.id),
-      };
-    });
-  });
+    const last = t.messages.at(-1);
+    const from = last && this.club.user(last.from);
+    const sender = last && (last.from === me ? 'You' : from ? firstName(from.name) : FORMER_MEMBER);
+    const text = last?.deleted ? 'Message deleted' : last?.text;
+    return {
+      id: t.id,
+      link: ['/', this.club.slug() ?? '', 'chat', t.id],
+      name: t.name,
+      badge: badge(t),
+      time: last ? formatMessageTime(last.sentAt, this.now()) : '',
+      snippet: last ? `${sender}: ${text}` : 'No messages yet',
+      unread: t.unread,
+      muted: this.chat.isMuted(t.id),
+    };
+  }
 
   protected readonly others = computed<ManagedThreadVm[]>(() =>
     this.chat.managedElsewhere().map(({ thread: t, members }) => ({

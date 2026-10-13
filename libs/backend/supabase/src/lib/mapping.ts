@@ -6,14 +6,18 @@ import {
   ClubAccount,
   ClubEvent,
   ClubEventDraft,
+  ClubSettings,
+  ClubStaffMember,
   PlayerProfile,
   RsvpMap,
   RsvpStatus,
+  Season,
   Team,
   Thread,
   User,
   UserKind,
 } from '@aura/shared/models';
+import { DEFAULT_CLUB_SETTINGS } from '@aura/shared/util';
 import { Database } from './database.types';
 
 /** Database rows <-> @aura/shared/models types. Pure functions; no client access. */
@@ -24,13 +28,45 @@ type Functions = Database['public']['Functions'];
 
 export type ClubPublicRow = Database['public']['Views']['club_public']['Row'];
 export type ClubRow = Row<'clubs'>;
-export type MemberRow = Row<'members'> & { team_members?: { team_id: string }[] };
-export type ProfileRow = Row<'player_profiles'>;
+/** Members' columns everyone in the club reads; emails come from member_contacts(). */
+export const MEMBER_SELECT = 'id, name, kind, title, invited, disabled, team_members(team_id)';
+export type MemberRow = Pick<Row<'members'>, 'id' | 'name' | 'kind' | 'title' | 'invited' | 'disabled'> & {
+  email?: string | null;
+  phone?: string | null;
+  team_members?: { team_id: string }[];
+};
+export type ContactRow = Functions['member_contacts']['Returns'][number];
+export type ProfileRow = Row<'player_profiles'> & {
+  player_parents?: { member_id: string }[];
+  /** Empty when none is recorded, or the viewer may not see it (player_care policies). */
+  player_care?: { emergency_contact: string; medical_notes: string }[];
+};
+/** Profile columns with their parents and, where the viewer may see them, care details. */
+export const PROFILE_SELECT = '*, player_parents(member_id), player_care(emergency_contact, medical_notes)';
 export type EventRow = Row<'events'>;
-export type EventInsert = Tables['events']['Insert'];
+/** The events_season trigger sets season_id (the team's season, or the current one). */
+export type EventInsert = Omit<Tables['events']['Insert'], 'season_id'>;
 export type ThreadListRow = Functions['list_my_threads']['Returns'][number];
 export type MessageRow = Row<'messages'>;
-export type PlatformClubRow = Functions['platform_clubs']['Returns'][number];
+/** The generated types call every column of a function's result non-null; these can be null. */
+export type PlatformClubRow = Omit<
+  Functions['platform_clubs']['Returns'][number],
+  'icon_192_url' | 'icon_512_url' | 'archived_at'
+> & { icon_192_url: string | null; icon_512_url: string | null; archived_at: string | null };
+export type PlatformClubStaffRow = Functions['platform_club_staff']['Returns'][number];
+export type ClubSettingsRow = Row<'club_settings'>;
+export type SeasonRow = Pick<Row<'seasons'>, 'id' | 'name' | 'started_at' | 'ended_at'>;
+export type TeamRow = Pick<Row<'teams'>, 'id' | 'name' | 'season_id' | 'age' | 'division'>;
+export const TEAM_SELECT = 'id, name, season_id, age, division';
+export const SEASON_SELECT = 'id, name, started_at, ended_at';
+
+/**
+ * For inserts whose season_id a trigger sets (teams_season, events_season): the generated types
+ * require the column, but the database fills it in.
+ */
+export function seasonFromTrigger<T extends object>(row: T): T & { season_id: string } {
+  return row as T & { season_id: string };
+}
 
 /** Optional fields are left out rather than set to undefined, matching the mock's objects. */
 function defined<T extends object>(value: T): T {
@@ -48,6 +84,7 @@ export function toClub(row: ClubPublicRow | ClubRow): Club {
     ...(row.icon_192_url && row.icon_512_url
       ? { icons: { size192: row.icon_192_url, size512: row.icon_512_url } }
       : {}),
+    ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
   };
 }
 
@@ -59,10 +96,24 @@ export function toClubAccount(row: PlatformClubRow): ClubAccount {
     adminName: row.admin_name ?? '',
     adminEmail: row.admin_email ?? '',
     createdAt: row.created_at,
+    counts: { members: row.member_count, invited: row.invited_count, teams: row.team_count },
   };
 }
 
-export function toUser(row: MemberRow): User {
+export function toClubStaffMember(row: PlatformClubStaffRow): ClubStaffMember {
+  return defined<ClubStaffMember>({
+    id: row.id,
+    name: row.name,
+    email: row.username ?? '',
+    title: row.title || undefined,
+    invited: row.invited || undefined,
+    disabled: row.disabled || undefined,
+    admin: row.is_admin,
+  });
+}
+
+/** `adminId` is the club's admin member (clubs.admin_member_id). */
+export function toUser(row: MemberRow, adminId: string | null = null): User {
   return defined<User>({
     id: row.id,
     name: row.name,
@@ -70,25 +121,85 @@ export function toUser(row: MemberRow): User {
     teams: (row.team_members ?? []).map((t) => t.team_id).sort(),
     title: row.title ?? undefined,
     email: row.email ?? undefined,
+    phone: row.phone || undefined,
     invited: row.invited || undefined,
+    disabled: row.disabled || undefined,
+    clubAdmin: (!!adminId && row.id === adminId) || undefined,
   });
 }
 
 export function toProfile(row: ProfileRow): PlayerProfile {
+  const care = row.player_care?.[0];
   return {
     id: row.id,
     name: row.name,
     jersey: row.jersey,
     team: row.team_id,
-    parentId: row.parent_member_id,
+    parentIds: (row.player_parents ?? []).map((p) => p.member_id).sort(),
     userId: row.user_member_id,
-    login: row.login,
     ...(row.pending ? { pending: true } : {}),
+    ...(care ? { care: { emergencyContact: care.emergency_contact, medicalNotes: care.medical_notes } } : {}),
   };
 }
 
-export function toDirectory(club: Club, teams: Team[], members: MemberRow[], profiles: ProfileRow[]): Directory {
-  return { club, teams, users: members.map(toUser), profiles: profiles.map(toProfile) };
+/** A club without a settings row has the defaults. */
+export function toSettings(row: Pick<ClubSettingsRow, 'announcements' | 'contacts'> | null): ClubSettings {
+  return row
+    ? {
+        announcements: row.announcements as ClubSettings['announcements'],
+        contacts: row.contacts as ClubSettings['contacts'],
+      }
+    : { ...DEFAULT_CLUB_SETTINGS };
+}
+
+export function toSeason(row: SeasonRow): Season {
+  return defined<Season>({
+    id: row.id,
+    name: row.name,
+    startedAt: row.started_at,
+    endedAt: row.ended_at ?? undefined,
+  });
+}
+
+export function toTeam(row: TeamRow): Team {
+  return defined<Team>({
+    id: row.id,
+    name: row.name,
+    season: row.season_id,
+    age: row.age ?? undefined,
+    division: row.division ?? undefined,
+  });
+}
+
+/**
+ * `contacts` are the emails and phones the signed-in member may see (member_contacts()). Teams cover every
+ * season; profiles are the current season's (team memberships always are).
+ */
+export function toDirectory(
+  club: ClubRow,
+  seasons: SeasonRow[],
+  teams: TeamRow[],
+  members: MemberRow[],
+  contacts: ContactRow[],
+  profiles: ProfileRow[],
+  settings: ClubSettingsRow | null,
+): Directory {
+  const byId = new Map(contacts.map((c) => [c.id, c]));
+  const current = seasons.find((s) => !s.ended_at)?.id;
+  const currentTeams = new Set(teams.filter((t) => t.season_id === current).map((t) => t.id));
+  return {
+    club: toClub(club),
+    seasons: seasons.map(toSeason),
+    teams: teams.map(toTeam),
+    users: members.map((m) =>
+      toUser(
+        { ...m, email: byId.get(m.id)?.email ?? null, phone: byId.get(m.id)?.phone ?? null },
+        club.admin_member_id,
+      ),
+    ),
+    profiles: profiles.filter((p) => currentTeams.has(p.team_id)).map(toProfile),
+    settings: toSettings(settings),
+  };
 }
 
 export function toEvent(row: EventRow): ClubEvent {
@@ -96,15 +207,20 @@ export function toEvent(row: EventRow): ClubEvent {
     id: row.id,
     type: row.type as ClubEvent['type'],
     team: row.team,
+    season: row.season_id,
     title: row.title ?? undefined,
     opponent: row.opponent ?? undefined,
     home: row.home ?? undefined,
     date: row.date ?? undefined,
     time: row.time?.slice(0, 5),
+    endTime: row.end_time?.slice(0, 5),
+    arriveBy: row.arrive_by?.slice(0, 5),
     tbd: row.tbd || undefined,
     location: row.location,
     notes: row.notes,
     score: row.score_us != null && row.score_them != null ? { us: row.score_us, them: row.score_them } : undefined,
+    cancelled: row.cancelled || undefined,
+    seriesId: row.series_id ?? undefined,
   });
 }
 
@@ -119,22 +235,38 @@ export function fromEventDraft(draft: ClubEventDraft, clubId: string): EventInse
     home: draft.home ?? null,
     date: draft.date || null,
     time: draft.time || null,
+    end_time: draft.endTime || null,
+    arrive_by: draft.arriveBy || null,
     tbd: !!draft.tbd,
     location: draft.location,
     notes: draft.notes,
     score_us: draft.score?.us ?? null,
     score_them: draft.score?.them ?? null,
+    cancelled: !!draft.cancelled,
+    series_id: draft.seriesId ?? null,
   };
 }
 
-export function toRsvpMap(rows: { event_id: string; attendee_id: string; status: string }[]): RsvpMap {
+export function toRsvpMap(rows: { event_id: string; attendee_id: string; status: string; note: string }[]): RsvpMap {
   const map: RsvpMap = {};
-  for (const r of rows) (map[r.event_id] ??= {})[r.attendee_id] = r.status as RsvpStatus;
+  for (const r of rows) {
+    (map[r.event_id] ??= {})[r.attendee_id] = defined({ status: r.status as RsvpStatus, note: r.note || undefined });
+  }
   return map;
 }
 
-export function toMessage(row: Pick<MessageRow, 'id' | 'from_member_id' | 'text' | 'sent_at'>): ChatMessage {
-  return { id: row.id, from: row.from_member_id, text: row.text, sentAt: new Date(row.sent_at).toISOString() };
+export function toMessage(
+  row: Pick<MessageRow, 'id' | 'from_member_id' | 'text' | 'sent_at'> &
+    Partial<Pick<MessageRow, 'edited_at' | 'deleted_at'>>,
+): ChatMessage {
+  return {
+    id: row.id,
+    from: row.from_member_id,
+    text: row.text,
+    sentAt: new Date(row.sent_at).toISOString(),
+    ...(row.edited_at ? { editedAt: new Date(row.edited_at).toISOString() } : {}),
+    ...(row.deleted_at ? { deleted: true } : {}),
+  };
 }
 
 export function toThread(row: ThreadListRow, messages: ChatMessage[]): Thread {
@@ -147,6 +279,7 @@ export function toThread(row: ThreadListRow, messages: ChatMessage[]): Thread {
     members: row.members ?? [],
     creatorId: row.creator_member_id ?? null,
     isDefault: row.is_default,
+    announceOnly: row.announce_only,
     messages,
     unread: row.unread ?? 0,
   };
@@ -162,12 +295,6 @@ export function messagesByThread(rows: MessageRow[]): Map<string, ChatMessage[]>
     out.set(r.thread_id, list);
   }
   return out;
-}
-
-/** The team id for a new team name, as the mock does: `U13 Girls` -> `U13G`. */
-export function teamIdFor(name: string): string {
-  const [age, division] = name.trim().split(/\s+/);
-  return (age ?? '') + (division?.[0] ?? '');
 }
 
 /** A User as the edge functions return it. */
@@ -186,6 +313,8 @@ export function dbError(error: PostgrestError, fallback = 'Something went wrong.
   if (error.code === '42501') return new Error('You don’t have permission to do that.');
   if (error.code === '23505') return new Error('That already exists.');
   if (error.code === 'PGRST116') return new Error('Not found, or you don’t have access to it.');
+  // Raised by our own functions and triggers, worded for people.
+  if (error.code === 'P0001' || error.code === '22023') return new Error(error.message);
   console.error(error);
   return new Error(fallback);
 }

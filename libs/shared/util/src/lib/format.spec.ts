@@ -1,11 +1,18 @@
 import {
+  MAX_WEEKS,
+  daysBetween,
   eventSortKey,
   eventTitle,
   formatEventWhen,
   formatMessageTime,
   formatResult,
+  formatTime,
   initials,
   isUpcoming,
+  isValidPhone,
+  mapLink,
+  shiftDate,
+  weeklyDates,
 } from './format';
 
 describe('format', () => {
@@ -49,5 +56,32 @@ describe('format', () => {
     expect(formatMessageTime('2026-10-08T20:00:00', now)).toBe('Yesterday');
     expect(formatMessageTime('2026-10-05T20:00:00', now)).toBe('Mon');
     expect(formatMessageTime('2026-09-01T20:00:00', now)).toBe('Sep 1');
+  });
+
+  it('formats end times, arrive-by times and map links', () => {
+    expect(formatEventWhen({ date: '2026-10-06', time: '18:00', endTime: '19:30' })).toBe(
+      'Tue, Oct 6 · 6:00 PM – 7:30 PM',
+    );
+    expect(formatTime('17:45')).toBe('5:45 PM');
+    expect(mapLink(' Spartan Centre · Court 1 ')).toBe(
+      'https://www.google.com/maps/search/?api=1&query=Spartan%20Centre%20%C2%B7%20Court%201',
+    );
+  });
+
+  it('counts weeks across months and clock changes', () => {
+    expect(shiftDate('2026-10-27', 7)).toBe('2026-11-03');
+    expect(daysBetween('2026-10-27', '2026-11-03')).toBe(7);
+    expect(daysBetween('2026-11-03', '2026-11-02')).toBe(-1);
+    expect(weeklyDates('2026-10-27', '2026-11-17')).toEqual(['2026-10-27', '2026-11-03', '2026-11-10', '2026-11-17']);
+    expect(weeklyDates('2026-10-27', '2026-10-26')).toEqual([]);
+    expect(weeklyDates('2026-01-01', '2030-01-01')).toHaveLength(MAX_WEEKS);
+  });
+
+  it('accepts optional phone numbers', () => {
+    expect(isValidPhone('')).toBe(true);
+    expect(isValidPhone('(555) 010-2030')).toBe(true);
+    expect(isValidPhone('+1 555.010.2030')).toBe(true);
+    expect(isValidPhone('555-01')).toBe(false);
+    expect(isValidPhone('call me')).toBe(false);
   });
 });

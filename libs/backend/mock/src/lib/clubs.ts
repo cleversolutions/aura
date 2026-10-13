@@ -1,7 +1,7 @@
 import { DemoAccount } from '@aura/backend/api';
-import { ClubAccount, PlatformAdmin, Thread, User, UserId } from '@aura/shared/models';
-import { ALL_GROUPS, addDays, isoDate } from '@aura/shared/util';
-import { MockData, createSeed } from './seed';
+import { ClubAccount, ClubEvent, PlatformAdmin, Thread, User, UserId } from '@aura/shared/models';
+import { ALL_GROUPS, DEFAULT_CLUB_SETTINGS, addDays, isoDate } from '@aura/shared/util';
+import { FIRST_SEASON, MockData, createSeed, firstSeason, seedTeam } from './seed';
 
 export interface MockCredential {
   userId: UserId;
@@ -54,15 +54,18 @@ function defaultThreads(teamId: string): Thread[] {
     members: [],
     creatorId: null,
     isDefault: true,
+    announceOnly: suffix === 'ann',
     messages: [],
     unread: 0,
   }));
 }
 
-/** A new club: just its admin and a club-wide announcements thread. */
-export function createEmptyClubData(admin: User): MockData {
+/** A new club: its first season, its admin and the club-wide announcements channel. */
+export function createEmptyClubData(admin: User, now: Date): MockData {
   return {
+    seasons: [firstSeason(now)],
     teams: [],
+    pastMembers: [],
     users: [admin],
     profiles: [],
     events: [],
@@ -76,12 +79,14 @@ export function createEmptyClubData(admin: User): MockData {
         include: { ...ALL_GROUPS },
         members: [],
         creatorId: admin.id,
-        isDefault: false,
+        isDefault: true,
+        announceOnly: true,
         messages: [],
         unread: 0,
       },
     ],
     muted: [],
+    settings: { ...DEFAULT_CLUB_SETTINGS },
   };
 }
 
@@ -97,8 +102,22 @@ function createPanthersSeed(now: Date): MockData {
       title: 'Club President',
       email: 'morgan@panthers.example',
     },
-    { id: 'pat', name: 'Pat Kim', kind: 'staff', teams: ['U11G'], email: 'pat@panthers.example' },
-    { id: 'chris', name: 'Chris Obi', kind: 'staff', teams: ['U13B'], email: 'chris@panthers.example' },
+    {
+      id: 'pat',
+      name: 'Pat Kim',
+      kind: 'staff',
+      teams: ['U11G'],
+      email: 'pat@panthers.example',
+      title: 'Head Coach',
+    },
+    {
+      id: 'chris',
+      name: 'Chris Obi',
+      kind: 'staff',
+      teams: ['U13B'],
+      email: 'chris@panthers.example',
+      title: 'Team Manager',
+    },
     { id: 'jordan', name: 'Jordan Smith', kind: 'parent', teams: ['U13B'], email: 'jordan.smith@email.com' },
     { id: 'ana', name: 'Ana Ruiz', kind: 'parent', teams: ['U11G'], email: 'ana@panthers.example' },
   ];
@@ -113,43 +132,44 @@ function createPanthersSeed(now: Date): MockData {
     name: name as string,
     jersey: jersey as string,
     team: team as string,
-    parentId,
+    parentIds: parentId ? [parentId as string] : [],
     userId: null,
-    login: '',
   }));
   return {
-    teams: [
-      { id: 'U11G', name: 'U11 Girls' },
-      { id: 'U13B', name: 'U13 Boys' },
-    ],
+    seasons: [firstSeason(now)],
+    teams: [seedTeam('U11G', 'U11 Girls'), seedTeam('U13B', 'U13 Boys')],
+    pastMembers: [],
     users,
     profiles,
-    events: [
-      { id: 'pe1', type: 'practice', team: 'U13B', date: day(1), time: '18:30', location: 'Eastside Gym', notes: '' },
-      { id: 'pe2', type: 'practice', team: 'U11G', date: day(2), time: '17:00', location: 'Eastside Gym', notes: '' },
-      {
-        id: 'pe3',
-        type: 'game',
-        team: 'U13B',
-        opponent: 'Spartans',
-        home: false,
-        date: day(5),
-        time: '10:00',
-        location: 'Spartan Centre · Court 1',
-        notes: 'Carpool from the gym at 9:00.',
-      },
-    ],
+    events: (
+      [
+        { id: 'pe1', type: 'practice', team: 'U13B', date: day(1), time: '18:30', location: 'Eastside Gym', notes: '' },
+        { id: 'pe2', type: 'practice', team: 'U11G', date: day(2), time: '17:00', location: 'Eastside Gym', notes: '' },
+        {
+          id: 'pe3',
+          type: 'game',
+          team: 'U13B',
+          opponent: 'Spartans',
+          home: false,
+          date: day(5),
+          time: '10:00',
+          location: 'Spartan Centre · Court 1',
+          notes: 'Carpool from the gym at 9:00.',
+        },
+      ] as ClubEvent[]
+    ).map((e) => ({ ...e, season: FIRST_SEASON })),
     rsvps: {},
     threads: [
       {
         id: 'club-ann',
         name: '#club-announcements',
         scope: 'club',
-        teams: ['U11G', 'U13B'],
+        teams: [],
         include: { ...ALL_GROUPS },
         members: [],
         creatorId: 'morgan',
-        isDefault: false,
+        isDefault: true,
+        announceOnly: true,
         messages: [
           {
             id: 'pm1',
@@ -164,6 +184,7 @@ function createPanthersSeed(now: Date): MockData {
       ...defaultThreads('U13B'),
     ],
     muted: [],
+    settings: { ...DEFAULT_CLUB_SETTINGS },
   };
 }
 

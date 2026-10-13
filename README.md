@@ -14,7 +14,7 @@ from there too. With Volta installed, `node` and `npm` switch to the pinned vers
 ```sh
 npm ci
 npm run db:start   # local Supabase in Docker (first run pulls the images)
-npm run db:reset   # apply migrations and seed the demo clubs
+npm run db:reset   # apply migrations and seed the demo clubs (wipes the local database)
 npm start          # http://localhost:4200, against the local Supabase
 npm run start:mock # or: the in-memory mock backend, no Docker needed
 npm test           # all unit tests (no Docker needed)
@@ -34,7 +34,7 @@ navy on gold). Every seeded account uses the password `password`; usernames are 
 `jordan.smith@email.com` (parent), `eli.smith@email.com` (player), `dana@spartans.example` (team staff) and
 `sam@spartans.example` (club staff).
 
-- With Supabase, open a club's link and sign in. Data persists until `npm run db:reset`.
+- With Supabase, open a club's link and sign in. Data persists until `npm run db:reset`, which wipes everything.
 - With the mock (`npm run start:mock`), data lives in memory and resets on reload. `/` lists the demo clubs, the
   Spartans start signed in as Jordan Smith, and **More → Demo account** switches between the parent, player, team
   staff and club staff views.
@@ -71,7 +71,8 @@ supabase/
   config.toml                Local Supabase settings (sign-ups off: accounts come from edge functions)
   migrations/                Schema, row-level security and helper functions
   tests/                     pgTAP tests for row-level security (npm run db:test)
-  functions/                 Edge functions: create-club, update-club, invite-member, update-member, manage-invite
+  functions/                 Edge functions: create-club, update-club, invite-member, update-member, manage-invite,
+                             manage-member
 functions/                   Cloudflare Pages Functions: /<slug>/manifest.webmanifest
 tools/                       Seed script and test runners
 ```
@@ -129,35 +130,90 @@ Only `app.config.ts` (and tests) import `backend/mock`, plus `backend/supabase`'
 Feature code only sees the ports in `@aura/backend/api`; `app.config.ts` binds them to `provideSupabaseBackend()` or
 `provideMockBackend()` depending on the build configuration (`apps/aura/src/environments`).
 
-- **Schema and permissions** live in `supabase/migrations`. The SQL helpers `is_thread_member`, `can_manage_thread`
-  and `can_edit_event` mirror `permissions.ts`; change both together. `npm run test:supabase` checks SQL and
-  TypeScript agree on every seeded thread's members.
-- **Edge functions** do the work that needs the service-role key: `create-club` and `update-club` (platform admin)
-  `invite-member` (club staff, or team staff for their teams) and `update-member` (yourself, or anyone at the club for
-  club staff; a new email moves the person's sign-in) and `manage-invite` (resend with a new temporary password, or
-  cancel, while someone has not joined; whoever could invite them). Logos and icons go to the `club-assets` bucket.
+- **Schema and permissions** live in `supabase/migrations`. The SQL helpers `thread_member_ids`, `is_thread_member`,
+  `can_read_thread`, `can_post_in_thread`, `can_moderate_thread`, `can_manage_thread`, `can_edit_event`,
+  `can_manage_team`, `can_change_member_team`, `can_see_contact` and `can_see_player_care` mirror `permissions.ts`;
+  change both together. `npm run test:supabase` checks SQL and TypeScript agree on every seeded thread's members, on
+  whose emails each kind of member sees, and on whose care details.
+- **Club settings** (`club_settings`, one row per club, edited by club staff under More → Club settings) hold
+  club-wide choices; a club without a row has the defaults (`DEFAULT_CLUB_SETTINGS`). Today: who posts in
+  announcement channels, and who sees contact details.
+- **Contact details.** Members read each other's names, roles and teams, but not `members.email`, `username` or
+  `phone` (column grants): emails and phones come from `member_contacts()`, which applies `can_see_contact`. By
+  default club staff see everyone's, team staff their teams' people, and parents and players their teams' staff, the
+  club staff and their own players'; the `contacts` setting lets everyone see everyone's. Only staff see the INVITED
+  list unless it does. A player's emergency contact and medical notes (`player_care`) are another matter: only
+  their parents, the player, club staff and the team's staff read or write them (`can_see_player_care`), whatever
+  the setting, and they carry over with the player into a new season.
+- **Weekly events** are one event per week sharing a `series_id`, so each week keeps its own RSVPs, cancellation and
+  score. `save_event_series` applies an edit to one week and every later week (dates move by the same number of
+  days), under the events policies; deleting later weeks is a filtered delete. Events also have optional end and
+  arrive-by times; the map link is built from the location.
+- **Teams and seasons.** Every club has one current season (`seasons.ended_at` null); a new club gets its first,
+  named for the school year (`2026–27`). Teams belong to a season and have generated ids (never derived from the
+  name, so they can be renamed; older teams keep ids like `U11B`), a free-text name unique within the season, and an
+  optional age and division. Events belong to their team's season, or to the current one if club-wide. A team needs
+  no staff: club staff manage it meanwhile. `delete_team` deletes a mistake (no players, no events) with its
+  channels. `start_season` (club staff) ends the current season and carries the chosen teams over, renamed, with
+  or without their staff and approved players (copied with their parents; those parents and the players' own
+  sign-ins join the new team). It moves every `team_members` row of the old season into `past_team_members`, so
+  team membership, and every rule built on it (`member_teams`, `can_manage_team`, `can_see_contact`, thread
+  membership, the edge functions, `permissions.ts`), always means this season. Triggers make past seasons read-only
+  for signed-in members (teams, rosters, profiles, events, RSVPs, and messages in past teams' threads); the service
+  role's cascades still work. The app loads every season's teams but only this season's profiles; `loadSeason`
+  fetches a past season's rosters, which Roster and Schedule show read-only behind a season picker. Chat hides past
+  teams' threads.
+- **Roster corrections** go through SQL functions that check `can_manage_team`: `approve_player` and
+  `remove_player` (parents' link requests, and taking a player off the roster with their RSVPs), `move_player`
+  (for staff of both teams; the player's parents and own sign-in join the new team, and parents leave the old one
+  unless another of their players is on it) and `set_member_teams` (`can_change_member_team`: club staff for
+  anyone but club staff, team staff for families on their teams; also how someone already in the club joins
+  another team).
+- **Edge functions** do the work that needs the service-role key: `create-club` and `update-club` (platform admin;
+  `update-club` also makes another of the club's staff its admin), `invite-member` (club staff, or team staff for
+  their teams; club staff also invite club staff, who join no team; with `profile`, gives a player already on the
+  roster their own sign-in), `update-member` (yourself, or anyone at the club
+  for club staff; a new email moves the person's sign-in), `manage-invite` (resend with a new temporary password, or
+  cancel, while someone has not joined; whoever could invite them) and `manage-member` (for people who have joined:
+  reset a forgotten password, which club staff do for anyone and team staff for their teams' families, and the
+  platform admin for the club admin; disable, enable or remove, club staff only). Logos and icons go to the
+  `club-assets` bucket.
+- **Leaving the club.** A disabled member (`members.disabled`) stays on record but cannot sign in (their auth user is
+  banned) and has no access: `auth_club_id()` is null for them, so every policy denies them, and they are in no
+  thread. Removing a member deletes their sign-in and member row; foreign keys unlink them from teams, threads and
+  players, and their messages stay with `from_member_id` null, shown as "Former member". Nobody disables or removes
+  themselves or the club admin.
 - **Invites have no email yet.** `invite-member` creates the member's sign-in with a temporary password and returns
   it once; staff see the club link, username and password with copy buttons and send them by hand. The member must
   choose their own password at first sign-in, which also takes them off the invited list.
 - **Preview** (`usePreview`) shows a club's real branding over the mock's in-memory sample data, so no real club's
   data is ever shown or touched. `libs/backend/supabase/src/lib/preview.ts` is the one place that library imports
   the mock.
-- **Chat** loads up to the newest 1,000 messages per club (PostgREST's row limit) and receives new ones over
-  Realtime; row-level security limits both to the member's threads.
+- **Chat** loads up to the newest 1,000 messages per club (PostgREST's row limit) and receives new ones, edits and
+  deletions over Realtime; row-level security limits all of them to threads the member can read. Default channels
+  have fixed membership: `#club-announcements` (everyone in the club) and each team's `#announcements` and
+  `#general` (everyone on the team). Club staff also read and post in every team's channels without counting as
+  members. `#announcements` and `#club-announcements` are announcement channels: staff post, unless the club setting
+  lets everyone. Senders edit and delete their own messages (`edit_message`, `delete_message`); club staff, and a
+  team's staff in its threads, delete anyone's. A deleted message keeps its place as "Message deleted".
 
 Commands (local Supabase ports: API 54321, database 54322, Studio 54323, Mailpit 54324):
 
 ```sh
 npm run db:start         # start local Supabase (Docker)
-npm run db:reset         # re-apply migrations and reseed
-npm run db:seed          # reseed only: replaces the demo clubs and the platform admin
+npm run db:reset         # DESTRUCTIVE: wipes the local database (every club, sign-in and upload), then seeds
+npm run db:seed          # replaces the demo clubs and the platform admin; refuses if a demo club was changed
+                         # since it was seeded (pass -- --force to replace it anyway)
 npm run db:test          # pgTAP row-level security tests
 npm run db:types         # regenerate libs/backend/supabase/src/lib/database.types.ts after a migration
 npm run functions:test   # edge function tests (Deno, run in Docker)
-npm run test:supabase    # Supabase repository tests (reseeds first)
+npm run test:supabase    # Supabase repository tests (seed and delete their own throwaway clubs)
 ```
 
 CI runs all of these in a separate `supabase` job.
+
+To apply new migrations to a local database without losing its data, use `npx supabase migration up --local`
+instead of `db:reset`. Everything else above leaves existing clubs alone.
 
 ## Hosting
 

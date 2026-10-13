@@ -35,9 +35,12 @@ Deno.test('create-club', async (t) => {
       assertEquals(member, { id: member!.id, kind: 'club', title: 'Club Admin', user_id: session.user.id });
     });
 
-    await t.step('creates the club announcements thread', async () => {
-      const { data } = await service.from('threads').select('name, scope').eq('club_id', club.id);
-      assertEquals(data, [{ name: '#club-announcements', scope: 'club' }]);
+    await t.step('creates the club-wide announcements channel', async () => {
+      const { data } = await service
+        .from('threads')
+        .select('name, scope, is_default, announce_only')
+        .eq('club_id', club.id);
+      assertEquals(data, [{ name: '#club-announcements', scope: 'club', is_default: true, announce_only: true }]);
     });
 
     await t.step('rejects a taken slug', async () => {

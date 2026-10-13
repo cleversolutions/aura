@@ -20,9 +20,44 @@ export type Database = {
   };
   public: {
     Tables: {
+      club_settings: {
+        Row: {
+          announcements: string;
+          club_id: string;
+          contacts: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          announcements?: string;
+          club_id: string;
+          contacts?: string;
+        };
+        Update: {
+          announcements?: string;
+          club_id?: string;
+          contacts?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'club_settings_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: true;
+            referencedRelation: 'club_public';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'club_settings_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: true;
+            referencedRelation: 'clubs';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       clubs: {
         Row: {
           admin_member_id: string | null;
+          archived_at: string | null;
           created_at: string;
           icon_192_url: string | null;
           icon_512_url: string | null;
@@ -38,6 +73,7 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           admin_member_id?: string | null;
+          archived_at?: string | null;
           created_at?: string;
           icon_192_url?: string | null;
           icon_512_url?: string | null;
@@ -52,6 +88,7 @@ export type Database = {
         };
         Update: {
           admin_member_id?: string | null;
+          archived_at?: string | null;
           created_at?: string;
           icon_192_url?: string | null;
           icon_512_url?: string | null;
@@ -76,8 +113,11 @@ export type Database = {
       };
       events: {
         Row: {
+          arrive_by: string | null;
+          cancelled: boolean;
           club_id: string;
           date: string | null;
+          end_time: string | null;
           home: boolean | null;
           id: string;
           location: string;
@@ -85,6 +125,8 @@ export type Database = {
           opponent: string | null;
           score_them: number | null;
           score_us: number | null;
+          season_id: string;
+          series_id: string | null;
           tbd: boolean;
           team: string;
           time: string | null;
@@ -93,8 +135,11 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
+          arrive_by?: string | null;
+          cancelled?: boolean;
           club_id: string;
           date?: string | null;
+          end_time?: string | null;
           home?: boolean | null;
           id?: string;
           location?: string;
@@ -102,6 +147,8 @@ export type Database = {
           opponent?: string | null;
           score_them?: number | null;
           score_us?: number | null;
+          season_id: string;
+          series_id?: string | null;
           tbd?: boolean;
           team: string;
           time?: string | null;
@@ -109,8 +156,11 @@ export type Database = {
           type: string;
         };
         Update: {
+          arrive_by?: string | null;
+          cancelled?: boolean;
           club_id?: string;
           date?: string | null;
+          end_time?: string | null;
           home?: boolean | null;
           id?: string;
           location?: string;
@@ -118,6 +168,8 @@ export type Database = {
           opponent?: string | null;
           score_them?: number | null;
           score_us?: number | null;
+          season_id?: string;
+          series_id?: string | null;
           tbd?: boolean;
           team?: string;
           time?: string | null;
@@ -139,16 +191,25 @@ export type Database = {
             referencedRelation: 'clubs';
             referencedColumns: ['id'];
           },
+          {
+            foreignKeyName: 'events_season_fk';
+            columns: ['club_id', 'season_id'];
+            isOneToOne: false;
+            referencedRelation: 'seasons';
+            referencedColumns: ['club_id', 'id'];
+          },
         ];
       };
       members: {
         Row: {
           club_id: string;
+          disabled: boolean;
           email: string | null;
           id: string;
           invited: boolean;
           kind: string;
           name: string;
+          phone: string;
           title: string | null;
           user_id: string | null;
           username: string | null;
@@ -156,22 +217,26 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           club_id: string;
+          disabled?: boolean;
           email?: string | null;
           id?: string;
           invited?: boolean;
           kind: string;
           name: string;
+          phone?: string;
           title?: string | null;
           user_id?: string | null;
           username?: string | null;
         };
         Update: {
           club_id?: string;
+          disabled?: boolean;
           email?: string | null;
           id?: string;
           invited?: boolean;
           kind?: string;
           name?: string;
+          phone?: string;
           title?: string | null;
           user_id?: string | null;
           username?: string | null;
@@ -196,7 +261,9 @@ export type Database = {
       messages: {
         Row: {
           club_id: string;
-          from_member_id: string;
+          deleted_at: string | null;
+          edited_at: string | null;
+          from_member_id: string | null;
           id: string;
           sent_at: string;
           text: string;
@@ -205,7 +272,9 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           club_id: string;
-          from_member_id: string;
+          deleted_at?: string | null;
+          edited_at?: string | null;
+          from_member_id?: string | null;
           id?: string;
           sent_at?: string;
           text: string;
@@ -213,7 +282,9 @@ export type Database = {
         };
         Update: {
           club_id?: string;
-          from_member_id?: string;
+          deleted_at?: string | null;
+          edited_at?: string | null;
+          from_member_id?: string | null;
           id?: string;
           sent_at?: string;
           text?: string;
@@ -250,14 +321,152 @@ export type Database = {
           },
         ];
       };
+      past_team_members: {
+        Row: {
+          club_id: string;
+          member_id: string;
+          team_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          club_id: string;
+          member_id: string;
+          team_id: string;
+        };
+        Update: {
+          club_id?: string;
+          member_id?: string;
+          team_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'past_team_members_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: false;
+            referencedRelation: 'club_public';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'past_team_members_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: false;
+            referencedRelation: 'clubs';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'past_team_members_club_id_member_id_fkey';
+            columns: ['club_id', 'member_id'];
+            isOneToOne: false;
+            referencedRelation: 'members';
+            referencedColumns: ['club_id', 'id'];
+          },
+          {
+            foreignKeyName: 'past_team_members_club_id_team_id_fkey';
+            columns: ['club_id', 'team_id'];
+            isOneToOne: false;
+            referencedRelation: 'teams';
+            referencedColumns: ['club_id', 'id'];
+          },
+        ];
+      };
+      player_care: {
+        Row: {
+          club_id: string;
+          emergency_contact: string;
+          medical_notes: string;
+          profile_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          club_id: string;
+          emergency_contact?: string;
+          medical_notes?: string;
+          profile_id: string;
+        };
+        Update: {
+          club_id?: string;
+          emergency_contact?: string;
+          medical_notes?: string;
+          profile_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'player_care_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: false;
+            referencedRelation: 'club_public';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'player_care_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: false;
+            referencedRelation: 'clubs';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'player_care_club_id_profile_id_fkey';
+            columns: ['club_id', 'profile_id'];
+            isOneToOne: false;
+            referencedRelation: 'player_profiles';
+            referencedColumns: ['club_id', 'id'];
+          },
+        ];
+      };
+      player_parents: {
+        Row: {
+          club_id: string;
+          member_id: string;
+          profile_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          club_id: string;
+          member_id: string;
+          profile_id: string;
+        };
+        Update: {
+          club_id?: string;
+          member_id?: string;
+          profile_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'player_parents_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: false;
+            referencedRelation: 'club_public';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'player_parents_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: false;
+            referencedRelation: 'clubs';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'player_parents_club_id_member_id_fkey';
+            columns: ['club_id', 'member_id'];
+            isOneToOne: false;
+            referencedRelation: 'members';
+            referencedColumns: ['club_id', 'id'];
+          },
+          {
+            foreignKeyName: 'player_parents_club_id_profile_id_fkey';
+            columns: ['club_id', 'profile_id'];
+            isOneToOne: false;
+            referencedRelation: 'player_profiles';
+            referencedColumns: ['club_id', 'id'];
+          },
+        ];
+      };
       player_profiles: {
         Row: {
           club_id: string;
           id: string;
           jersey: string;
-          login: string;
           name: string;
-          parent_member_id: string | null;
           pending: boolean;
           team_id: string;
           user_member_id: string | null;
@@ -267,9 +476,7 @@ export type Database = {
           club_id: string;
           id?: string;
           jersey?: string;
-          login?: string;
           name: string;
-          parent_member_id?: string | null;
           pending?: boolean;
           team_id: string;
           user_member_id?: string | null;
@@ -278,9 +485,7 @@ export type Database = {
           club_id?: string;
           id?: string;
           jersey?: string;
-          login?: string;
           name?: string;
-          parent_member_id?: string | null;
           pending?: boolean;
           team_id?: string;
           user_member_id?: string | null;
@@ -299,13 +504,6 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: 'clubs';
             referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'player_profiles_club_id_parent_member_id_fkey';
-            columns: ['club_id', 'parent_member_id'];
-            isOneToOne: false;
-            referencedRelation: 'members';
-            referencedColumns: ['club_id', 'id'];
           },
           {
             foreignKeyName: 'player_profiles_club_id_team_id_fkey';
@@ -328,6 +526,7 @@ export type Database = {
           attendee_id: string;
           club_id: string;
           event_id: string;
+          note: string;
           status: string;
         };
         ComputedFields: never;
@@ -335,12 +534,14 @@ export type Database = {
           attendee_id: string;
           club_id: string;
           event_id: string;
+          note?: string;
           status: string;
         };
         Update: {
           attendee_id?: string;
           club_id?: string;
           event_id?: string;
+          note?: string;
           status?: string;
         };
         Relationships: [
@@ -360,6 +561,46 @@ export type Database = {
           },
           {
             foreignKeyName: 'rsvps_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: false;
+            referencedRelation: 'clubs';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      seasons: {
+        Row: {
+          club_id: string;
+          ended_at: string | null;
+          id: string;
+          name: string;
+          started_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          club_id: string;
+          ended_at?: string | null;
+          id?: string;
+          name: string;
+          started_at?: string;
+        };
+        Update: {
+          club_id?: string;
+          ended_at?: string | null;
+          id?: string;
+          name?: string;
+          started_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'seasons_club_id_fkey';
+            columns: ['club_id'];
+            isOneToOne: false;
+            referencedRelation: 'club_public';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'seasons_club_id_fkey';
             columns: ['club_id'];
             isOneToOne: false;
             referencedRelation: 'clubs';
@@ -417,20 +658,29 @@ export type Database = {
       };
       teams: {
         Row: {
+          age: string | null;
           club_id: string;
+          division: string | null;
           id: string;
           name: string;
+          season_id: string;
         };
         ComputedFields: never;
         Insert: {
+          age?: string | null;
           club_id: string;
-          id: string;
+          division?: string | null;
+          id?: string;
           name: string;
+          season_id: string;
         };
         Update: {
+          age?: string | null;
           club_id?: string;
+          division?: string | null;
           id?: string;
           name?: string;
+          season_id?: string;
         };
         Relationships: [
           {
@@ -446,6 +696,13 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: 'clubs';
             referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'teams_season_fk';
+            columns: ['club_id', 'season_id'];
+            isOneToOne: false;
+            referencedRelation: 'seasons';
+            referencedColumns: ['club_id', 'id'];
           },
         ];
       };
@@ -598,6 +855,7 @@ export type Database = {
       };
       threads: {
         Row: {
+          announce_only: boolean;
           club_id: string;
           created_at: string;
           creator_member_id: string | null;
@@ -612,6 +870,7 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
+          announce_only?: boolean;
           club_id: string;
           created_at?: string;
           creator_member_id?: string | null;
@@ -625,6 +884,7 @@ export type Database = {
           teams?: string[];
         };
         Update: {
+          announce_only?: boolean;
           club_id?: string;
           created_at?: string;
           creator_member_id?: string | null;
@@ -665,6 +925,7 @@ export type Database = {
     Views: {
       club_public: {
         Row: {
+          archived_at: string | null;
           icon_192_url: string | null;
           icon_512_url: string | null;
           id: string | null;
@@ -676,6 +937,7 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
+          archived_at?: string | null;
           icon_192_url?: string | null;
           icon_512_url?: string | null;
           id?: string | null;
@@ -686,6 +948,7 @@ export type Database = {
           slug?: string | null;
         };
         Update: {
+          archived_at?: string | null;
           icon_192_url?: string | null;
           icon_512_url?: string | null;
           id?: string | null;
@@ -700,16 +963,24 @@ export type Database = {
     };
     Functions: {
       accept_invite: { Args: Record<PropertyKey, never>; Returns: undefined };
+      acts_for_player: { Args: { p_profile: string }; Returns: boolean };
+      add_player: {
+        Args: { p_jersey: string; p_name: string; p_parents: string[]; p_team: string; p_user_member: string };
+        Returns: string;
+      };
+      approve_player: { Args: { p_profile: string }; Returns: undefined };
       auth_club_id: { Args: Record<PropertyKey, never>; Returns: string };
       auth_member: {
         Args: Record<PropertyKey, never>;
         Returns: {
           club_id: string;
+          disabled: boolean;
           email: string | null;
           id: string;
           invited: boolean;
           kind: string;
           name: string;
+          phone: string;
           title: string | null;
           user_id: string | null;
           username: string | null;
@@ -722,10 +993,63 @@ export type Database = {
         };
       };
       auth_member_id: { Args: Record<PropertyKey, never>; Returns: string };
+      can_change_member_team: { Args: { p_member: string; p_team: string }; Returns: boolean };
       can_edit_event: { Args: { p_team: string }; Returns: boolean };
+      can_manage_team: { Args: { p_team: string }; Returns: boolean };
       can_manage_thread: { Args: { p_thread: string }; Returns: boolean };
+      can_moderate_thread: { Args: { p_thread: string }; Returns: boolean };
+      can_post_in_thread: { Args: { p_thread: string }; Returns: boolean };
+      can_read_thread: { Args: { p_thread: string }; Returns: boolean };
+      can_rsvp: { Args: { p_attendee: string; p_event: string }; Returns: boolean };
       can_rsvp_for: { Args: { p_attendee: string }; Returns: boolean };
+      can_see_contact: { Args: { p_member: string }; Returns: boolean };
+      can_see_player_care: { Args: { p_profile: string }; Returns: boolean };
+      can_see_rsvp_note: { Args: { p_attendee: string; p_event: string }; Returns: boolean };
+      club_announcements: { Args: { p_club: string }; Returns: string };
+      current_season_id: { Args: { p_club: string }; Returns: string };
+      delete_message: {
+        Args: { p_message: string };
+        Returns: {
+          club_id: string;
+          deleted_at: string | null;
+          edited_at: string | null;
+          from_member_id: string | null;
+          id: string;
+          sent_at: string;
+          text: string;
+          thread_id: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'messages';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      delete_team: { Args: { p_team: string }; Returns: undefined };
+      edit_message: {
+        Args: { p_message: string; p_text: string };
+        Returns: {
+          club_id: string;
+          deleted_at: string | null;
+          edited_at: string | null;
+          from_member_id: string | null;
+          id: string;
+          sent_at: string;
+          text: string;
+          thread_id: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'messages';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      is_club_archived: { Args: { p_club: string }; Returns: boolean };
       is_club_staff: { Args: Record<PropertyKey, never>; Returns: boolean };
+      is_past_season: { Args: { p_club: string; p_season: string }; Returns: boolean };
+      is_past_team: { Args: { p_club: string; p_team: string }; Returns: boolean };
       is_platform_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
       is_thread_member: { Args: { p_thread: string }; Returns: boolean };
       kind_included: {
@@ -735,6 +1059,7 @@ export type Database = {
       list_my_threads: {
         Args: Record<PropertyKey, never>;
         Returns: {
+          announce_only: boolean;
           created_at: string;
           creator_member_id: string;
           id: string;
@@ -749,26 +1074,118 @@ export type Database = {
           unread: number;
         }[];
       };
+      list_rsvps: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          attendee_id: string;
+          event_id: string;
+          note: string;
+          status: string;
+        }[];
+      };
+      managed_profile_team: { Args: { p_action: string; p_profile: string }; Returns: string };
       mark_thread_read: { Args: { p_thread: string }; Returns: undefined };
+      member_contacts: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          email: string;
+          id: string;
+          phone: string;
+        }[];
+      };
       member_teams: { Args: { p_member: string }; Returns: string[] };
+      move_player: { Args: { p_profile: string; p_team: string }; Returns: undefined };
+      new_team_id: { Args: Record<PropertyKey, never>; Returns: string };
+      past_season_error: { Args: Record<PropertyKey, never>; Returns: undefined };
+      platform_club_staff: {
+        Args: { p_club: string };
+        Returns: {
+          disabled: boolean;
+          id: string;
+          invited: boolean;
+          is_admin: boolean;
+          name: string;
+          title: string;
+          username: string;
+        }[];
+      };
       platform_clubs: {
         Args: Record<PropertyKey, never>;
         Returns: {
           admin_email: string;
           admin_name: string;
+          archived_at: string;
           created_at: string;
           icon_192_url: string;
           icon_512_url: string;
           id: string;
           ink: string;
+          invited_count: number;
           logo_ink: string;
           logo_paper: string;
           logo_url: string;
+          member_count: number;
           name: string;
           paper: string;
           slug: string;
+          team_count: number;
         }[];
       };
+      remove_player: { Args: { p_profile: string }; Returns: string };
+      request_player_link: { Args: { p_jersey: string; p_name: string; p_team: string }; Returns: string };
+      rsvp_profile_fits: { Args: { p_event: string; p_profile: string }; Returns: boolean };
+      save_event_series: {
+        Args: {
+          p_arrive_by?: string;
+          p_date: string;
+          p_end_time?: string;
+          p_event: string;
+          p_home?: boolean;
+          p_location: string;
+          p_notes: string;
+          p_opponent?: string;
+          p_team: string;
+          p_time: string;
+          p_title?: string;
+          p_type: string;
+        };
+        Returns: {
+          arrive_by: string | null;
+          cancelled: boolean;
+          club_id: string;
+          date: string | null;
+          end_time: string | null;
+          home: boolean | null;
+          id: string;
+          location: string;
+          notes: string;
+          opponent: string | null;
+          score_them: number | null;
+          score_us: number | null;
+          season_id: string;
+          series_id: string | null;
+          tbd: boolean;
+          team: string;
+          time: string | null;
+          title: string | null;
+          type: string;
+        }[];
+        SetofOptions: {
+          from: '*';
+          to: 'events';
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
+      season_name_for: { Args: { p_date: string }; Returns: string };
+      set_member_teams: { Args: { p_member: string; p_teams: string[] }; Returns: undefined };
+      set_player_parents: { Args: { p_parents: string[]; p_profile: string }; Returns: undefined };
+      set_rsvps: {
+        Args: { p_attendees: string[]; p_event: string; p_note?: string; p_status: string };
+        Returns: undefined;
+      };
+      signed_in_write: { Args: Record<PropertyKey, never>; Returns: boolean };
+      start_season: { Args: { p_name: string; p_teams: Json }; Returns: string };
       thread_member_ids: { Args: { p_thread: string }; Returns: string[] };
     };
     Enums: {

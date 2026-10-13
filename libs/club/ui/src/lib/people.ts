@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { Avatar, Icon } from '@aura/shared/ui';
 
 export interface PersonRowVm {
@@ -13,34 +14,44 @@ export interface PlayerRowVm extends PersonRowVm {
   mine: boolean;
 }
 
-/** Team staff member in a roster list. Opens their details. */
+/** Team staff member in a roster list. Opens their details, unless read-only. */
 @Component({
   selector: 'aura-staff-row',
-  imports: [Avatar],
+  imports: [Avatar, NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { role: 'listitem', class: 'card-row p-0' },
   template: `
-    <button type="button" class="flex w-full items-center gap-3 px-3 py-2.5 text-left" (click)="opened.emit()">
+    <ng-template #content>
       <aura-avatar [name]="vm().name" look="solid" />
       <span class="min-w-0 flex-1">
         <span class="block text-base font-semibold">{{ vm().name }}</span>
         <span class="block text-[13px]">{{ vm().sub }}</span>
       </span>
-    </button>
+    </ng-template>
+    @if (interactive()) {
+      <button type="button" class="flex w-full items-center gap-3 px-3 py-2.5 text-left" (click)="opened.emit()">
+        <ng-container [ngTemplateOutlet]="content" />
+      </button>
+    } @else {
+      <div class="flex w-full items-center gap-3 px-3 py-2.5"><ng-container [ngTemplateOutlet]="content" /></div>
+    }
   `,
 })
 export class StaffRow {
   readonly vm = input.required<PersonRowVm>();
+  /** False for read-only lists (a past season): a plain row that opens nothing. */
+  readonly interactive = input(true);
   readonly opened = output<void>();
 }
 
-/** Player in a roster list, with their jersey number. Opens their details. */
+/** Player in a roster list, with their jersey number. Opens their details, unless read-only. */
 @Component({
   selector: 'aura-player-row',
+  imports: [NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { role: 'listitem', class: 'card-row p-0' },
   template: `
-    <button type="button" class="flex w-full items-center gap-3 px-3 py-2.5 text-left" (click)="opened.emit()">
+    <ng-template #content>
       <span
         class="flex size-10 shrink-0 items-center justify-center rounded-md border-2 border-ink font-display text-[19px] font-bold"
         [class]="vm().mine ? 'bg-ink text-paper' : 'bg-paper text-ink'"
@@ -50,11 +61,20 @@ export class StaffRow {
         <span class="block text-base font-semibold">{{ vm().name }}</span>
         <span class="block text-[13px]">{{ vm().sub }}</span>
       </span>
-    </button>
+    </ng-template>
+    @if (interactive()) {
+      <button type="button" class="flex w-full items-center gap-3 px-3 py-2.5 text-left" (click)="opened.emit()">
+        <ng-container [ngTemplateOutlet]="content" />
+      </button>
+    } @else {
+      <div class="flex w-full items-center gap-3 px-3 py-2.5"><ng-container [ngTemplateOutlet]="content" /></div>
+    }
   `,
 })
 export class PlayerRow {
   readonly vm = input.required<PlayerRowVm>();
+  /** False for read-only lists (a past season): a plain row that opens nothing. */
+  readonly interactive = input(true);
   readonly opened = output<void>();
 }
 
@@ -139,6 +159,8 @@ export class PlayerAccessTile {
 export interface TeamCardVm {
   id: string;
   name: string;
+  /** Short label for the square avatar, e.g. `U11B`. */
+  badge: string;
   /** e.g. `9 players · 11 members`. */
   counts: string;
   staff: string;
@@ -151,7 +173,7 @@ export interface TeamCardVm {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <button type="button" class="tile w-full" (click)="opened.emit()">
-      <aura-avatar [label]="vm().id" look="square-solid" [size]="46" />
+      <aura-avatar [label]="vm().badge" look="square-solid" [size]="46" />
       <span class="min-w-0 flex-1">
         <span class="block font-display text-lg leading-[1.15] font-bold uppercase">{{ vm().name }}</span>
         <span class="block text-[13px] font-medium">{{ vm().counts }}</span>

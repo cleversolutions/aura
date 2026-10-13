@@ -12,14 +12,30 @@ import {
   viewChild,
 } from '@angular/core';
 import { ChatStore } from '@aura/chat/data-access';
-import { MessageBubble, MessageComposer, MessageVm, ThreadForm, ThreadFormValue, ThreadHeader } from '@aura/chat/ui';
+import {
+  MessageActions,
+  MessageBubble,
+  MessageComposer,
+  MessageVm,
+  ThreadForm,
+  ThreadFormValue,
+  ThreadHeader,
+} from '@aura/chat/ui';
 import { ClubStore } from '@aura/club/data-access';
-import { CLOCK, Submission, Toaster, formatMessageTime } from '@aura/shared/util';
+import {
+  CLOCK,
+  FORMER_MEMBER,
+  Submission,
+  Toaster,
+  errorMessage,
+  formatMessageTime,
+  isClubWide,
+} from '@aura/shared/util';
 
-/** Conversation container: opens the thread, sends messages, manages membership. */
+/** Conversation container: opens the thread, sends, edits and deletes messages, manages membership. */
 @Component({
   selector: 'aura-thread-page',
-  imports: [ThreadHeader, MessageBubble, MessageComposer, ThreadForm],
+  imports: [ThreadHeader, MessageBubble, MessageComposer, ThreadForm, MessageActions],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
@@ -37,18 +53,33 @@ import { CLOCK, Submission, Toaster, formatMessageTime } from '@aura/shared/util
       aria-live="polite"
     >
       @for (m of messages(); track m.id) {
-        <aura-message-bubble [message]="m" />
+        <aura-message-bubble [message]="m" (actions)="startActions(m.id)" />
       } @empty {
         <div class="m-auto max-w-[240px] text-center text-sm font-medium">No messages yet.</div>
       }
     </div>
 
     @if (canPost()) {
-      <aura-message-composer (send)="chat.send($event)" />
-    } @else if (thread()) {
+      <aura-message-composer (send)="send($event)" />
+    } @else if (readOnlyNote(); as note) {
       <p class="shrink-0 border-t-2 border-ink px-3.5 py-3 text-center text-sm leading-snug font-medium">
-        You can manage this thread but you are not a member. Tap the members icon to add yourself.
+        {{ note }}
       </p>
+    }
+
+    @if (acting(); as m) {
+      <aura-message-actions
+        [text]="m.text"
+        [sender]="m.sender"
+        [mine]="m.mine"
+        [canEdit]="m.canEdit"
+        [canDelete]="m.canDelete"
+        [saving]="messageAction.saving()"
+        [error]="messageAction.error()"
+        (edited)="editMessage(m.id, $event)"
+        (deleted)="deleteMessage(m.id)"
+        (closed)="actingId.set(null)"
+      />
     }
 
     @if (managing() && thread(); as t) {
@@ -81,28 +112,55 @@ export class ThreadPage {
 
   protected readonly managing = signal(false);
   protected readonly update = new Submission();
+  /** The message whose edit/delete sheet is open. */
+  protected readonly actingId = signal<string | null>(null);
+  protected readonly messageAction = new Submission();
   private readonly scroller = viewChild.required<ElementRef<HTMLElement>>('scroller');
 
   protected readonly thread = computed(() => this.chat.openThread()?.thread ?? null);
   protected readonly canPost = computed(() => {
-    const me = this.club.meId();
-    return !!me && !!this.chat.openThread()?.members.has(me);
+    const open = this.chat.openThread();
+    return !!open && this.chat.canPost(open);
+  });
+  /** Why there is no composer: an archived club, an announcement channel, or a thread managed from outside. */
+  protected readonly readOnlyNote = computed(() => {
+    const open = this.chat.openThread();
+    if (!open) return '';
+    if (this.club.archived()) return 'This club is archived. Nothing can be posted.';
+    if (this.chat.canRead(open)) {
+      return open.thread.scope === 'club'
+        ? 'Only club staff post in club announcements.'
+        : `Only club staff and ${this.club.teamName(open.thread.scope)} staff post announcements.`;
+    }
+    return 'You can manage this thread but you are not a member. Tap the members icon to add yourself.';
   });
   protected readonly memberLabel = computed(() => {
     const open = this.chat.openThread();
     return open ? `${this.club.teamName(open.thread.scope)} · ${open.members.size} members` : '';
   });
-  protected readonly messages = computed<MessageVm[]>(() => {
+  protected readonly messages = computed<(MessageVm & { canEdit: boolean; canDelete: boolean })[]>(() => {
     const me = this.club.meId();
     const now = this.now();
-    return (this.thread()?.messages ?? []).map((m) => ({
-      id: m.id,
-      text: m.text,
-      mine: m.from === me,
-      sender: this.club.user(m.from)?.name ?? 'Unknown',
-      time: formatMessageTime(m.sentAt, now),
-    }));
+    const t = this.thread();
+    if (!t) return [];
+    return t.messages.map((m) => {
+      const canEdit = this.chat.canEdit(m);
+      const canDelete = this.chat.canDelete(m, t);
+      return {
+        id: m.id,
+        text: m.text,
+        mine: m.from === me,
+        sender: this.club.user(m.from)?.name ?? FORMER_MEMBER,
+        time: formatMessageTime(m.sentAt, now),
+        edited: !!m.editedAt,
+        deleted: !!m.deleted,
+        actions: canEdit || canDelete,
+        canEdit,
+        canDelete,
+      };
+    });
   });
+  protected readonly acting = computed(() => this.messages().find((m) => m.id === this.actingId()) ?? null);
 
   protected readonly locked = computed(() => {
     const t = this.thread();
@@ -110,11 +168,15 @@ export class ThreadPage {
   });
   protected readonly creatorName = computed(() => {
     const t = this.thread();
-    return t?.isDefault ? 'Team default' : (this.club.user(t?.creatorId)?.name ?? '');
+    if (t?.isDefault) return t.scope === 'club' ? 'Club default' : 'Team default';
+    return this.club.user(t?.creatorId)?.name ?? '';
   });
   protected readonly lockNote = computed(() => {
     const t = this.thread();
     if (!t) return '';
+    if (isClubWide(t)) {
+      return 'Club-wide channel. Everyone in the club is in it, and new members join automatically.';
+    }
     if (t.isDefault) {
       return `Default team channel. Everyone on ${this.club.teamName(t.scope)} is in it, and new team members join automatically.`;
     }
@@ -136,6 +198,43 @@ export class ThreadPage {
       const el = this.scroller().nativeElement;
       el.scrollTop = el.scrollHeight;
     });
+  }
+
+  protected async send(text: string): Promise<void> {
+    try {
+      await this.chat.send(text);
+    } catch (e) {
+      this.toaster.show(errorMessage('Could not send the message. Try again.')(e));
+    }
+  }
+
+  protected startActions(id: string): void {
+    this.messageAction.reset();
+    this.actingId.set(id);
+  }
+
+  protected async editMessage(id: string, text: string): Promise<void> {
+    const t = this.thread();
+    if (!t) return;
+    const ok = await this.messageAction.run(
+      () => this.chat.editMessage(t.id, id, text),
+      errorMessage('Could not edit the message. Try again.'),
+    );
+    if (!ok) return;
+    this.toaster.show('Message edited.');
+    this.actingId.set(null);
+  }
+
+  protected async deleteMessage(id: string): Promise<void> {
+    const t = this.thread();
+    if (!t) return;
+    const ok = await this.messageAction.run(
+      () => this.chat.deleteMessage(t.id, id),
+      errorMessage('Could not delete the message. Try again.'),
+    );
+    if (!ok) return;
+    this.toaster.show('Message deleted.');
+    this.actingId.set(null);
   }
 
   protected startManaging(): void {

@@ -2,12 +2,13 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { Team, Thread, User } from '@aura/shared/models';
 import { ChatSettings } from './chat-settings';
-import { MessageComposer } from './conversation';
+import { MessageBubble, MessageComposer, MessageVm } from './conversation';
+import { MessageActions } from './message-actions';
 import { ThreadForm, ThreadFormValue } from './thread-form';
 
 const teams: Team[] = [
-  { id: 'U12G', name: 'U12 Girls' },
-  { id: 'U14B', name: 'U14 Boys' },
+  { id: 'U12G', name: 'U12 Girls', season: 's1' },
+  { id: 'U14B', name: 'U14 Boys', season: 's1' },
 ];
 const users: User[] = [
   { id: 'dana', name: 'Dana Reyes', kind: 'staff', teams: ['U12G', 'U14B'] },
@@ -88,6 +89,7 @@ describe('ThreadForm', () => {
       members: [],
       creatorId: 'dana',
       isDefault: false,
+      announceOnly: false,
       messages: [],
       unread: 0,
     };
@@ -110,6 +112,7 @@ describe('ThreadForm', () => {
         members: [],
         creatorId: null,
         isDefault: true,
+        announceOnly: false,
         messages: [],
         unread: 0,
       },
@@ -156,5 +159,68 @@ describe('ChatSettings', () => {
     fixture.componentInstance.toggled.subscribe((t) => toggles.push(t));
     (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[role=switch]')?.click();
     expect(toggles).toEqual([{ threadId: 'carpool', on: false }]);
+  });
+});
+
+describe('MessageBubble', () => {
+  async function render(message: MessageVm) {
+    const fixture = TestBed.createComponent(MessageBubble);
+    fixture.componentRef.setInput('message', message);
+    await fixture.whenStable();
+    return { fixture, el: fixture.nativeElement as HTMLElement };
+  }
+  const base: MessageVm = { id: 'm', text: 'See you there', time: '10:41', mine: false, sender: 'Wei Chen' };
+
+  it('marks edits and offers actions only when allowed', async () => {
+    const { fixture, el } = await render({ ...base, edited: true, actions: true });
+    expect(el.textContent).toContain('10:41 · edited');
+    const actions = vi.fn();
+    fixture.componentInstance.actions.subscribe(actions);
+    el.querySelector<HTMLButtonElement>('[aria-label="Message actions"]')?.click();
+    expect(actions).toHaveBeenCalled();
+    expect((await render(base)).el.querySelector('[aria-label="Message actions"]')).toBeNull();
+  });
+
+  it('shows a deleted message in its place, without its text', async () => {
+    const { el } = await render({ ...base, text: '', mine: true, deleted: true, edited: true });
+    expect(el.textContent).toContain('Message deleted');
+    expect(el.textContent).not.toContain('edited');
+  });
+});
+
+describe('MessageActions', () => {
+  async function render(inputs: Record<string, unknown>) {
+    const fixture = TestBed.createComponent(MessageActions);
+    for (const [k, v] of Object.entries({ text: 'Practice at 6', ...inputs })) fixture.componentRef.setInput(k, v);
+    await fixture.whenStable();
+    const edited: string[] = [];
+    const deleted = vi.fn();
+    fixture.componentInstance.edited.subscribe((t) => edited.push(t));
+    fixture.componentInstance.deleted.subscribe(deleted);
+    return { fixture, el: fixture.nativeElement as HTMLElement, edited, deleted };
+  }
+
+  it('edits your own message, or deletes it after confirming', async () => {
+    const { fixture, el, edited, deleted } = await render({ mine: true, canEdit: true, canDelete: true });
+    const area = el.querySelector('textarea') as HTMLTextAreaElement;
+    expect(area.value).toBe('Practice at 6');
+    area.value = ' Practice at 6:30 ';
+    area.dispatchEvent(new Event('input'));
+    click(el, 'SAVE');
+    expect(edited).toEqual(['Practice at 6:30']);
+
+    click(el, 'DELETE MESSAGE');
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Delete your message?');
+    click(el, 'DELETE');
+    expect(deleted).toHaveBeenCalled();
+  });
+
+  it('goes straight to the confirmation when staff remove someone else’s message', async () => {
+    const { el, deleted } = await render({ sender: 'Jenn Buell', canDelete: true });
+    expect(el.querySelector('textarea')).toBeNull();
+    expect(el.textContent).toContain('Delete Jenn Buell’s message?');
+    click(el, 'DELETE');
+    expect(deleted).toHaveBeenCalled();
   });
 });

@@ -98,12 +98,63 @@ Deno.test('invite-member', async (t) => {
       assertEquals(res.status, 409);
     });
 
-    await t.step('rejects club staff invites and unknown teams', async () => {
+    await t.step('club staff invite club staff, with a title and no team', async () => {
+      const res = await invoke(clubAdmin, 'invite-member', {
+        kind: 'club',
+        title: 'Registrar',
+        name: 'Reg Istrar',
+        email: 'reg@test.example',
+      });
+      assertEquals(res.status, 200, JSON.stringify(res.data));
+      const user = res.data['user'] as Record<string, unknown>;
       assertEquals(
-        (await invoke(clubAdmin, 'invite-member', { team: 'U12G', kind: 'club', name: 'X', email: 'y@test.example' }))
-          .status,
-        400,
+        { ...user, id: '' },
+        {
+          id: '',
+          name: 'Reg Istrar',
+          kind: 'club',
+          teams: [],
+          title: 'Registrar',
+          email: 'reg@test.example',
+          invited: true,
+        },
       );
+      const { data } = await service
+        .from('members')
+        .select('kind, title')
+        .eq('id', user['id'] as string)
+        .single();
+      assertEquals(data, { kind: 'club', title: 'Registrar' });
+    });
+
+    await t.step('team staff cannot invite club staff', async () => {
+      const res = await invoke(coach, 'invite-member', { kind: 'club', name: 'X', email: 'y@test.example' });
+      assertEquals(res.status, 403);
+    });
+
+    await t.step('team staff give a player on the roster their own sign-in', async () => {
+      const added = await coach.rpc('add_player', {
+        p_team: 'U12G',
+        p_name: 'Ola Player',
+        p_jersey: '5',
+        p_parents: [],
+        p_user_member: null,
+      });
+      if (added.error) throw added.error;
+      const profile = added.data as string;
+      const body = { team: 'U12G', kind: 'player', name: 'Ola Player', email: 'ola@test.example', profile };
+      const res = await invoke(coach, 'invite-member', body);
+      assertEquals(res.status, 200, JSON.stringify(res.data));
+      const { data } = await service.from('player_profiles').select('user_member_id').eq('id', profile).single();
+      assertEquals(data, { user_member_id: (res.data['user'] as { id: string }).id });
+
+      const again = await invoke(coach, 'invite-member', { ...body, email: 'ola2@test.example' });
+      assertEquals(again.status, 409, 'only once');
+      const otherTeam = await invoke(clubAdmin, 'invite-member', { ...body, team: 'U14B', email: 'ola3@test.example' });
+      assertEquals(otherTeam.status, 404, 'the player must be on the team');
+    });
+
+    await t.step('rejects unknown teams', async () => {
       assertEquals(
         (await invoke(clubAdmin, 'invite-member', { team: 'U99X', kind: 'parent', name: 'X', email: 'y@test.example' }))
           .status,
@@ -117,6 +168,29 @@ Deno.test('invite-member', async (t) => {
           .status,
         403,
       );
+    });
+
+    await t.step('past seasons take no new members', async () => {
+      const { error } = await clubAdmin.rpc('start_season', {
+        p_name: 'Next season',
+        p_teams: [{ from: 'U14B', name: 'U15 Boys', staff: true, players: true }],
+      });
+      if (error) throw error;
+      const res = await invoke(clubAdmin, 'invite-member', {
+        team: 'U12G',
+        kind: 'parent',
+        name: 'Late Parent',
+        email: 'late@test.example',
+      });
+      assertEquals(res.status, 409, JSON.stringify(res.data));
+      // The coach was on U12G only, which was not carried over: they no longer manage anyone.
+      const coachInvite = await invoke(coach, 'invite-member', {
+        team: 'U12G',
+        kind: 'parent',
+        name: 'Late Parent',
+        email: 'late2@test.example',
+      });
+      assertEquals(coachInvite.status, 403);
     });
   } finally {
     await cleanup();

@@ -39,12 +39,59 @@ describe('ClubStore', () => {
     expect(store.myPlayers().map((p) => p.id)).toEqual(['eli']);
   });
 
-  it('creates a team with staff', async () => {
+  it('creates a team with staff, with an id not derived from its name', async () => {
     const store = await setup('sam');
-    await store.saveTeam({ name: 'U13 Girls', staffIds: ['dana'] });
-    expect(store.teamName('U13G')).toBe('U13 Girls');
-    expect(store.user('dana')?.teams).toContain('U13G');
-    await expect(store.saveTeam({ name: 'U13 Girls', staffIds: [] })).rejects.toThrow('already exists');
+    await store.saveTeam({ name: 'U13 Girls', age: 'U13', division: 'Girls', staffIds: ['dana'] });
+    const team = store.teams().find((t) => t.name === 'U13 Girls');
+    expect(team).toMatchObject({ age: 'U13', division: 'Girls', season: store.season()?.id });
+    expect(team?.id).not.toBe('U13G');
+    expect(store.user('dana')?.teams).toContain(team?.id);
+    await expect(store.saveTeam({ name: 'u13 girls', staffIds: [] })).rejects.toThrow('already exists this season');
+  });
+
+  it('only lets club staff create teams', async () => {
+    const store = await setup('dana');
+    await expect(store.saveTeam({ name: 'U9 Boys', staffIds: [] })).rejects.toThrow('Only club staff');
+  });
+
+  it('starts a season: memberships move to history, carried teams start fresh, the past is read-only', async () => {
+    const store = await setup('sam');
+    const old = store.season()!;
+    const jordanTeams = store.user('jordan')?.teams;
+    expect(jordanTeams).toEqual(['U12G', 'U18B']);
+    await store.startSeason({
+      name: 'Next',
+      teams: [
+        { from: 'U12G', name: 'U13 Girls', age: 'U13', division: 'Girls', staff: false, players: true },
+        { from: 'U18B', name: 'U18 Boys', age: 'U18', division: 'Boys', staff: true, players: false },
+      ],
+    });
+    expect(store.season()?.name).toBe('Next');
+    expect(store.pastSeasons()).toEqual([expect.objectContaining({ id: old.id, endedAt: expect.any(String) })]);
+    const [girls, boys] = ['U13 Girls', 'U18 Boys'].map((n) => store.teams().find((t) => t.name === n)!);
+
+    // Players carried with their parents (Jordan's Maya is on U12G); staff only where asked.
+    expect(store.user('jordan')?.teams).toEqual([girls.id]);
+    expect(store.user('dana')?.teams).toEqual([]);
+    expect(store.user('mike')?.teams).toEqual([boys.id]);
+    expect(store.profiles().every((p) => p.team === girls.id)).toBe(true);
+    expect(
+      store
+        .profiles()
+        .filter((p) => p.parentIds.includes('jordan'))
+        .map((p) => p.name),
+    ).toEqual(['Maya Smith']);
+
+    // The old season's rosters are kept.
+    const past = await store.loadSeason(old.id);
+    expect(past.members['U12G']).toEqual(expect.arrayContaining(['jordan', 'dana']));
+    expect(past.profiles.some((p) => p.team === 'U18B' && p.name === 'Eli Smith')).toBe(true);
+
+    // ...and read-only.
+    expect(store.canManageTeam('U12G')).toBe(false);
+    await expect(store.setMemberTeams('jordan', ['U12G'])).resolves.toBeUndefined();
+    expect(store.user('jordan')?.teams).toEqual([]);
+    await expect(store.startSeason({ name: 'next', teams: [] })).rejects.toThrow('already a season called');
   });
 
   it('invites a member who signs in with the temporary password and then accepts', async () => {
@@ -71,8 +118,9 @@ describe('ClubStore', () => {
       staffIds: [],
       newStaff: { name: 'Ty Cole', email: 'ty@x.example' },
     });
-    expect(invite?.user).toMatchObject({ name: 'Ty Cole', kind: 'staff', teams: ['U9B'], invited: true });
-    expect(await store.saveTeam({ id: 'U9B', staffIds: [] })).toBeNull();
+    const team = store.teams().find((t) => t.name === 'U9 Boys')!;
+    expect(invite?.user).toMatchObject({ name: 'Ty Cole', kind: 'staff', teams: [team.id], invited: true });
+    expect(await store.saveTeam({ id: team.id, name: 'U9 Boys', staffIds: [] })).toBeNull();
   });
 
   it('records a pending player link', async () => {
@@ -162,17 +210,17 @@ describe('ClubStore', () => {
 
   it('lets members edit themselves and club staff edit anyone, moving the sign-in', async () => {
     const store = await setup('jordan');
-    await store.updateMember({ id: 'jordan', name: 'Jordan A. Smith', email: 'jordan@new.example' });
+    await store.updateMember({ id: 'jordan', name: 'Jordan A. Smith', email: 'jordan@new.example', title: 'ignored' });
     expect(store.me()).toMatchObject({ name: 'Jordan A. Smith', email: 'jordan@new.example' });
+    expect(store.me()?.title).toBeUndefined();
     await expect(store.updateMember({ id: 'dana', name: 'X', email: 'x@x.example' })).rejects.toThrow(
       'Only club staff',
     );
 
     await store.signOut();
     await store.signIn('sam@spartans.example', 'password');
-    await store.updateMember({ id: 'dana', name: 'Dana R.', email: 'dana@new.example', title: 'ignored' });
-    expect(store.user('dana')).toMatchObject({ name: 'Dana R.', email: 'dana@new.example' });
-    expect(store.user('dana')?.title).toBeUndefined();
+    await store.updateMember({ id: 'dana', name: 'Dana R.', email: 'dana@new.example', title: 'Assistant Coach' });
+    expect(store.user('dana')).toMatchObject({ name: 'Dana R.', email: 'dana@new.example', title: 'Assistant Coach' });
     await store.updateMember({ id: 'sam', name: 'Sam Okoro', email: 'sam@spartans.example', title: 'President' });
     expect(store.me()?.title).toBe('President');
     await expect(store.updateMember({ id: 'lee', name: 'Lee', email: 'DANA@new.example' })).rejects.toThrow(
@@ -182,6 +230,59 @@ describe('ClubStore', () => {
     await store.signOut();
     await store.signIn('dana@new.example', 'password');
     expect(store.meId()).toBe('dana');
+  });
+
+  it('lets club staff set any staff member’s title, and team staff set team staff’s', async () => {
+    const store = await setup('mike');
+    // Mike coaches U18B only, yet titles the U12G/U14B coach; not club staff, nor parents.
+    expect(store.canEditMember(store.user('dana')!)).toBe(false);
+    expect(store.canEditTitle(store.user('dana')!)).toBe(true);
+    await store.setMemberTitle('dana', '  Team Manager ');
+    expect(store.user('dana')?.title).toBe('Team Manager');
+    await store.setMemberTitle('dana', '');
+    expect(store.user('dana')?.title).toBeUndefined();
+    await expect(store.setMemberTitle('dana', 'x'.repeat(61))).rejects.toThrow('60 characters');
+    expect(store.canEditTitle(store.user('sam')!)).toBe(false);
+    await expect(store.setMemberTitle('sam', 'President')).rejects.toThrow('Only club staff');
+    expect(store.canEditTitle(store.user('jordan')!)).toBe(false);
+    await expect(store.setMemberTitle('jordan', 'Head Coach')).rejects.toThrow('Only club staff');
+
+    await store.signOut();
+    await store.signIn('sam@spartans.example', 'password');
+    await store.setMemberTitle('lee', 'Treasurer');
+    expect(store.user('lee')?.title).toBe('Treasurer');
+    await store.setMemberTitle('dana', 'Head Coach');
+    expect(store.user('dana')?.title).toBe('Head Coach');
+
+    await store.signOut();
+    await store.signIn('jordan.smith@email.com', 'password');
+    expect(store.canEditTitle(store.user('dana')!)).toBe(false);
+    await expect(store.setMemberTitle('dana', 'Head Coach')).rejects.toThrow('Only club staff');
+  });
+
+  it('lets team staff make parents on their own teams team staff, and club staff make them parents again', async () => {
+    const store = await setup('dana');
+    const parent = store.users().find((u) => u.kind === 'parent' && u.teams.join() === 'U12G')!;
+    const players = store.profiles().filter((p) => p.parentIds.includes(parent.id));
+    // Jordan is also on U18B, which Dana doesn't coach.
+    expect(store.canChangeRole(store.user('jordan')!, 'staff')).toBe(false);
+    await expect(store.setMemberRole('jordan', 'staff')).rejects.toThrow('Only club staff');
+
+    expect(store.canChangeRole(parent, 'staff')).toBe(true);
+    await store.setMemberRole(parent.id, 'staff');
+    expect(store.user(parent.id)).toMatchObject({ kind: 'staff', teams: ['U12G'] });
+    expect(store.profiles().filter((p) => p.parentIds.includes(parent.id))).toEqual(players);
+    await store.setMemberTitle(parent.id, 'Head Coach');
+    expect(store.canChangeRole(store.user(parent.id)!, 'parent')).toBe(false);
+    expect(store.canChangeRole(store.user('dana')!, 'parent')).toBe(false);
+
+    await store.signOut();
+    await store.signIn('sam@spartans.example', 'password');
+    expect(store.canChangeRole(store.user('sam')!, 'parent')).toBe(false);
+    expect(store.canChangeRole(store.user('lee')!, 'parent')).toBe(false);
+    await store.setMemberRole(parent.id, 'parent');
+    expect(store.user(parent.id)?.kind).toBe('parent');
+    expect(store.user(parent.id)?.title).toBeUndefined();
   });
 
   it('lets whoever could invite someone resend or cancel their invite until they join', async () => {
@@ -204,5 +305,86 @@ describe('ClubStore', () => {
     expect(store.me()?.name).toBe('Rae Moss');
     await expect(store.resendInvite(store.meId()!)).rejects.toThrow();
     await expect(store.signIn('ty@x.example', ty.temporaryPassword)).rejects.toThrow();
+  });
+
+  it('lets team staff add players with several parents, including staff, or with their own sign-in', async () => {
+    const store = await setup('dana');
+    expect(
+      await store.addPlayer({ team: 'U12G', name: 'Davis Moore', jersey: '', parentIds: ['dana', 'wei-chen'] }),
+    ).toBeNull();
+    const davis = store.profiles().find((p) => p.name === 'Davis Moore');
+    expect(davis).toMatchObject({ team: 'U12G', jersey: '–', parentIds: ['dana', 'wei-chen'], userId: null });
+    expect(store.myPlayers().map((p) => p.name)).toEqual(['Davis Moore']);
+    expect(store.canEditProfile(davis!)).toBe(true);
+
+    const invite = await store.addPlayer({
+      team: 'U12G',
+      name: 'Ola Diaz',
+      jersey: '3',
+      parentIds: [],
+      email: 'ola@x.example',
+    });
+    expect(invite?.user).toMatchObject({ kind: 'player', teams: ['U12G'], invited: true });
+    expect(store.profiles().find((p) => p.name === 'Ola Diaz')).toMatchObject({ userId: invite?.user.id });
+
+    await store.setPlayerParents(davis!.id, ['wei-chen']);
+    expect(store.profiles().find((p) => p.id === davis!.id)?.parentIds).toEqual(['wei-chen']);
+    await expect(store.addPlayer({ team: 'U18B', name: 'X', jersey: '', parentIds: [] })).rejects.toThrow(
+      'Only club staff',
+    );
+
+    await store.signOut();
+    await store.signIn('wei-chen@spartans.example', 'password');
+    expect(store.myPlayers().map((p) => p.name)).toContain('Davis Moore');
+    await expect(store.addPlayer({ team: 'U12G', name: 'X', jersey: '', parentIds: [] })).rejects.toThrow(
+      'Only club staff',
+    );
+    await expect(store.setPlayerParents(davis!.id, [])).rejects.toThrow('Only club staff');
+  });
+
+  it('approves link requests, and moves and removes players, keeping the directory in step', async () => {
+    const store = await setup('dana');
+    const maya = () => store.profiles().find((p) => p.id === 'maya');
+    await store.movePlayer('maya', 'U14B');
+    expect(maya()?.team).toBe('U14B');
+    expect(store.user('jordan')?.teams).toEqual(['U14B', 'U18B']);
+
+    await store.signOut();
+    await store.signIn('wei-chen@spartans.example', 'password');
+    await store.requestPlayerLink({ name: 'Kai Chen', team: 'U12G', jersey: '', parentId: 'wei-chen' });
+    const kai = store.profiles().find((p) => p.name === 'Kai Chen')!;
+    expect(store.canManageTeam('U12G')).toBe(false);
+
+    await store.signOut();
+    await store.signIn('dana@spartans.example', 'password');
+    await store.approvePlayer(kai.id);
+    expect(store.profiles().find((p) => p.id === kai.id)?.pending).toBeUndefined();
+    await store.removePlayer(kai.id);
+    expect(store.profiles().some((p) => p.id === kai.id)).toBe(false);
+  });
+
+  it('changes members’ teams and gives players their own sign-in', async () => {
+    const store = await setup('dana');
+    const wei = store.user('wei-chen')!;
+    expect(store.canChangeMemberTeam(wei, 'U14B')).toBe(true);
+    expect(store.canChangeMemberTeam(wei, 'U18B')).toBe(false);
+    await store.setMemberTeams('wei-chen', ['U12G', 'U14B']);
+    expect(store.user('wei-chen')?.teams).toEqual(['U12G', 'U14B']);
+
+    const invite = await store.givePlayerSignIn('maya', 'maya@x.example');
+    expect(store.user(invite.user.id)).toMatchObject({ kind: 'player', invited: true });
+    expect(store.profiles().find((p) => p.id === 'maya')?.userId).toBe(invite.user.id);
+  });
+
+  it('shows the INVITED list to staff, and to everyone when the club shows everyone’s contacts', async () => {
+    const store = await setup('jordan');
+    expect(store.seesInvites()).toBe(false);
+    await store.signOut();
+    await store.signIn('sam@spartans.example', 'password');
+    expect(store.seesInvites()).toBe(true);
+    await store.saveSettings({ announcements: 'staff', contacts: 'everyone' });
+    await store.signOut();
+    await store.signIn('jordan.smith@email.com', 'password');
+    expect(store.seesInvites()).toBe(true);
   });
 });

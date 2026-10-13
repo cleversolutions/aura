@@ -19,7 +19,10 @@ describe('mock backend', () => {
     expect(dir.club.name).toBe('Spartans');
     expect(dir.teams.map((t) => t.id)).toEqual(['U10B', 'U12G', 'U14B', 'U16G', 'U18B']);
     for (const t of dir.teams) expect(dir.profiles.filter((p) => p.team === t.id)).toHaveLength(9);
-    expect(dir.profiles.filter((p) => p.parentId === 'jordan').map((p) => p.name)).toEqual(['Maya Smith', 'Eli Smith']);
+    expect(dir.profiles.filter((p) => p.parentIds.includes('jordan')).map((p) => p.name)).toEqual([
+      'Maya Smith',
+      'Eli Smith',
+    ]);
   });
 
   it('returns copies so callers cannot mutate the database', async () => {
@@ -31,10 +34,12 @@ describe('mock backend', () => {
 
   it('sets and clears RSVPs', async () => {
     const { schedule } = setup();
-    await schedule.setRsvp('e1', ['maya'], 'out');
-    expect((await schedule.listRsvps())['e1']).toEqual({ maya: 'out' });
+    await schedule.setRsvp('e1', ['maya'], 'out', 'Away');
+    expect((await schedule.listRsvps())['e1']['maya']).toEqual({ status: 'out', note: 'Away' });
+    // Other families' notes are hidden.
+    expect((await schedule.listRsvps())['e1']['pf11']).toEqual({ status: 'out' });
     await schedule.setRsvp('e1', ['maya'], null);
-    expect((await schedule.listRsvps())['e1']).toEqual({});
+    expect((await schedule.listRsvps())['e1']['maya']).toBeUndefined();
   });
 
   it('pushes a simulated reply from another member to subscribers', async () => {

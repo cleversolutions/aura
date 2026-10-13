@@ -33,16 +33,62 @@ export function eventTitle(e: Pick<ClubEvent, 'type' | 'opponent' | 'title'>): s
   return e.title ?? 'Event';
 }
 
-/** `Tue, Oct 6 · 6:00 PM`, or `Date & time TBD`. */
-export function formatEventWhen(e: Pick<ClubEvent, 'date' | 'time' | 'tbd'>): string {
+/** `Tue, Oct 6 · 6:00 PM`, `Tue, Oct 6 · 6:00 PM – 7:30 PM` with an end time, or `Date & time TBD`. */
+export function formatEventWhen(e: Pick<ClubEvent, 'date' | 'time' | 'tbd' | 'endTime'>): string {
   if (e.tbd || !e.date) return 'Date & time TBD';
   const dt = new Date(`${e.date}T${e.time || '12:00'}`);
   const day = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  return e.time ? `${day} · ${formatClock(dt)}` : day;
+  if (!e.time) return day;
+  return `${day} · ${formatClock(dt)}` + (e.endTime ? ` – ${formatTime(e.endTime)}` : '');
 }
 
 export function formatClock(d: Date): string {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+/** A 24h `HH:mm` time as `5:45 PM`. */
+export function formatTime(hhmm: string): string {
+  return formatClock(new Date(`2000-01-01T${hhmm}`));
+}
+
+/** A map search for an event's location, e.g. `Lincoln MS Gym, Riverside`. */
+export function mapLink(location: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location.trim())}`;
+}
+
+/** `YYYY-MM-DD` moved by whole days (calendar days, whatever the clocks do). */
+export function shiftDate(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return isoDate(new Date(y, m - 1, d + days));
+}
+
+/** Whole days from `from` to `to` (`YYYY-MM-DD`); negative when `to` is earlier. */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((Date.UTC(...ymd(to)) - Date.UTC(...ymd(from))) / 86_400_000);
+}
+
+function ymd(iso: string): [number, number, number] {
+  const [y, m, d] = iso.split('-').map(Number);
+  return [y, m - 1, d];
+}
+
+/** Most weeks a repeating event is created for at once: a season. */
+export const MAX_WEEKS = 52;
+
+/** The same weekday every week from `start` until `until` (inclusive), at most `MAX_WEEKS` dates. */
+export function weeklyDates(start: string, until: string): string[] {
+  const dates: string[] = [];
+  for (let d = start; d <= until && dates.length < MAX_WEEKS; d = shiftDate(d, 7)) dates.push(d);
+  return dates;
+}
+
+/**
+ * An optional phone number: empty, or digits with spaces, `+`, `-`, `.` and brackets, with at least
+ * 7 digits and at most 30 characters. Mirrored in supabase/functions/update-member.
+ */
+export function isValidPhone(phone: string): boolean {
+  const p = phone.trim();
+  return !p || (p.length <= 30 && /^[0-9+().\-\s]+$/.test(p) && (p.match(/\d/g) ?? []).length >= 7);
 }
 
 /** TBD events are always upcoming; dated events are upcoming from their day onwards. */
@@ -78,3 +124,6 @@ export function teamLabel(teams: readonly { id: string; name: string }[], id: st
   if (id === 'ALL' || id === 'club') return 'Club-wide';
   return teams.find((t) => t.id === id)?.name ?? id;
 }
+
+/** Who sent a message whose sender has been removed from the club (or is unknown). */
+export const FORMER_MEMBER = 'Former member';

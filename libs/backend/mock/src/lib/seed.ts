@@ -1,15 +1,34 @@
-import { ChatMessage, ClubEvent, PlayerProfile, RsvpMap, Team, Thread, User, UserKind } from '@aura/shared/models';
-import { ALL_GROUPS, addDays, isoDate } from '@aura/shared/util';
+import {
+  ChatMessage,
+  ClubEvent,
+  ClubSettings,
+  PlayerProfile,
+  RsvpMap,
+  Season,
+  Team,
+  TeamId,
+  Thread,
+  User,
+  UserId,
+  UserKind,
+} from '@aura/shared/models';
+import { ALL_GROUPS, DEFAULT_CLUB_SETTINGS, addDays, isoDate, seasonNameFor } from '@aura/shared/util';
 
 /** One club's data. Branding and sign-in details live on the club record (see clubs.ts). */
 export interface MockData {
+  /** Oldest first; the last has no end. */
+  seasons: Season[];
+  /** Every season's teams. */
   teams: Team[];
+  /** Who was on past seasons' teams. `User.teams` are the current season's, as team_members are. */
+  pastMembers: { team: TeamId; userId: UserId }[];
   users: User[];
   profiles: PlayerProfile[];
   events: ClubEvent[];
   rsvps: RsvpMap;
   threads: Thread[];
   muted: string[];
+  settings: ClubSettings;
 }
 
 const GIRLS = [
@@ -92,6 +111,20 @@ const TEAM_STAFF: Record<string, string[]> = {
   U18B: ['Andre Lewis'],
 };
 
+/** The id of every mock club's first season. */
+export const FIRST_SEASON = 's1';
+
+/** A club's first season, as the database names it. */
+export function firstSeason(now: Date): Season {
+  return { id: FIRST_SEASON, name: seasonNameFor(now), startedAt: isoDate(addDays(now, -60)) };
+}
+
+/** A team of the first season named the old way (`U10 Boys`), with its age and division. */
+export function seedTeam(id: TeamId, name: string): Team {
+  const [age, division] = name.split(' ');
+  return { id, name, season: FIRST_SEASON, age, division };
+}
+
 /** Demo data for the Spartans club, also used as preview sample data. Dates are relative to `now` so the schedule stays current. */
 export function createSeed(now: Date): MockData {
   const teams: Team[] = [
@@ -100,7 +133,7 @@ export function createSeed(now: Date): MockData {
     ['U14B', 'U14 Boys'],
     ['U16G', 'U16 Girls'],
     ['U18B', 'U18 Boys'],
-  ].map(([id, name]) => ({ id, name }));
+  ].map(([id, name]) => seedTeam(id, name));
 
   const users: User[] = [];
   const profiles: PlayerProfile[] = [];
@@ -117,9 +150,13 @@ export function createSeed(now: Date): MockData {
   addUser('Sam Okoro', 'club', [], { id: 'sam', title: 'Club Director' });
   addUser('Lee Fontaine', 'club', [], { id: 'lee', title: 'Registrar' });
   // The same username exists at the Panthers as a different person: accounts are per club.
-  addUser('Jordan Smith', 'parent', ['U12G', 'U18B'], { id: 'jordan', email: 'jordan.smith@email.com' });
-  addUser('Dana Reyes', 'staff', ['U12G', 'U14B'], { id: 'dana' });
-  addUser('Mike Tran', 'staff', ['U18B'], { id: 'mike' });
+  addUser('Jordan Smith', 'parent', ['U12G', 'U18B'], {
+    id: 'jordan',
+    email: 'jordan.smith@email.com',
+    phone: '555-0101',
+  });
+  addUser('Dana Reyes', 'staff', ['U12G', 'U14B'], { id: 'dana', phone: '555-0134', title: 'Head Coach' });
+  addUser('Mike Tran', 'staff', ['U18B'], { id: 'mike', title: 'Head Coach' });
   for (const [team, names] of Object.entries(TEAM_STAFF)) names.forEach((n) => addUser(n, 'staff', [team]));
 
   teams.forEach((team, ti) => {
@@ -144,14 +181,15 @@ export function createSeed(now: Date): MockData {
         name,
         jersey: String(jersey),
         team: team.id,
-        parentId,
+        parentIds: parentId ? [parentId] : [],
         userId,
-        login: userId ? `${userId}@email.com` : '',
       });
     }
   });
-  const eli = profiles.find((p) => p.id === 'eli');
-  if (eli) eli.login = 'eli.smith@email.com';
+
+  Object.assign(profiles.find((p) => p.id === 'maya') ?? {}, {
+    care: { emergencyContact: 'Pat Smith (grandparent) · 555-0177', medicalNotes: 'Mild asthma: inhaler in her bag.' },
+  });
 
   const day = (offset: number) => isoDate(addDays(now, offset));
   const at = (daysAgo: number, time: string) => new Date(`${day(-daysAgo)}T${time}:00`).toISOString();
@@ -166,6 +204,7 @@ export function createSeed(now: Date): MockData {
     members: [],
     creatorId: null,
     isDefault: false,
+    announceOnly: false,
     messages: [],
     unread: 0,
     ...o,
@@ -175,8 +214,8 @@ export function createSeed(now: Date): MockData {
   const threads: Thread[] = [
     thread('club-ann', '#club-announcements', 'club', {
       creatorId: 'sam',
-      teams: allTeams,
-      members: ['lee'],
+      isDefault: true,
+      announceOnly: true,
       messages: [
         msg(
           'sam',
@@ -218,7 +257,7 @@ export function createSeed(now: Date): MockData {
   ];
   for (const t of teams) {
     threads.push(
-      thread(`${t.id}-ann`, '#announcements', t.id, { isDefault: true, teams: [t.id] }),
+      thread(`${t.id}-ann`, '#announcements', t.id, { isDefault: true, announceOnly: true, teams: [t.id] }),
       thread(`${t.id}-gen`, '#general', t.id, { isDefault: true, teams: [t.id] }),
     );
   }
@@ -255,6 +294,8 @@ export function createSeed(now: Date): MockData {
       team: 'U12G',
       date: day(1),
       time: '18:00',
+      endTime: '19:30',
+      arriveBy: '17:45',
       location: 'Northview Middle School Gym',
       notes: 'Bring light and dark jerseys.',
     },
@@ -269,15 +310,18 @@ export function createSeed(now: Date): MockData {
       location: 'Spartan Centre · Court 1',
       notes: 'Warm-up starts 6:45 PM. White jerseys.',
     },
-    {
-      id: 'e10',
+    // A weekly practice (G23): three weeks of one series.
+    ...[2, 9, 16].map((offset, i): ClubEvent => ({
+      id: i ? `e10-${i + 1}` : 'e10',
       type: 'practice',
       team: 'U14B',
-      date: day(2),
+      date: day(offset),
       time: '17:30',
+      endTime: '19:00',
       location: 'Spartan Centre · Court 2',
       notes: '',
-    },
+      seriesId: 'r1',
+    })),
     {
       id: 'e11',
       type: 'game',
@@ -370,23 +414,29 @@ export function createSeed(now: Date): MockData {
     },
   ];
 
+  // Players' RSVPs are their profiles' (Eli's profile id is also his user id here).
+  const going = { status: 'going' } as const;
   const rsvps: RsvpMap = {
-    e2: { eli: 'going' },
-    e6: { maya: 'going' },
-    e7: { eli: 'going' },
-    e8: { eli: 'going' },
-    e3: { maya: 'going' },
+    e1: { pf10: going, pf11: { status: 'out', note: 'Sick, sorry' }, pf12: { status: 'going', note: 'Late, 15 min' } },
+    e2: { eli: going },
+    e6: { maya: going },
+    e7: { eli: going },
+    e8: { eli: going },
+    e3: { maya: going },
   };
 
   for (const u of users) u.email ??= u.id === 'eli' ? 'eli.smith@email.com' : `${u.id}@spartans.example`;
 
   return {
+    seasons: [firstSeason(now)],
     teams,
+    pastMembers: [],
     users,
     profiles,
-    events,
+    events: events.map((e) => ({ ...e, season: FIRST_SEASON })),
     rsvps,
     threads,
     muted: [],
+    settings: { ...DEFAULT_CLUB_SETTINGS },
   };
 }

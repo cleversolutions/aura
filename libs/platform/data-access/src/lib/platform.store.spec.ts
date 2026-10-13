@@ -41,10 +41,25 @@ describe('PlatformStore', () => {
 
     const created = await store.createClub({ ...NEW_CLUB, temporaryPassword: 'TEMP-pass-22' });
     expect(store.club(created.id)).toMatchObject({ name: 'Northside Aura', slug: 'nrth42' });
+    expect(store.takeCreated('other')).toBeNull();
+    expect(store.takeCreated(created.id)).toEqual({ club: created, temporaryPassword: 'TEMP-pass-22' });
+    expect(store.takeCreated(created.id)).toBeNull();
     await expect(store.createClub({ ...NEW_CLUB, temporaryPassword: 'x' })).rejects.toThrow('already taken');
 
     const { slug: _slug, ...rest } = NEW_CLUB;
     await store.updateClub(created.id, { ...rest, name: 'Northside', ink: '#000000' });
     expect(store.club(created.id)).toMatchObject({ name: 'Northside', ink: '#000000', slug: 'nrth42' });
+  });
+
+  it('archives and restores a club, keeping its counts', async () => {
+    const store = setup(true);
+    await store.loadClubs();
+    const spartans = store.clubs()[0];
+    expect(spartans.counts?.teams).toBe(5);
+    await store.setArchived(spartans.id, true);
+    expect(store.club(spartans.id)?.archivedAt).toBeTruthy();
+    expect(store.club(spartans.id)?.counts).toEqual(spartans.counts);
+    await store.setArchived(spartans.id, false);
+    expect(store.club(spartans.id)?.archivedAt).toBeUndefined();
   });
 });
